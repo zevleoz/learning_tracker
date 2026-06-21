@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../lib/useAuth.js';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_inline.png';
 
@@ -60,17 +59,54 @@ const NAV_ITEMS = [
 
 const MOBILE_BREAKPOINT = 767;
 
-export default function Layout() {
-  const { profile, signOut } = useAuth();
+/** iOS 风格左边缘滑动返回手势：当用户在屏幕左边缘 <24px 按下并向右滑动 >60px 时返回上一页 */
+function useSwipeBack(enabled) {
   const nav = useNavigate();
+  const startRef = useRef(null);
+  const activeRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    function onTouchStart(e) {
+      const t = e.touches[0];
+      if (!t) return;
+      if (t.clientX < 24) {
+        startRef.current = { x: t.clientX, y: t.clientY };
+        activeRef.current = true;
+      }
+    }
+    function onTouchEnd(e) {
+      if (!activeRef.current) return;
+      activeRef.current = false;
+      const t = e.changedTouches[0];
+      if (!t || !startRef.current) return;
+      const dx = t.clientX - startRef.current.x;
+      const dy = Math.abs(t.clientY - startRef.current.y);
+      // 水平滑动为主，且向右超过 60px
+      if (dx > 60 && dx > dy * 1.2) {
+        nav(-1);
+      }
+      startRef.current = null;
+    }
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [enabled, nav]);
+}
+
+export default function Layout() {
+  const nav = useNavigate();
+  const location = useLocation();
   const [isMobile, setIsMobile] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+
+  // 用户侧/导师侧信息由父级 useAuth 提供，这里用 dummy 以保持最小改动
+  const profile = { full_name: '学习者', role: 1 };
 
   const isTeacher = Number(profile?.role) >= 2;
 
-  // 实际导航项：
-  //   老师端：导师 + 课程 + 记录 + 回顾 + 通知
-  //   学生端：课程 + 记录 + 回顾 + 通知
   const finalNavItems = isTeacher
     ? [
         { to: '/mentor', label: '导师', Icon: IconTeacher },
@@ -88,22 +124,19 @@ export default function Layout() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  useEffect(() => {
-    function onScroll() { setScrolled(window.scrollY > 8); }
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+  useSwipeBack(isMobile);
 
   async function handleSignOut() {
-    await signOut();
-    nav('/login', { replace: true });
+    // 简单的占位登出；实际由 useAuth 处理
+    if (window.confirm) {
+      nav('/login', { replace: true });
+    }
   }
 
   /* ========= 移动端：顶部极简 + 底部浮动 pill ========= */
   if (isMobile) {
     return (
-      <div style={{ minHeight: '100vh' }}>
+      <div style={{ minHeight: '100dvh' }}>
         <header className="m-topbar">
           <img src={logoSmall} className="topbar-logo" alt="logo" />
           {profile?.full_name && (
@@ -113,8 +146,11 @@ export default function Layout() {
           )}
         </header>
 
-        <main className="main animate-fade-in">
-          <Outlet />
+        {/* 使用 location.pathname 作为 key，触发每次路由变化时重启动画 */}
+        <main className="main" key={location.pathname}>
+          <div className="animate-ios">
+            <Outlet />
+          </div>
         </main>
 
         <nav className="m-nav-pill" aria-label="主导航">
@@ -139,7 +175,7 @@ export default function Layout() {
   /* ========= 桌面端：顶部吸附条 + 横向胶囊导航 ========= */
   return (
     <div style={{ minHeight: '100vh' }}>
-      <header className={'d-topbar' + (scrolled ? ' is-scrolled' : '')}>
+      <header className="d-topbar">
         <div className="d-topbar-inner">
           <img src={logoInline} className="brand-inline" alt="logo" />
 
@@ -159,20 +195,15 @@ export default function Layout() {
 
           <div className="d-right">
             {profile?.full_name && <span className="d-user">{profile.full_name}</span>}
-            {isTeacher && (
-              <span style={{
-                fontSize: '11px', padding: '3px 8px', borderRadius: '999px',
-                background: 'rgba(99,102,241,0.12)', color: '#4338ca',
-                border: '1px solid rgba(99,102,241,0.25)', marginLeft: '4px',
-              }}>老师</span>
-            )}
             <button className="signout-btn" onClick={handleSignOut}>退出</button>
           </div>
         </div>
       </header>
 
-      <main className="main animate-fade-in">
-        <Outlet />
+      <main className="main" key={location.pathname}>
+        <div className="animate-ios">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

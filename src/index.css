@@ -491,7 +491,9 @@ select.input-strong {
   box-shadow: 0 1px 2px rgba(15,23,42,0.15);
 }
 
-/* thumb（白色实心圆）—— 移动端 WebKit 上避免与 backdrop-filter + box-shadow 组合产生残影 */
+/* thumb（SVG 绘制圆形）—— 移动端 WebKit 上避免与 backdrop-filter 组合产生圆角泄漏残影
+   - 实际的白色圆点由内部 <svg><circle/></svg> 绘制，SVG 的路径绘制不受 CSS 合成层影响
+   - 这里此 div 只负责定位、translateZ 强制独立层、以及拖动时的尺寸动画 */
 .glass-rail-thumb {
   position: absolute;
   top: 50%;
@@ -500,14 +502,28 @@ select.input-strong {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: transparent;
+  border: 0;
   box-shadow: none;
+  -webkit-box-shadow: none;
+  filter: none;
+  -webkit-filter: none;
+  opacity: 1;
+  /* — 关键：用 mask-image 作为 fallback，同时 isolation 隔离祖先 backdrop-filter 的合成 — */
+  -webkit-mask-image: -webkit-radial-gradient(circle, white 0%, white 98%, transparent 100%);
+  mask-image: radial-gradient(circle, white 0%, white 98%, transparent 100%);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   pointer-events: none;
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
               width 180ms ease, height 180ms ease;
+}
+.glass-rail-thumb svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .glass-rail.dragging .glass-rail-thumb,
 .glass-rail input[type=range]:active ~ .glass-rail-thumb-wrap .glass-rail-thumb {
@@ -537,25 +553,39 @@ select.input-strong {
   height: 100%;
 }
 .glass-rail input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 40px; height: 40px;
-  background: transparent;
-  border: 0;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 34px; height: 34px;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  filter: none !important;
+  -webkit-filter: none !important;
   cursor: pointer;
   margin-top: 0;
 }
 .glass-rail input[type=range]::-moz-range-thumb {
-  width: 40px; height: 40px;
-  background: transparent;
-  border: 0;
+  width: 34px; height: 34px;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  filter: none !important;
   cursor: pointer;
 }
 
-/* thumb 绝对位置辅助层：与 step 点同范围（left 20px → right 20px） */
+/* thumb 绝对位置辅助层：与 step 点同范围（left 20px → right 20px）
+   — 关键：isolation: isolate 把 thumb 从祖先的 backdrop-filter 合成中隔离出来，
+     彻底解决 Safari/iOS 上"白色 thumb 后面出现方形阴影"的问题 */
 .glass-rail-thumb-wrap {
   position: absolute;
   left: 20px; right: 20px; top: 0; bottom: 0;
   pointer-events: none;
+  isolation: isolate;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* tooltip（当前标签） */

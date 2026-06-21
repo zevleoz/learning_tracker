@@ -107,12 +107,16 @@ function GlassRail({ steps, idx, onChange, disabled, labelFn }) {
           disabled={disabled}
           onChange={(e) => onChange(Number(e.target.value))}
         />
-        {/* 绝对定位 thumb */}
+        {/* 绝对定位 thumb（用 SVG 绘制圆形，避免 Safari 的 CSS border-radius 泄漏问题） */}
         <div className="glass-rail-thumb-wrap">
           <div
             className="glass-rail-thumb"
             style={{ left: `${pct(idx)}%` }}
-          />
+          >
+            <svg width="28" height="28" viewBox="0 0 28 28" style={{ display: 'block' }}>
+              <circle cx="14" cy="14" r="12" fill="#ffffff" stroke="rgba(255,255,255,0.9)" strokeWidth="2"/>
+            </svg>
+          </div>
         </div>
       </div>
       {/* 当前标签 tooltip（在滑轨下方居中） */}

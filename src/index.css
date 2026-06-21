@@ -449,6 +449,10 @@ select.input-strong {
 .glass-rail {
   position: relative;
   padding: 16px 4px 8px;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 .glass-rail-track {
   position: relative;
@@ -461,14 +465,13 @@ select.input-strong {
     rgba(251, 191, 36, 0.75) 50%,   /* amber-400 */
     rgba(52, 211, 153, 0.90) 100%   /* emerald-400 */
   );
-  -webkit-backdrop-filter: saturate(140%) blur(12px);
-  backdrop-filter: saturate(140%) blur(12px);
   box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.6),
-    inset -1px -1px 0 rgba(15,23,42,0.08),
     0 2px 6px rgba(15,23,42,0.04),
     0 8px 20px rgba(15,23,42,0.06);
-  /* thumb 可能在交互时放大 — 不裁切，允许视觉溢出一点 */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   overflow: visible;
 }
 /* 轨道上的吸附点（圆斑）：与 thumb 同范围（padding: 0 20px 内） */
@@ -488,45 +491,28 @@ select.input-strong {
   box-shadow: 0 1px 2px rgba(15,23,42,0.15);
 }
 
-/* thumb（白色玻璃球） */
+/* thumb（白色实心圆）—— 移动端 WebKit 上避免与 backdrop-filter + box-shadow 组合产生残影 */
 .glass-rail-thumb {
   position: absolute;
   top: 50%;
-  transform: translate(-50%, -50%);
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.90);
-  border: 1px solid rgba(255,255,255,0.80);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.9),
-    inset -1px -1px 0 rgba(15,23,42,0.06),
-    0 2px 4px rgba(15,23,42,0.08),
-    0 8px 18px rgba(15,23,42,0.12);
+  transform: translate(-50%, -50%) translateZ(0);
+  -webkit-transform: translate(-50%, -50%) translateZ(0);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: none;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   pointer-events: none;
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-              width 180ms ease, height 180ms ease,
-              box-shadow 180ms ease;
-}
-.glass-rail-thumb::after {
-  content: "";
-  position: absolute;
-  top: 15%;
-  left: 20%;
-  width: 35%;
-  height: 22%;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.8);
-  filter: blur(1px);
+              width 180ms ease, height 180ms ease;
 }
 .glass-rail.dragging .glass-rail-thumb,
 .glass-rail input[type=range]:active ~ .glass-rail-thumb-wrap .glass-rail-thumb {
-  width: 48px; height: 48px;
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.9),
-    inset -1px -1px 0 rgba(15,23,42,0.06),
-    0 4px 6px rgba(15,23,42,0.08),
-    0 14px 28px rgba(15,23,42,0.16);
+  width: 34px;
+  height: 34px;
 }
 
 /* 隐藏原生 range（与 thumb-wrap 同范围，left/right 20px） */

@@ -1,19 +1,12 @@
 {
-  "name": "学习追踪",
-  "short_name": "学习",
+  "name": "Samson GPA 学习追踪",
+  "short_name": "GPA Tracker",
   "description": "每日学习打卡、学科学习行为记录和进度追踪。",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./index.html",
   "display": "standalone",
-  "display_override": ["standalone", "fullscreen"],
-  "orientation": "portrait",
-  "background_color": "#f5f5f7",
-  "theme_color": "#f5f5f7",
-  "lang": "zh-CN",
-  "dir": "ltr",
-  "prefer_related_applications": false,
+  "background_color": "#f6f7fb",
+  "theme_color": "#2b6cff",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }

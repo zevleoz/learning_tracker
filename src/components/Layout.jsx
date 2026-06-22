@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../lib/useAuth.js';
 import logoSmall from '../logo/logo_red.png';
-import logoInline from '../logo/logo_inline.png';
+import logoInline from '../logo/logo_red.png';
 
 /* ------- 单色线图标 (20x20, stroke=currentColor) ------- */
 function IconCourse() {
@@ -39,7 +40,6 @@ function IconTeacher() {
     </svg>
   );
 }
-
 function IconBell() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -59,61 +59,29 @@ const NAV_ITEMS = [
 
 const MOBILE_BREAKPOINT = 767;
 
-/** iOS 风格左边缘滑动返回手势：当用户在屏幕左边缘 <24px 按下并向右滑动 >60px 时返回上一页 */
-function useSwipeBack(enabled) {
-  const nav = useNavigate();
-  const startRef = useRef(null);
-  const activeRef = useRef(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    function onTouchStart(e) {
-      const t = e.touches[0];
-      if (!t) return;
-      if (t.clientX < 24) {
-        startRef.current = { x: t.clientX, y: t.clientY };
-        activeRef.current = true;
-      }
-    }
-    function onTouchEnd(e) {
-      if (!activeRef.current) return;
-      activeRef.current = false;
-      const t = e.changedTouches[0];
-      if (!t || !startRef.current) return;
-      const dx = t.clientX - startRef.current.x;
-      const dy = Math.abs(t.clientY - startRef.current.y);
-      // 水平滑动为主，且向右超过 60px
-      if (dx > 60 && dx > dy * 1.2) {
-        nav(-1);
-      }
-      startRef.current = null;
-    }
-    window.addEventListener('touchstart', onTouchStart, { passive: true });
-    window.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      window.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [enabled, nav]);
-}
-
 export default function Layout() {
+  const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(false);
-
-  // 用户侧/导师侧信息由父级 useAuth 提供，这里用 dummy 以保持最小改动
-  const profile = { full_name: '学习者', role: 1 };
+  const [scrolled, setScrolled] = useState(false);
 
   const isTeacher = Number(profile?.role) >= 2;
 
-  const finalNavItems = isTeacher
-    ? [
-        { to: '/mentor', label: '导师', Icon: IconTeacher },
-        ...NAV_ITEMS,
-        { to: '/notifications', label: '通知', Icon: IconBell },
-      ]
-    : [...NAV_ITEMS, { to: '/notifications', label: '通知', Icon: IconBell }];
+  // 实际导航项：
+  //   老师端：导师 + 课程 + 记录 + 回顾 + 通知
+  //   学生端：课程 + 记录 + 回顾 + 通知
+  const finalNavItems = useMemo(
+    () =>
+      isTeacher
+        ? [
+            { to: '/mentor', label: '导师', Icon: IconTeacher },
+            ...NAV_ITEMS,
+            { to: '/notifications', label: '通知', Icon: IconBell },
+          ]
+        : [...NAV_ITEMS, { to: '/notifications', label: '通知', Icon: IconBell }],
+    [isTeacher]
+  );
 
   useEffect(() => {
     function update() {
@@ -124,19 +92,117 @@ export default function Layout() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  useSwipeBack(isMobile);
+  useEffect(() => {
+    function onScroll() { setScrolled(window.scrollY > 8); }
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   async function handleSignOut() {
-    // 简单的占位登出；实际由 useAuth 处理
-    if (window.confirm) {
-      nav('/login', { replace: true });
-    }
+    await signOut();
+    nav('/login', { replace: true });
   }
+
+  /* ---- 左边缘滑动返回（iOS 原生感） ---- */
+  useEffect(() => {
+    const EDGE = 30; // 左边缘 30px 内开始
+    const MIN_DIST = 50; // 至少右滑 50px 触发返回
+    let startX = 0, startY = 0, tracking = false, triggered = false;
+
+    function onTouchStart(e) {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (t.clientX > EDGE) return;
+      startX = t.clientX; startY = t.clientY;
+      tracking = true; triggered = false;
+    }
+    function onTouchMove(e) {
+      if (!tracking) return;
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      // 必须是横向主导滑动（避免与垂直滚动冲突）
+      if (Math.abs(dx) > Math.abs(dy) && dx > 8) {
+        e.preventDefault();
+      }
+    }
+    function onTouchEnd(e) {
+      if (!tracking) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || null;
+      if (!t) { tracking = false; return; }
+      const dx = t.clientX - startX;
+      if (!triggered && dx >= MIN_DIST) {
+        triggered = true;
+        // 导航返回
+        nav(-1);
+      }
+      tracking = false;
+    }
+
+    // passive:false 才能 preventDefault
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [nav]);
+
+  /* ---- 底部导航 pill 横向滑动切换 tab（配合 iOS 滑动选择） ---- */
+  const pillRef = useRef(null);
+  useEffect(() => {
+    const el = pillRef.current;
+    if (!el) return;
+    let startX = 0, startY = 0, tracking = false, moved = false;
+
+    function onStart(e) {
+      const t = (e.touches && e.touches[0]) || e;
+      startX = t.clientX; startY = t.clientY;
+      tracking = true; moved = false;
+    }
+    function onMove(e) {
+      if (!tracking) return;
+      const t = (e.touches && e.touches[0]) || e;
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+        e.preventDefault();
+        moved = true;
+      }
+    }
+    function onEnd(e) {
+      if (!tracking) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || (e.changedTouches ? null : e);
+      tracking = false;
+      if (!moved || !t) return;
+      const dx = t.clientX - startX;
+      if (Math.abs(dx) < 40) return;
+
+      // 在当前 nav items 中找到当前激活项的 index，左右移动
+      const currentPath = location.pathname;
+      const idx = finalNavItems.findIndex((x) => currentPath === x.to || currentPath.startsWith(x.to + '/'));
+      if (idx < 0) return;
+      const nextIdx = dx < 0 ? Math.min(idx + 1, finalNavItems.length - 1) : Math.max(idx - 1, 0);
+      if (nextIdx !== idx) nav(finalNavItems[nextIdx].to);
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+    };
+  }, [finalNavItems, location.pathname, nav]);
 
   /* ========= 移动端：顶部极简 + 底部浮动 pill ========= */
   if (isMobile) {
     return (
-      <div style={{ minHeight: '100dvh' }}>
+      <div className="page-container">
         <header className="m-topbar">
           <img src={logoSmall} className="topbar-logo" alt="logo" />
           {profile?.full_name && (
@@ -146,14 +212,13 @@ export default function Layout() {
           )}
         </header>
 
-        {/* 使用 location.pathname 作为 key，触发每次路由变化时重启动画 */}
-        <main className="main" key={location.pathname}>
-          <div className="animate-ios">
-            <Outlet />
-          </div>
+        {/* key = location.pathname 让 React 在路由切换时卸载旧 DOM、
+            装载新 DOM，从而触发 CSS animation 的 from → to */}
+        <main key={location.pathname} className="main page-enter">
+          <Outlet />
         </main>
 
-        <nav className="m-nav-pill" aria-label="主导航">
+        <nav className="m-nav-pill" aria-label="主导航" ref={pillRef}>
           <div className="m-nav-pill-inner">
             {finalNavItems.map(({ to, label, Icon }) => (
               <NavLink
@@ -174,8 +239,8 @@ export default function Layout() {
 
   /* ========= 桌面端：顶部吸附条 + 横向胶囊导航 ========= */
   return (
-    <div style={{ minHeight: '100vh' }}>
-      <header className="d-topbar">
+    <div className="page-container">
+      <header className={'d-topbar' + (scrolled ? ' is-scrolled' : '')}>
         <div className="d-topbar-inner">
           <img src={logoInline} className="brand-inline" alt="logo" />
 
@@ -195,15 +260,20 @@ export default function Layout() {
 
           <div className="d-right">
             {profile?.full_name && <span className="d-user">{profile.full_name}</span>}
+            {isTeacher && (
+              <span style={{
+                fontSize: '11px', padding: '3px 8px', borderRadius: '999px',
+                background: 'rgba(99,102,241,0.12)', color: '#4338ca',
+                border: '1px solid rgba(99,102,241,0.25)', marginLeft: '4px',
+              }}>老师</span>
+            )}
             <button className="signout-btn" onClick={handleSignOut}>退出</button>
           </div>
         </div>
       </header>
 
-      <main className="main" key={location.pathname}>
-        <div className="animate-ios">
-          <Outlet />
-        </div>
+      <main key={location.pathname} className="main page-enter">
+        <Outlet />
       </main>
     </div>
   );

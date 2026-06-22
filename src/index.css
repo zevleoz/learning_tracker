@@ -176,13 +176,10 @@ body::after {
   }
 }
 
-/* —— 页面整体容器（为转场与左滑返回提供独立合成层） —— */
+/* — 页面整体容器（根容器不要加 transform，否则会破坏后代 fixed 定位） — */
 .page-container {
   min-height: 100vh;
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
+  position: relative;
 }
 
 /* ================================================================
@@ -254,7 +251,7 @@ body::after {
 .main {
   max-width: 480px;
   margin: 0 auto;
-  padding: 16px 16px 120px; /* 底部留更多空间给浮动导航 */
+  padding: 16px 16px calc(120px + env(safe-area-inset-bottom, 0px));
   position: relative;
   z-index: 1;
 }
@@ -1236,16 +1233,23 @@ textarea::placeholder { color: #9ca3af; }
    导航 — 浮动 pill（移动端）/ 顶部 translucent bar（桌面端）
    ================================================================ */
 
-/* 移动端导航顶栏 — 极薄 */
+/* 移动端导航顶栏 — 吸顶 + 玻璃态 */
 .m-topbar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 18px;
   max-width: 560px;
   margin: 0 auto;
-  position: relative;
-  z-index: 1;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.60);
+  -webkit-backdrop-filter: saturate(140%) blur(24px);
+  backdrop-filter: saturate(140%) blur(24px);
+  border-bottom: 1px solid rgba(15,23,42,0.06);
 }
 .m-topbar img.topbar-logo {
   height: 28px; width: auto;
@@ -1279,12 +1283,11 @@ textarea::placeholder { color: #9ca3af; }
 .m-nav-pill {
   position: fixed;
   left: 50%;
-  bottom: 20px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 1000;
   width: calc(100% - 40px);
   max-width: 420px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .m-nav-pill-inner {
   display: flex;
@@ -1485,7 +1488,7 @@ textarea::placeholder { color: #9ca3af; }
 @media (max-width: 380px) {
   body { font-size: 14px; }
   .page-title h1 { font-size: 20px; }
-  .main { padding: 16px 12px 120px; } /* 底部留够空间给浮动导航 */
+  .main { padding: 16px 12px calc(120px + env(safe-area-inset-bottom, 0px)); } /* 底部留够空间给浮动导航 */
   .auth-card { padding: 28px 20px 24px; }
   .course-card { padding: 16px; }
   .btn { min-height: 44px; font-size: 14px; }

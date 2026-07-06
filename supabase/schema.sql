@@ -384,6 +384,17 @@ create index idx_units_chapter       on public.units(chapter_id, order_idx);
 create index idx_concepts_unit       on public.concepts(unit_id, order_idx);
 create index idx_checkins_student    on public.daily_checkins(student_id, checkin_date desc);
 
+-- 优化索引（信号计算、导师筛选、登录查询）
+create index idx_sessions_student_course_chapter 
+on public.learning_sessions(student_id, course_id, chapter_id)
+where deleted_at is null;
+create index idx_sessions_student_course 
+on public.learning_sessions(student_id, course_id)
+where deleted_at is null;
+create index idx_profiles_school_role on public.profiles(school_id, role);
+create index idx_feedback_student_mentor 
+on public.mentor_feedback(student_id, mentor_id);
+
 -- ----------------------------------------------------------------
 -- 6. RLS / Policies
 -- ----------------------------------------------------------------

@@ -1,14 +1,8 @@
-// 老师端：
-//   1) 列表页：展示 profiles 中 role=1 的所有学生，每行显示"邀请/已连接/等待中"状态按钮
-//   2) 下拉选学生看 Review（只能选已连接学生），并显示该学生学习记录
-//   3) 底部抽屉：点击行 → 打开详情；点击"发送邀请"按钮发起邀请
-//
-// 数据结构：
-//   teacher_student_connections(id, teacher_id, student_id, status: 0=pending/1=accepted/2=rejected)
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { ReviewDashboard } from './Review.jsx';
+import MentorLayout from '../components/MentorLayout.jsx';
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -18,30 +12,24 @@ function fmtMinutes(mins) {
   return m ? `${h}h ${m}min` : `${h} 小时`;
 }
 
-function dateISO(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 export default function Mentor() {
   const [user, setUser] = useState(null);
-  const [students, setStudents] = useState([]);          // [{id, full_name, created_at}]
-  const [connections, setConnections] = useState({});     // { studentId: {id, status, ...} }
-  const [picked, setPicked] = useState(null);            // 当前选中的学生（必须已连接才能看数据）
-  const [sessions, setSessions] = useState([]);           // 该学生的 sessions
+  const [students, setStudents] = useState([]);
+  const [connections, setConnections] = useState({});
+  const [picked, setPicked] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [busy, setBusy] = useState(false);
   const [deployCheck, setDeployCheck] = useState({ ok: true, message: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [activeView, setActiveView] = useState('students');
 
-  // ---- 登录态 ----
   useEffect(() => {
     (async () => {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       setUser(u);
 
-      // 拉取 profiles(role=1) + 我发出的连接
       const [pRes, cRes] = await Promise.all([
         supabase
           .from('profiles')
@@ -55,7 +43,6 @@ export default function Mentor() {
           .eq('teacher_id', u.id),
       ]);
 
-      // 诊断：如果表还没创建或 RLS 策略没跑，给用户一个明确提示
       if (cRes && cRes.error) {
         const code = cRes.error.code || '';
         const hint = code === '42P01' || /relation.*does not exist/i.test(cRes.error.message)
@@ -63,17 +50,15 @@ export default function Mentor() {
           : '请检查数据库表和 RLS 策略是否已部署。';
         setDeployCheck({ ok: false, message: `邀请系统未就绪（${cRes.error.code || 'error'}: ${cRes.error.message}）— ${hint}` });
       } else {
-        // 进一步检查：当前 profile 是否真的在数据库里 role>=2
-        // （user_metadata 可能与实际 profile 不一致）
         const pRes2 = await supabase
           .from('profiles')
           .select('id, role, full_name')
           .eq('id', u.id)
           .single();
         if (pRes2.error) {
-          setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）— 请先在 Supabase Auth 中完成注册并同步 profile.role=2。` });
+          setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）` });
         } else if (Number(pRes2.data.role) < 2) {
-          setDeployCheck({ ok: false, message: `当前账号 role=${pRes2.data.role}，老师端需要 role>=2。请在注册页选择"我是老师"后进入。` });
+          setDeployCheck({ ok: false, message: `当前账号 role=${pRes2.data.role}，老师端需要 role>=2。` });
         }
       }
 
@@ -84,7 +69,6 @@ export default function Mentor() {
     })();
   }, []);
 
-  // ---- 选中学生后：拉取他的学习记录（仅已连接才能拿到数据）----
   useEffect(() => {
     if (!picked) return setSessions([]);
     let cancelled = false;
@@ -118,22 +102,14 @@ export default function Mentor() {
     return () => { cancelled = true; };
   }, [picked]);
 
-  // ---- 动作：发送邀请 / 撤回 / 重新邀请 ----
   async function sendInvite(studentId, note = '') {
-    if (!user) {
-      toast('请先登录老师账号', { kind: 'error' });
-      return;
-    }
-    if (!deployCheck.ok) {
-      toast('邀请系统尚未部署完成，请先运行 schema.patch-invites.sql', { kind: 'error' });
-      return;
-    }
+    if (!user) { toast('请先登录老师账号', { kind: 'error' }); return; }
+    if (!deployCheck.ok) { toast('邀请系统尚未部署完成', { kind: 'error' }); return; }
     try {
       const { error } = await supabase
         .from('teacher_student_connections')
         .insert({ teacher_id: user.id, student_id: studentId, status: 0, note });
       if (error) throw error;
-      // 成功：本地乐观更新
       setConnections((m) => ({
         ...m,
         [studentId]: { id: 'new', student_id: studentId, status: 0, note, created_at: new Date().toISOString() },
@@ -143,13 +119,10 @@ export default function Mentor() {
       console.error('sendInvite failed:', err);
       const code = err && err.code;
       const msg = err && err.message;
-      // 42P01 = relation does not exist（表没建）
       if (code === '42P01' || /relation.*does not exist/i.test(msg || '')) {
         toast('邀请表未创建。请在 Supabase SQL Editor 运行 schema.patch-invites.sql。', { kind: 'error' });
       } else if (code === '23505' || /unique.*constraint/i.test(msg || '')) {
         toast('该学生已经被邀请过了', { kind: 'error' });
-      } else if (msg && /new row violates row-level security/i.test(msg)) {
-        toast('RLS 策略拦截：当前账号不是老师（role>=2）或 teacher_id 不等于你。请确认注册时选择了"我是老师"。', { kind: 'error' });
       } else {
         toast(`邀请失败（${code || 'error'}: ${msg || '未知错误'}）`, { kind: 'error' });
       }
@@ -166,21 +139,14 @@ export default function Mentor() {
         .delete()
         .match({ teacher_id: user.id, student_id: studentId });
       if (error) throw error;
-      setConnections((m) => {
-        const next = { ...m };
-        delete next[studentId];
-        return next;
-      });
+      setConnections((m) => { const next = { ...m }; delete next[studentId]; return next; });
       toast('已撤回邀请', { kind: 'success' });
     } catch (err) {
       console.error('withdrawInvite failed:', err);
-      const code = err && err.code;
-      const msg = err && err.message;
-      toast(`撤回失败（${code || 'error'}: ${msg || '未知错误'}）`, { kind: 'error' });
+      toast(`撤回失败`, { kind: 'error' });
     }
   }
 
-  // ---- 统计小数据 ----
   const stats = useMemo(() => {
     const invited = Object.values(connections).filter((c) => c.status === 0).length;
     const connected = Object.values(connections).filter((c) => c.status === 1).length;
@@ -188,12 +154,242 @@ export default function Mentor() {
     return { total: students.length, invited, connected, rejected };
   }, [students, connections]);
 
-  // ---- UI ----
+  const filteredStudents = useMemo(() => {
+    return students.filter((s) => {
+      const name = s.full_name || '';
+      const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
+      const conn = connections[s.id];
+      let matchesFilter = true;
+      if (filterStatus === 'connected') matchesFilter = conn?.status === 1;
+      else if (filterStatus === 'invited') matchesFilter = conn?.status === 0;
+      else if (filterStatus === 'rejected') matchesFilter = conn?.status === 2;
+      else if (filterStatus === 'uninvited') matchesFilter = !conn;
+      return matchesSearch && matchesFilter;
+    });
+  }, [students, connections, searchQuery, filterStatus]);
+
   if (!user) {
     return (
-      <div style={{ padding: 40, fontSize: 14, color: '#475569' }}>
+      <div className="mentor-page" style={{ padding: 40, fontSize: 14, color: '#475569' }}>
         正在加载…（请确认你是以老师账号登录）
       </div>
+    );
+  }
+
+  const isDesktop = window.innerWidth > 768;
+
+  if (isDesktop) {
+    return (
+      <MentorLayout activeView={activeView} onViewChange={setActiveView}>
+        <div className="mentor-desktop-content">
+          {!deployCheck.ok && (
+            <div className="mentor-alert mentor-alert-error">
+              <strong>⚠️ 邀请系统未就绪</strong>
+              <div>{deployCheck.message}</div>
+            </div>
+          )}
+
+          {activeView === 'students' && (
+            <div className="mentor-students-page">
+              <div className="mentor-page-header">
+                <div>
+                  <h1 className="mentor-page-title">学生管理</h1>
+                  <p className="mentor-page-subtitle">管理你的学生连接和查看学习数据</p>
+                </div>
+              </div>
+
+              <div className="mentor-stats-row">
+                <div className="mentor-stat-card">
+                  <div className="mentor-stat-value">{stats.total}</div>
+                  <div className="mentor-stat-label">学生总数</div>
+                </div>
+                <div className="mentor-stat-card mentor-stat-success">
+                  <div className="mentor-stat-value">{stats.connected}</div>
+                  <div className="mentor-stat-label">已连接</div>
+                </div>
+                <div className="mentor-stat-card mentor-stat-warning">
+                  <div className="mentor-stat-value">{stats.invited}</div>
+                  <div className="mentor-stat-label">邀请中</div>
+                </div>
+                <div className="mentor-stat-card mentor-stat-danger">
+                  <div className="mentor-stat-value">{stats.rejected}</div>
+                  <div className="mentor-stat-label">被拒绝</div>
+                </div>
+              </div>
+
+              <div className="mentor-main-layout">
+                <div className="mentor-student-list-panel">
+                  <div className="mentor-panel-header">
+                    <h2 className="mentor-panel-title">学生列表</h2>
+                    <span className="mentor-panel-count">{filteredStudents.length} 位学生</span>
+                  </div>
+
+                  <div className="mentor-search-bar">
+                    <input
+                      type="text"
+                      placeholder="搜索学生姓名…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="mentor-search-input"
+                    />
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="mentor-filter-select"
+                    >
+                      <option value="all">全部</option>
+                      <option value="connected">已连接</option>
+                      <option value="invited">邀请中</option>
+                      <option value="rejected">已拒绝</option>
+                      <option value="uninvited">未邀请</option>
+                    </select>
+                  </div>
+
+                  <div className="mentor-student-table-container">
+                    <table className="mentor-student-table">
+                      <thead>
+                        <tr>
+                          <th>学生姓名</th>
+                          <th>注册时间</th>
+                          <th>状态</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredStudents.map((s) => {
+                          const conn = connections[s.id];
+                          const status = conn?.status ?? -1;
+                          return (
+                            <tr
+                              key={s.id}
+                              onClick={() => status === 1 && setPicked(s)}
+                              className={`mentor-table-row ${status === 1 ? 'mentor-table-row-clickable' : ''} ${picked?.id === s.id ? 'mentor-table-row-selected' : ''}`}
+                            >
+                              <td>
+                                <div className="mentor-table-name">{s.full_name || '(未命名)'}</div>
+                              </td>
+                              <td className="mentor-table-date">
+                                {String(s.created_at || '').slice(0, 10)}
+                              </td>
+                              <td>
+                                <span className={`mentor-status-pill mentor-status-${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
+                                  {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
+                                </span>
+                              </td>
+                              <td className="mentor-table-actions">
+                                {status === -1 && (
+                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
+                                    发送邀请
+                                  </button>
+                                )}
+                                {status === 0 && (
+                                  <>
+                                    <button className="mentor-btn mentor-btn-secondary" onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}>
+                                      撤回
+                                    </button>
+                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
+                                      重发
+                                    </button>
+                                  </>
+                                )}
+                                {status === 2 && (
+                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
+                                    再次邀请
+                                  </button>
+                                )}
+                                {status === 1 && (
+                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
+                                    查看数据
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    {filteredStudents.length === 0 && (
+                      <div className="mentor-empty-state">
+                        <div>暂无学生</div>
+                        <div className="mentor-empty-sub">让学生注册后，他们会出现在这里</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mentor-detail-panel">
+                  {picked ? (
+                    <>
+                      <div className="mentor-panel-header">
+                        <h2 className="mentor-panel-title">{picked.full_name || '学生'} 的学习数据</h2>
+                        <button className="mentor-close-detail" onClick={() => setPicked(null)}>关闭</button>
+                      </div>
+
+                      {busy ? (
+                        <div className="mentor-loading">加载中…</div>
+                      ) : (
+                        <div className="mentor-detail-content">
+                          <div className="mentor-student-summary">
+                            <div className="mentor-summary-item">
+                              <span className="mentor-summary-label">学习记录</span>
+                              <span className="mentor-summary-value">{sessions.length} 条</span>
+                            </div>
+                            <div className="mentor-summary-item">
+                              <span className="mentor-summary-label">累计时长</span>
+                              <span className="mentor-summary-value">{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</span>
+                            </div>
+                          </div>
+
+                          {sessions.length > 0 ? (
+                            <ReviewDashboard sessions={sessions} />
+                          ) : (
+                            <div className="mentor-empty-state">
+                              <div>该学生暂无学习记录</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="mentor-detail-placeholder">
+                      <div className="mentor-detail-placeholder-icon">📊</div>
+                      <div className="mentor-detail-placeholder-title">选择学生查看数据</div>
+                      <div className="mentor-detail-placeholder-desc">从左侧列表选择已连接的学生，查看他们的学习分析报告</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeView === 'analytics' && (
+            <div className="mentor-analytics-page">
+              <div className="mentor-page-header">
+                <h1 className="mentor-page-title">数据分析</h1>
+                <p className="mentor-page-subtitle">整体学习趋势和学生表现分析</p>
+              </div>
+              <div className="mentor-empty-state">
+                <div>数据分析功能即将上线</div>
+                <div className="mentor-empty-sub">敬请期待更多数据可视化功能</div>
+              </div>
+            </div>
+          )}
+
+          {activeView === 'settings' && (
+            <div className="mentor-settings-page">
+              <div className="mentor-page-header">
+                <h1 className="mentor-page-title">系统设置</h1>
+                <p className="mentor-page-subtitle">管理你的导师账号和系统配置</p>
+              </div>
+              <div className="mentor-empty-state">
+                <div>系统设置功能即将上线</div>
+                <div className="mentor-empty-sub">敬请期待更多设置选项</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </MentorLayout>
     );
   }
 
@@ -221,7 +417,6 @@ export default function Mentor() {
         </section>
       )}
 
-      {/* 数据概览 */}
       <section className="glass-card" style={{ marginTop: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           <SmallStat label="学生总数" value={stats.total} color="#64748b" />
@@ -231,7 +426,6 @@ export default function Mentor() {
         </div>
       </section>
 
-      {/* 学生 Review 看板 */}
       {stats.connected > 0 && (
         <section className="glass-card" style={{ marginTop: 16 }}>
           <div className="field" style={{ marginBottom: 8 }}>
@@ -284,7 +478,6 @@ export default function Mentor() {
         </section>
       )}
 
-      {/* 学生列表（邀请） */}
       <section className="glass-card" style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>学生列表</h2>
@@ -304,9 +497,7 @@ export default function Mentor() {
                   connection={c || null}
                   onInvite={() => sendInvite(s.id)}
                   onWithdraw={() => withdrawInvite(s.id)}
-                  onPick={() => {
-                    if (c?.status === 1) setPicked(s);
-                  }}
+                  onPick={() => { if (c?.status === 1) setPicked(s); }}
                 />
               );
             })}
@@ -364,7 +555,7 @@ function EmptyBlock({ text, sub }) {
 }
 
 function StudentRow({ student, connection, onInvite, onWithdraw, onPick }) {
-  const status = connection?.status ?? -1; // -1=未邀请 0=等待 1=已连接 2=拒绝
+  const status = connection?.status ?? -1;
   const name = student.full_name || '(未命名)';
 
   const statusPill = (() => {
@@ -436,5 +627,4 @@ function Pill({ children, color }) {
   );
 }
 
-// 让 StudentRow / Pill 不 lint warning
-export { dateISO };
+export { fmtMinutes };

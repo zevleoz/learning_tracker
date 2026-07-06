@@ -199,6 +199,11 @@ export default function Layout() {
     };
   }, [finalNavItems, location.pathname, nav]);
 
+  const isMentorDesktop = !isMobile && location.pathname === '/mentor';
+  if (isMentorDesktop) {
+    return <Outlet />;
+  }
+
   /* ========= 移动端：顶部极简 + 底部浮动 pill ========= */
   if (isMobile) {
     return (

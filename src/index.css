@@ -2007,6 +2007,27 @@ textarea::placeholder { color: #9ca3af; }
   color: #64748b;
 }
 
+.mentor-invite-group {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+}
+
+.mentor-invite-note {
+  padding: 6px 10px;
+  border: 1px solid rgba(15,23,42,0.1);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #0f172a;
+  background: rgba(248,250,252,0.8);
+  font-family: inherit;
+  width: 100%;
+}
+
+.mentor-invite-note::placeholder {
+  color: #94a3b8;
+}
+
 .mentor-empty-state {
   text-align: center;
   padding: 40px 20px;

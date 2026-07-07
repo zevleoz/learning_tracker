@@ -23,51 +23,77 @@ export default function Mentor() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [activeView, setActiveView] = useState('students');
+  const [inviteNotes, setInviteNotes] = useState({});
+  const [sub, setSub] = useState(null);
 
   useEffect(() => {
     (async () => {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       setUser(u);
-
-      const [pRes, cRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, role, full_name, school_id, created_at')
-          .in('role', [1])
-          .order('created_at', { ascending: false })
-          .limit(500),
-        supabase
-          .from('teacher_student_connections')
-          .select('id, student_id, status, note, created_at')
-          .eq('teacher_id', u.id),
-      ]);
-
-      if (cRes && cRes.error) {
-        const code = cRes.error.code || '';
-        const hint = code === '42P01' || /relation.*does not exist/i.test(cRes.error.message)
-          ? '需要在 Supabase SQL Editor 运行 schema.patch-invites.sql 创建邀请表。'
-          : '请检查数据库表和 RLS 策略是否已部署。';
-        setDeployCheck({ ok: false, message: `邀请系统未就绪（${cRes.error.code || 'error'}: ${cRes.error.message}）— ${hint}` });
-      } else {
-        const pRes2 = await supabase
-          .from('profiles')
-          .select('id, role, full_name')
-          .eq('id', u.id)
-          .single();
-        if (pRes2.error) {
-          setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）` });
-        } else if (Number(pRes2.data.role) < 2) {
-          setDeployCheck({ ok: false, message: `当前账号 role=${pRes2.data.role}，老师端需要 role>=2。` });
-        }
-      }
-
-      setStudents(pRes.data || []);
-      const map = {};
-      for (const c of (cRes.data || [])) map[c.student_id] = c;
-      setConnections(map);
+      await loadData(u.id);
+      startRealtime(u.id);
     })();
+
+    return () => {
+      if (sub) sub.unsubscribe();
+    };
   }, []);
+
+  async function loadData(teacherId) {
+    const [pRes, cRes] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, role, full_name, school_id, created_at')
+        .in('role', [1])
+        .order('created_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('teacher_student_connections')
+        .select('id, student_id, status, note, created_at, updated_at')
+        .eq('teacher_id', teacherId),
+    ]);
+
+    if (cRes && cRes.error) {
+      const code = cRes.error.code || '';
+      const hint = code === '42P01' || /relation.*does not exist/i.test(cRes.error.message)
+        ? '需要在 Supabase SQL Editor 运行 schema.patch-invites.sql 创建邀请表。'
+        : '请检查数据库表和 RLS 策略是否已部署。';
+      setDeployCheck({ ok: false, message: `邀请系统未就绪（${cRes.error.code || 'error'}: ${cRes.error.message}）— ${hint}` });
+    } else if (user) {
+      const pRes2 = await supabase
+        .from('profiles')
+        .select('id, role, full_name')
+        .eq('id', user.id)
+        .single();
+      if (pRes2.error) {
+        setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）` });
+      } else if (Number(pRes2.data.role) < 2) {
+        setDeployCheck({ ok: false, message: `当前账号 role=${pRes2.data.role}，老师端需要 role>=2。` });
+      }
+    }
+
+    setStudents(pRes.data || []);
+    const map = {};
+    for (const c of (cRes.data || [])) map[c.student_id] = c;
+    setConnections(map);
+  }
+
+  function startRealtime(teacherId) {
+    const subscription = supabase
+      .channel('public:teacher_student_connections')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'teacher_student_connections',
+        filter: `teacher_id=eq.${teacherId}`,
+      }, (payload) => {
+        console.log('Connection realtime event:', payload);
+        loadData(teacherId);
+      })
+      .subscribe();
+    setSub(subscription);
+  }
 
   useEffect(() => {
     if (!picked) return setSessions([]);
@@ -102,9 +128,10 @@ export default function Mentor() {
     return () => { cancelled = true; };
   }, [picked]);
 
-  async function sendInvite(studentId, note = '') {
+  async function sendInvite(studentId) {
     if (!user) { toast('请先登录老师账号', { kind: 'error' }); return; }
     if (!deployCheck.ok) { toast('邀请系统尚未部署完成', { kind: 'error' }); return; }
+    const note = inviteNotes[studentId] || '';
     try {
       const { error } = await supabase
         .from('teacher_student_connections')
@@ -114,6 +141,7 @@ export default function Mentor() {
         ...m,
         [studentId]: { id: 'new', student_id: studentId, status: 0, note, created_at: new Date().toISOString() },
       }));
+      setInviteNotes((m) => ({ ...m, [studentId]: '' }));
       toast('已发送邀请，等待学生接受。', { kind: 'success' });
     } catch (err) {
       console.error('sendInvite failed:', err);
@@ -144,6 +172,25 @@ export default function Mentor() {
     } catch (err) {
       console.error('withdrawInvite failed:', err);
       toast(`撤回失败`, { kind: 'error' });
+    }
+  }
+
+  async function disconnectStudent(studentId) {
+    if (!confirm('确定断开与这位学生的连接吗？断开后将无法查看他的学习数据。')) return;
+    const c = connections[studentId];
+    if (!c || c.status !== 1) return;
+    try {
+      const { error } = await supabase
+        .from('teacher_student_connections')
+        .update({ status: 2, updated_at: new Date().toISOString() })
+        .match({ teacher_id: user.id, student_id: studentId });
+      if (error) throw error;
+      setConnections((m) => ({ ...m, [studentId]: { ...c, status: 2, updated_at: new Date().toISOString() } }));
+      if (picked?.id === studentId) setPicked(null);
+      toast('已断开连接', { kind: 'success' });
+    } catch (err) {
+      console.error('disconnectStudent failed:', err);
+      toast(`断开失败`, { kind: 'error' });
     }
   }
 
@@ -278,9 +325,18 @@ export default function Mentor() {
                               </td>
                               <td className="mentor-table-actions">
                                 {status === -1 && (
-                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
-                                    发送邀请
-                                  </button>
+                                  <div className="mentor-invite-group">
+                                    <input
+                                      type="text"
+                                      placeholder="邀请备注（可选）"
+                                      value={inviteNotes[s.id] || ''}
+                                      onChange={(e) => setInviteNotes((m) => ({ ...m, [s.id]: e.target.value }))}
+                                      className="mentor-invite-note"
+                                    />
+                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
+                                      发送邀请
+                                    </button>
+                                  </div>
                                 )}
                                 {status === 0 && (
                                   <>
@@ -298,9 +354,14 @@ export default function Mentor() {
                                   </button>
                                 )}
                                 {status === 1 && (
-                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
-                                    查看数据
-                                  </button>
+                                  <>
+                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
+                                      查看数据
+                                    </button>
+                                    <button className="mentor-btn mentor-btn-secondary" onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}>
+                                      断开
+                                    </button>
+                                  </>
                                 )}
                               </td>
                             </tr>

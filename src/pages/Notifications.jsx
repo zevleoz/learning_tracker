@@ -1,48 +1,70 @@
-// 学生端通知中心：
-//   - 查看来自老师的邀请
-//   - 接受 / 拒绝
-//   - 接受后：顶部显示已连接的老师
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 
 export default function Notifications() {
   const [user, setUser] = useState(null);
-  const [invites, setInvites] = useState([]);  // 邀请 + teacher profile 名
+  const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [sub, setSub] = useState(null);
 
   useEffect(() => {
     (async () => {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       setUser(u);
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('teacher_student_connections')
-          .select('id, teacher_id, status, note, created_at')
-          .eq('student_id', u.id);
-        if (error) throw error;
-
-        // 顺带拉取老师 profile，显示名字
-        const teacherIds = Array.from(new Set((data || []).map((c) => c.teacher_id)));
-        const t = teacherIds.length > 0
-          ? await supabase.from('profiles').select('id, full_name').in('id', teacherIds)
-          : { data: [] };
-        const names = Object.fromEntries((t.data || []).map((p) => [p.id, p.full_name]));
-
-        const decorated = (data || []).map((c) => ({
-          ...c,
-          teacher_name: names[c.teacher_id] || '(未命名老师)',
-        }));
-        setInvites(decorated);
-      } catch (err) {
-        toast(err.message || '加载邀请失败', { kind: 'error' });
-      } finally {
-        setLoading(false);
-      }
+      await loadInvites();
+      startRealtime(u.id);
     })();
+
+    return () => {
+      if (sub) sub.unsubscribe();
+    };
   }, []);
+
+  async function loadInvites() {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('teacher_student_connections')
+        .select('id, teacher_id, status, note, created_at, updated_at')
+        .eq('student_id', user.id);
+      if (error) throw error;
+
+      const teacherIds = Array.from(new Set((data || []).map((c) => c.teacher_id)));
+      const t = teacherIds.length > 0
+        ? await supabase.from('profiles').select('id, full_name').in('id', teacherIds)
+        : { data: [] };
+      const names = Object.fromEntries((t.data || []).map((p) => [p.id, p.full_name]));
+
+      const decorated = (data || []).map((c) => ({
+        ...c,
+        teacher_name: names[c.teacher_id] || '(未命名老师)',
+      }));
+      setInvites(decorated);
+    } catch (err) {
+      toast(err.message || '加载邀请失败', { kind: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startRealtime(studentId) {
+    const subscription = supabase
+      .channel('public:teacher_student_connections')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'teacher_student_connections',
+        filter: `student_id=eq.${studentId}`,
+      }, (payload) => {
+        console.log('Invite realtime event:', payload);
+        loadInvites();
+      })
+      .subscribe();
+    setSub(subscription);
+  }
 
   async function updateStatus(id, status) {
     const { error } = await supabase
@@ -50,8 +72,17 @@ export default function Notifications() {
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) return toast(error.message, { kind: 'error' });
-    setInvites((list) => list.map((x) => (x.id === id ? { ...x, status } : x)));
     toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据 🎉' : '已拒绝邀请', { kind: 'success' });
+  }
+
+  async function disconnect(id) {
+    if (!confirm('确定要断开与这位老师的连接吗？断开后老师将无法继续查看你的学习数据。')) return;
+    const { error } = await supabase
+      .from('teacher_student_connections')
+      .update({ status: 2, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) return toast(error.message, { kind: 'error' });
+    toast('已断开连接', { kind: 'success' });
   }
 
   const pending = invites.filter((i) => i.status === 0);
@@ -76,7 +107,6 @@ export default function Notifications() {
         </Card>
       )}
 
-      {/* 等待中：显示动作 */}
       {pending.length > 0 && (
         <Section title="等待你的决定" count={pending.length} hint="接受后老师将能查看你的学习数据">
           {pending.map((c) => (
@@ -95,7 +125,7 @@ export default function Notifications() {
           {accepted.map((c) => (
             <div key={c.id} style={{
               background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
-              padding: '10px 12px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '12px 14px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <div>
                 <div style={{ fontWeight: 600, color: '#0f172a' }}>{c.teacher_name}</div>
@@ -103,10 +133,17 @@ export default function Notifications() {
                   从 {String(c.created_at || '').slice(0, 10)} 起可以查看你的学习数据
                 </div>
               </div>
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
-                color: '#059669', background: '#a7f3d0',
-              }}>已连接</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
+                  color: '#059669', background: '#a7f3d0',
+                }}>已连接</span>
+                <button onClick={() => disconnect(c.id)} style={{
+                  fontSize: 11, padding: '4px 10px', borderRadius: 8,
+                  border: '1px solid rgba(239,68,68,0.3)', color: '#b91c1c',
+                  background: 'rgba(255,255,255,0.8)', cursor: 'pointer',
+                }}>断开</button>
+              </div>
             </div>
           ))}
         </Section>
@@ -122,7 +159,7 @@ export default function Notifications() {
               <div>
                 <div style={{ fontWeight: 500, color: '#334155' }}>{c.teacher_name}</div>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                  拒绝于 {String(c.created_at || '').slice(0, 10)}
+                  {c.status === 2 && c.updated_at ? `拒绝于 ${String(c.updated_at).slice(0, 10)}` : '已拒绝'}
                 </div>
               </div>
               <span style={{

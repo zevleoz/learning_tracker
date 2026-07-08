@@ -12,10 +12,12 @@ const COMMON_SCHOOLS = [
   '深圳市深圳中学',
 ];
 
+const TEACHER_KEY = 'APPARK2026';
+
 export default function Signup() {
   const nav = useNavigate();
   const toasts = useToasts();
-  const [form, setForm] = useState({ name: '', email: '', password: '', school: '', role: '1' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', school: '', role: '1', teacherKey: '' });
   const [busy, setBusy] = useState(false);
   const [schoolSuggestions, setSchoolSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -55,6 +57,7 @@ export default function Signup() {
     if (form.password.length < 6) return toast('密码至少 6 位', { kind: 'error' });
     const role = Number(form.role) || 1;
     if (role === 1 && !form.school.trim()) return toast('请填写学校名称', { kind: 'error' });
+    if (role === 2 && form.teacherKey !== TEACHER_KEY) return toast('老师注册密钥错误', { kind: 'error' });
 
     setBusy(true);
     try {
@@ -231,6 +234,25 @@ export default function Signup() {
                 : '学生端用于记录学习，老师端用于查看与反馈。'}
             </p>
           </div>
+
+          {Number(form.role) === 2 && (
+            <div className="field">
+              <label>老师注册密钥 <span style={{ color: 'var(--brand)' }}>*</span></label>
+              <input
+                type="password"
+                value={form.teacherKey}
+                onChange={(e) => set('teacherKey', e.target.value)}
+                placeholder="请输入老师注册密钥"
+                autoComplete="off"
+              />
+              <p style={{
+                fontSize: '11px', color: '#94a3b8',
+                marginTop: '6px', marginBottom: 0, lineHeight: 1.5
+              }}>
+                请联系管理员获取注册密钥。
+              </p>
+            </div>
+          )}
 
           <button
             type="submit"

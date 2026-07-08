@@ -278,7 +278,289 @@ function HeroBlock({ sessions }) {
 }
 
 /* ================================================================
- *  区块 2：月度趋势柱状图
+ *  区块 2：学习连续性（Streak）
+ * ================================================================ */
+function StreakBlock({ sessions }) {
+  const stats = useMemo(() => {
+    if (!sessions || sessions.length === 0) {
+      return { current: 0, longest: 0, weekDays: 0, weekTotal: 7 };
+    }
+
+    const today = new Date();
+    const dateSet = new Set(sessions.map((s) => s.date).filter(Boolean));
+
+    const weekSet = new Set();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      weekSet.add(d.toISOString().slice(0, 10));
+    }
+    const weekDays = [...weekSet].filter((d) => dateSet.has(d)).length;
+
+    const sortedDates = [...dateSet].sort();
+    let current = 0;
+    let longest = 0;
+    let temp = 0;
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      if (i === 0) {
+        temp = 1;
+      } else {
+        const prev = new Date(sortedDates[i - 1]);
+        const curr = new Date(sortedDates[i]);
+        const diff = (curr - prev) / (1000 * 60 * 60 * 24);
+        if (diff === 1) {
+          temp++;
+        } else {
+          temp = 1;
+        }
+      }
+      longest = Math.max(longest, temp);
+    }
+
+    const todayStr = today.toISOString().slice(0, 10);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    if (dateSet.has(todayStr) || dateSet.has(yesterdayStr)) {
+      let i = 0;
+      while (true) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const dStr = d.toISOString().slice(0, 10);
+        if (dateSet.has(dStr)) {
+          current++;
+          i++;
+        } else {
+          break;
+        }
+      }
+    }
+
+    return { current, longest, weekDays, weekTotal: 7 };
+  }, [sessions]);
+
+  if (stats.current === 0 && stats.weekDays === 0) {
+    return null;
+  }
+
+  const streakColor = stats.current >= 7 ? '#10b981' : stats.current >= 3 ? '#f59e0b' : '#94a3b8';
+
+  return (
+    <SectionShell>
+      <SectionTitle Icon={IconCalendar} title="学习连续性" subtitle="坚持就是胜利" color="#f59e0b" />
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '12px',
+      }}>
+        <div style={{
+          background: 'rgba(255,255,255,0.4)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: '16px',
+          padding: '16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>当前连续学习</div>
+          <div style={{
+            fontSize: '40px',
+            fontWeight: 800,
+            color: streakColor,
+            lineHeight: 1,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            {stats.current}
+          </div>
+          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>天</div>
+          {stats.current >= 7 && (
+            <div style={{ fontSize: '10px', color: '#10b981', marginTop: '8px', fontWeight: 600 }}>
+              🎉 太棒了！连续一周！
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          background: 'rgba(255,255,255,0.4)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: '16px',
+          padding: '16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>本周学习天数</div>
+          <div style={{
+            fontSize: '40px',
+            fontWeight: 800,
+            color: '#6366f1',
+            lineHeight: 1,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            {stats.weekDays}
+          </div>
+          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>/{stats.weekTotal} 天</div>
+          <div style={{
+            marginTop: '8px',
+            height: '6px',
+            background: '#e5e7eb',
+            borderRadius: '999px',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              height: '100%',
+              background: '#6366f1',
+              borderRadius: '999px',
+              width: `${(stats.weekDays / stats.weekTotal) * 100}%`,
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+        </div>
+      </div>
+
+      {stats.longest > 0 && (
+        <div style={{
+          marginTop: '12px',
+          padding: '10px 14px',
+          background: 'rgba(245,158,11,0.08)',
+          borderRadius: '12px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>最长连续记录</span>
+          <span style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            color: '#f59e0b',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            {stats.longest} 天
+          </span>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+/* ================================================================
+ *  区块 3：学习效率指标
+ * ================================================================ */
+function EfficiencyBlock({ sessions }) {
+  const stats = useMemo(() => {
+    if (!sessions || sessions.length === 0) {
+      return { scorePerHour: 0, avgSession: 0, efficiencyGrade: null };
+    }
+
+    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const hours = totalMins / 60;
+
+    let scoreSum = 0;
+    let scoreCount = 0;
+    for (const s of sessions) {
+      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+        scoreSum += Number(s.score);
+        scoreCount++;
+      }
+    }
+
+    const avgScore = scoreCount > 0 ? scoreSum / scoreCount : 0;
+    const scorePerHour = hours > 0 ? Math.round(avgScore / hours * 10) / 10 : 0;
+    const avgSession = Math.round(totalMins / sessions.length);
+
+    let efficiencyGrade = null;
+    if (hours > 0) {
+      if (scorePerHour >= 15) efficiencyGrade = { grade: 'A', color: '#10b981' };
+      else if (scorePerHour >= 10) efficiencyGrade = { grade: 'B', color: '#0ea5e9' };
+      else if (scorePerHour >= 5) efficiencyGrade = { grade: 'C', color: '#f59e0b' };
+      else efficiencyGrade = { grade: 'D', color: '#fb923c' };
+    }
+
+    return { scorePerHour, avgSession, efficiencyGrade };
+  }, [sessions]);
+
+  if (stats.efficiencyGrade === null) {
+    return null;
+  }
+
+  return (
+    <SectionShell>
+      <SectionTitle Icon={IconTarget} title="学习效率" subtitle="投入产出比分析" color="#334155" />
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '12px',
+      }}>
+        <div style={{
+          background: 'rgba(255,255,255,0.4)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: '16px',
+          padding: '16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>效率评分</div>
+          <div style={{
+            fontSize: '48px',
+            fontWeight: 800,
+            color: stats.efficiencyGrade.color,
+            lineHeight: 1,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            {stats.efficiencyGrade.grade}
+          </div>
+          <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
+            每小时平均分数：{stats.scorePerHour} 分
+          </div>
+        </div>
+
+        <div style={{
+          background: 'rgba(255,255,255,0.4)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.4)',
+          borderRadius: '16px',
+          padding: '16px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>平均单次时长</div>
+          <div style={{
+            fontSize: '36px',
+            fontWeight: 700,
+            color: '#8b5cf6',
+            lineHeight: 1,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            <TimeAmount minutes={stats.avgSession} scale={1.5} />
+          </div>
+          <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
+            建议每次学习 25-45 分钟
+          </div>
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: '12px',
+        padding: '12px 14px',
+        background: 'rgba(99,102,241,0.06)',
+        borderRadius: '12px',
+        fontSize: '12px',
+        color: '#475569',
+        lineHeight: 1.5,
+      }}>
+        <strong>效率说明：</strong>效率评分基于「平均分数 / 学习小时数」计算。更高的效率意味着你用更少的时间取得了更好的成绩。
+      </div>
+    </SectionShell>
+  );
+}
+
+/* ================================================================
+ *  区块 4：月度趋势柱状图
  * ================================================================ */
 function MonthlyBarsBlock({ sessions }) {
   const data = useMemo(() => {
@@ -804,13 +1086,13 @@ function ObjectiveScoresBlock({ sessions }) {
 export default function Review() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState('week');
 
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      // 取近 180 天数据（供月度趋势）
       const { data, error } = await supabase
         .from('learning_sessions')
         .select(`
@@ -819,7 +1101,7 @@ export default function Review() {
           course:course_id(name, subject)
         `)
         .eq('student_id', user.id)
-        .gte('session_date', new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString().slice(0, 10))
+        .gte('session_date', new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10))
         .order('session_date', { ascending: false })
         .limit(2000);
 
@@ -837,6 +1119,22 @@ export default function Review() {
     })();
   }, []);
 
+  const filteredSessions = useMemo(() => {
+    if (!sessions || sessions.length === 0) return [];
+
+    const today = new Date();
+    let days = 7;
+    if (timeRange === 'month') days = 30;
+    else if (timeRange === 'quarter') days = 90;
+    else if (timeRange === 'year') days = 365;
+
+    const cutoff = new Date(today);
+    cutoff.setDate(today.getDate() - days);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    return sessions.filter((s) => s.date >= cutoffStr);
+  }, [sessions, timeRange]);
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 16px', color: '#64748b', fontSize: '14px' }}>
@@ -845,12 +1143,49 @@ export default function Review() {
     );
   }
 
+  const rangeOptions = [
+    { key: 'week', label: '本周' },
+    { key: 'month', label: '本月' },
+    { key: 'quarter', label: '近3月' },
+    { key: 'year', label: '全年' },
+  ];
+
   return (
     <div style={{ paddingBottom: '112px' }}>
-      <HeroBlock sessions={sessions} />
-      <MonthlyBarsBlock sessions={sessions} />
-      <SubjectMatrixBlock sessions={sessions} />
-      <ObjectiveScoresBlock sessions={sessions} />
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        padding: '0 16px 12px',
+        overflowX: 'auto',
+      }}>
+        {rangeOptions.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => setTimeRange(opt.key)}
+            style={{
+              flex: '0 0 auto',
+              padding: '6px 14px',
+              borderRadius: '999px',
+              fontSize: '12px',
+              fontWeight: 500,
+              border: 'none',
+              cursor: 'pointer',
+              background: timeRange === opt.key ? '#6366f1' : 'rgba(255,255,255,0.4)',
+              color: timeRange === opt.key ? 'white' : '#475569',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <HeroBlock sessions={filteredSessions} />
+      <StreakBlock sessions={filteredSessions} />
+      <EfficiencyBlock sessions={filteredSessions} />
+      <MonthlyBarsBlock sessions={filteredSessions} />
+      <SubjectMatrixBlock sessions={filteredSessions} />
+      <ObjectiveScoresBlock sessions={filteredSessions} />
     </div>
   );
 }
@@ -975,6 +1310,8 @@ export function ReviewDashboard({ sessions, footerNote }) {
   return (
     <div>
       <HeroBlock sessions={sessions} />
+      <StreakBlock sessions={sessions} />
+      <EfficiencyBlock sessions={sessions} />
       <MonthlyBarsBlock sessions={sessions} />
       <SubjectMatrixBlock sessions={sessions} />
       <ObjectiveScoresBlock sessions={sessions} />

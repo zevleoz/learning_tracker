@@ -27,6 +27,7 @@ export default function Mentor() {
   const [inviteNotes, setInviteNotes] = useState({});
   const [sub, setSub] = useState(null);
   const [schools, setSchools] = useState([]);
+  const [classStats, setClassStats] = useState({});
 
   useEffect(() => {
     (async () => {
@@ -88,6 +89,58 @@ export default function Mentor() {
 
     const schoolSet = new Set((sRes.data || []).map((p) => p.school_name).filter(Boolean));
     setSchools(Array.from(schoolSet).sort());
+
+    await loadClassStats(teacherId);
+  }
+
+  async function loadClassStats(teacherId) {
+    const connectedStudents = Object.values(connections)
+      .filter((c) => c.status === 1)
+      .map((c) => c.student_id);
+
+    if (connectedStudents.length === 0) {
+      setClassStats({
+        totalStudents: 0,
+        avgDailyMinutes: 0,
+        avgScore: 0,
+        activeStudents: 0,
+      });
+      return;
+    }
+
+    const { data: sessionData, error } = await supabase
+      .from('learning_sessions')
+      .select('student_id, duration_minutes, eval_type, score')
+      .in('student_id', connectedStudents)
+      .gte('session_date', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10));
+
+    if (error) {
+      console.error('loadClassStats error:', error);
+      return;
+    }
+
+    const studentMins = {};
+    let totalScore = 0;
+    let scoreCount = 0;
+
+    for (const s of sessionData || []) {
+      const sid = s.student_id;
+      studentMins[sid] = (studentMins[sid] || 0) + (s.duration_minutes || 0);
+      if (Number(s.eval_type) === 2 && s.score != null) {
+        totalScore += Number(s.score);
+        scoreCount++;
+      }
+    }
+
+    const totalMins = Object.values(studentMins).reduce((a, b) => a + b, 0);
+    const activeStudents = Object.keys(studentMins).length;
+
+    setClassStats({
+      totalStudents: connectedStudents.length,
+      avgDailyMinutes: connectedStudents.length > 0 ? Math.round(totalMins / connectedStudents.length / 7) : 0,
+      avgScore: scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0,
+      activeStudents,
+    });
   }
 
   function startRealtime(teacherId) {
@@ -263,6 +316,25 @@ export default function Mentor() {
 
               <div className="mentor-main-layout">
                 <div className="mentor-student-list-panel">
+                  <div className="mentor-class-overview">
+                    <div className="mentor-class-stat">
+                      <div className="mentor-class-stat-value">{classStats.totalStudents || 0}</div>
+                      <div className="mentor-class-stat-label">已连接学生</div>
+                    </div>
+                    <div className="mentor-class-stat">
+                      <div className="mentor-class-stat-value">{classStats.activeStudents || 0}</div>
+                      <div className="mentor-class-stat-label">本周活跃</div>
+                    </div>
+                    <div className="mentor-class-stat">
+                      <div className="mentor-class-stat-value">{classStats.avgDailyMinutes || 0}m</div>
+                      <div className="mentor-class-stat-label">日均学习</div>
+                    </div>
+                    <div className="mentor-class-stat">
+                      <div className="mentor-class-stat-value">{classStats.avgScore || 0}</div>
+                      <div className="mentor-class-stat-label">平均分数</div>
+                    </div>
+                  </div>
+
                   <div className="mentor-panel-header">
                     <h2 className="mentor-panel-title">学生列表</h2>
                     <span className="mentor-panel-count">{filteredStudents.length} 位学生</span>

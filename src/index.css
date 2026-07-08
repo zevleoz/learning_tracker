@@ -1883,6 +1883,32 @@ textarea::placeholder { color: #9ca3af; }
   max-height: calc(100vh - 280px);
 }
 
+.mentor-class-overview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 16px 20px;
+  background: rgba(248,250,252,0.8);
+  border-bottom: 1px solid rgba(15,23,42,0.06);
+}
+
+.mentor-class-stat {
+  text-align: center;
+}
+
+.mentor-class-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.mentor-class-stat-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
 .mentor-panel-header {
   display: flex;
   align-items: center;

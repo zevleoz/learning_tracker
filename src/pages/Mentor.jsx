@@ -22,9 +22,11 @@ export default function Mentor() {
   const [deployCheck, setDeployCheck] = useState({ ok: true, message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSchool, setFilterSchool] = useState('all');
   const [activeView, setActiveView] = useState('students');
   const [inviteNotes, setInviteNotes] = useState({});
   const [sub, setSub] = useState(null);
+  const [schools, setSchools] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -41,10 +43,10 @@ export default function Mentor() {
   }, []);
 
   async function loadData(teacherId) {
-    const [pRes, cRes] = await Promise.all([
+    const [pRes, cRes, sRes] = await Promise.all([
       supabase
         .from('profiles')
-        .select('id, role, full_name, school_id, created_at')
+        .select('id, role, full_name, school_name, created_at')
         .in('role', [1])
         .order('created_at', { ascending: false })
         .limit(500),
@@ -52,6 +54,12 @@ export default function Mentor() {
         .from('teacher_student_connections')
         .select('id, student_id, status, note, created_at, updated_at')
         .eq('teacher_id', teacherId),
+      supabase
+        .from('profiles')
+        .select('school_name')
+        .in('role', [1])
+        .not('school_name', 'is', null)
+        .not('school_name', 'eq', ''),
     ]);
 
     if (cRes && cRes.error) {
@@ -77,6 +85,9 @@ export default function Mentor() {
     const map = {};
     for (const c of (cRes.data || [])) map[c.student_id] = c;
     setConnections(map);
+
+    const schoolSet = new Set((sRes.data || []).map((p) => p.school_name).filter(Boolean));
+    setSchools(Array.from(schoolSet).sort());
   }
 
   function startRealtime(teacherId) {
@@ -205,15 +216,18 @@ export default function Mentor() {
     return students.filter((s) => {
       const name = s.full_name || '';
       const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesSchool = filterSchool === 'all' || s.school_name === filterSchool;
+      
       const conn = connections[s.id];
       let matchesFilter = true;
       if (filterStatus === 'connected') matchesFilter = conn?.status === 1;
       else if (filterStatus === 'invited') matchesFilter = conn?.status === 0;
       else if (filterStatus === 'rejected') matchesFilter = conn?.status === 2;
       else if (filterStatus === 'uninvited') matchesFilter = !conn;
-      return matchesSearch && matchesFilter;
+      return matchesSearch && matchesSchool && matchesFilter;
     });
-  }, [students, connections, searchQuery, filterStatus]);
+  }, [students, connections, searchQuery, filterStatus, filterSchool]);
 
   if (!user) {
     return (
@@ -263,11 +277,21 @@ export default function Mentor() {
                       className="mentor-search-input"
                     />
                     <select
+                      value={filterSchool}
+                      onChange={(e) => setFilterSchool(e.target.value)}
+                      className="mentor-filter-select"
+                    >
+                      <option value="all">所有学校</option>
+                      {schools.map((school) => (
+                        <option key={school} value={school}>{school}</option>
+                      ))}
+                    </select>
+                    <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
                       className="mentor-filter-select"
                     >
-                      <option value="all">全部</option>
+                      <option value="all">全部状态</option>
                       <option value="connected">已连接</option>
                       <option value="invited">邀请中</option>
                       <option value="rejected">已拒绝</option>

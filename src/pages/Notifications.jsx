@@ -60,6 +60,9 @@ export default function Notifications() {
         filter: `student_id=eq.${studentId}`,
       }, (payload) => {
         console.log('Invite realtime event:', payload);
+        if (payload.eventType === 'INSERT' && payload.new.status === 0) {
+          toast('收到新的老师邀请！', { kind: 'success' });
+        }
         loadInvites();
       })
       .subscribe();

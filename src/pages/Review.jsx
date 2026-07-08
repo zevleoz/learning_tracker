@@ -858,6 +858,119 @@ export default function Review() {
 // 供老师端复用：只需传入某个学生的 sessions 数组（每个元素需包含
 // date, subject, duration_minutes, category, form, eval_type, score）
 // 即可渲染同样的 4 个 Review 区块
+function SuggestionsBlock({ sessions }) {
+  const suggestions = useMemo(() => {
+    if (!sessions || sessions.length === 0) return [];
+
+    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const avgDaily = totalMins / Math.min(sessions.length, 7);
+    
+    const objSessions = sessions.filter(s => s.eval_type === 2);
+    const avgGradeScore = objSessions.length > 0
+      ? objSessions.reduce((a, s) => {
+          const grade = GRADE_TABLE.find(g => g.grade === s.grade_label);
+          return a + (grade?.score || 70);
+        }, 0) / objSessions.length
+      : null;
+
+    const subjSessions = sessions.filter(s => s.eval_type === 1);
+    const avgSubj = subjSessions.length > 0
+      ? subjSessions.reduce((a, s) => a + (s.self_rating || 0), 0) / subjSessions.length
+      : null;
+
+    const suggestions = [];
+
+    if (avgDaily < 30) {
+      suggestions.push({
+        icon: '📚',
+        text: '最近学习时间较少，建议每天安排至少 30 分钟专注学习。',
+        color: '#f59e0b',
+      });
+    }
+
+    if (avgGradeScore !== null && avgGradeScore < 75) {
+      suggestions.push({
+        icon: '🎯',
+        text: '客观评估分数偏低，建议重点复习薄弱科目，多做练习题。',
+        color: '#ef4444',
+      });
+    }
+
+    if (avgSubj !== null && avgSubj < 60) {
+      suggestions.push({
+        icon: '💡',
+        text: '自我评估显示掌握程度不足，建议回顾课堂笔记或寻求老师帮助。',
+        color: '#f59e0b',
+      });
+    }
+
+    if (avgSubj !== null && avgGradeScore !== null && avgSubj > 80 && avgGradeScore < 75) {
+      suggestions.push({
+        icon: '🔍',
+        text: '自我感觉良好但实际分数偏低，建议多做模拟测试检验真实水平。',
+        color: '#8b5cf6',
+      });
+    }
+
+    if (totalMins > 420 && avgGradeScore !== null && avgGradeScore < 85) {
+      suggestions.push({
+        icon: '⏰',
+        text: '学习时间充足但效率有待提高，建议优化学习方法和时间管理。',
+        color: '#0ea5e9',
+      });
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push({
+        icon: '🎉',
+        text: '学习状态良好，继续保持！建议尝试挑战更高难度的内容。',
+        color: '#10b981',
+      });
+    }
+
+    return suggestions.slice(0, 3);
+  }, [sessions]);
+
+  if (suggestions.length === 0) return null;
+
+  return (
+    <SectionShell>
+      <SectionTitle 
+        Icon={IconTarget} 
+        title="学习建议" 
+        subtitle="根据你的学习数据提供建议" 
+        color="#f59e0b" 
+      />
+      <div style={{
+        background: 'rgba(255,255,255,0.4)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.4)',
+        borderRadius: '16px',
+        padding: '16px',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {suggestions.map((s, i) => (
+            <div key={i} style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              padding: '10px 12px',
+              background: 'rgba(255,255,255,0.5)',
+              borderRadius: '10px',
+            }}>
+              <span style={{ fontSize: '18px', lineHeight: 1 }}>{s.icon}</span>
+              <span style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }}>
+                {s.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
 export function ReviewDashboard({ sessions, footerNote }) {
   return (
     <div>
@@ -865,6 +978,7 @@ export function ReviewDashboard({ sessions, footerNote }) {
       <MonthlyBarsBlock sessions={sessions} />
       <SubjectMatrixBlock sessions={sessions} />
       <ObjectiveScoresBlock sessions={sessions} />
+      <SuggestionsBlock sessions={sessions} />
       {footerNote && (
         <div style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '12px' }}>
           {footerNote}

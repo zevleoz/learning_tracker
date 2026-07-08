@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
+import { supabase } from '../lib/supabase.js';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_red.png';
 
@@ -65,8 +66,48 @@ export default function Layout() {
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const isTeacher = Number(profile?.role) >= 2;
+
+  useEffect(() => {
+    async function loadCount() {
+      if (!profile?.id) return;
+      const { data, error } = await supabase
+        .from('teacher_student_connections')
+        .select('id')
+        .eq('student_id', profile.id)
+        .eq('status', 0);
+      if (!error) setNotificationCount(data?.length || 0);
+    }
+    loadCount();
+
+    const channel = supabase
+      .channel(`notifications:${profile?.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'teacher_student_connections',
+          filter: `student_id=eq.${profile?.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new.status === 0) {
+            setNotificationCount((c) => c + 1);
+          } else if (payload.eventType === 'UPDATE') {
+            loadCount();
+          } else if (payload.eventType === 'DELETE') {
+            loadCount();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id]);
 
   // 实际导航项：
   //   老师端：导师 + 课程 + 记录 + 回顾 + 通知
@@ -232,7 +273,12 @@ export default function Layout() {
                 end
                 className={({ isActive }) => 'm-nav-link' + (isActive ? ' active' : '')}
               >
-                <span className="m-nav-icon"><Icon /></span>
+                <span className="m-nav-icon">
+                  <Icon />
+                  {to === '/notifications' && notificationCount > 0 && (
+                    <span className="m-nav-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
+                  )}
+                </span>
                 <span className="m-nav-label">{label}</span>
               </NavLink>
             ))}
@@ -257,7 +303,12 @@ export default function Layout() {
                 end
                 className={({ isActive }) => 'd-nav-link' + (isActive ? ' active' : '')}
               >
-                <span className="d-nav-icon"><Icon /></span>
+                <span className="d-nav-icon">
+                  <Icon />
+                  {to === '/notifications' && notificationCount > 0 && (
+                    <span className="d-nav-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
+                  )}
+                </span>
                 <span>{label}</span>
               </NavLink>
             ))}

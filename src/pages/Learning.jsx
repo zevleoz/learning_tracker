@@ -512,6 +512,30 @@ export default function LearningPage() {
         <p>填写一次学习行为，数据积累帮你了解自己</p>
       </div>
 
+      {courses.length > 0 && (
+        <div className="quick-actions">
+          <div className="quick-actions-label">快速记录</div>
+          <div className="quick-actions-grid">
+            {courses.slice(0, 4).map((course) => (
+              <button
+                key={course.id}
+                className="quick-action-btn"
+                onClick={() => {
+                  setCourseId(course.id);
+                  setStartStr(toTimeStr(new Date()));
+                  setCategory(3);
+                  setFormValue('自主预习');
+                  setEvalType(1);
+                }}
+              >
+                <span className="quick-action-course">{course.name}</span>
+                <span className="quick-action-form">自主预习</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ====== 表单卡片 ====== */}
       <div className="glass-sheet record-sheet">
 

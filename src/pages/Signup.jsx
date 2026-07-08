@@ -1,16 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
 import logo from '../logo/logo_color.png';
+
+const COMMON_SCHOOLS = [
+  '南京市第一中学',
+  '北京师范大学附属中学',
+  '上海市格致中学',
+  '广州市执信中学',
+  '深圳市深圳中学',
+];
 
 export default function Signup() {
   const nav = useNavigate();
   const toasts = useToasts();
   const [form, setForm] = useState({ name: '', email: '', password: '', school: '', role: '1' });
   const [busy, setBusy] = useState(false);
+  const [schoolSuggestions, setSchoolSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  useEffect(() => {
+    async function loadSchools() {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('school_name')
+        .not('school_name', 'is', null)
+        .not('school_name', 'eq', '')
+        .limit(50);
+      if (!error) {
+        const schools = Array.from(new Set((data || []).map((p) => p.school_name)));
+        setSchoolSuggestions(schools);
+      }
+    }
+    loadSchools();
+  }, []);
+
+  function handleSchoolChange(e) {
+    const value = e.target.value;
+    set('school', value);
+    setShowSuggestions(value.length > 0);
+  }
+
+  function selectSchool(school) {
+    set('school', school);
+    setShowSuggestions(false);
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -54,8 +91,8 @@ export default function Signup() {
 
       toast(
         role >= 2
-          ? '老师账号已创建。你可以邀请学生，学生接受后即可看到他的学习数据。'
-          : '账号已创建，开始添加课程吧！',
+          ? '老师账号已创建 🎉\n现在可以向学生发送邀请，学生接受后即可看到他的学习数据。'
+          : '账号已创建 🎉\n开始添加你的课程大纲吧！',
         { kind: 'success' }
       );
       nav(role >= 2 ? '/mentor' : '/syllabus', { replace: true });
@@ -111,12 +148,14 @@ export default function Signup() {
           </div>
 
           {Number(form.role) === 1 && (
-            <div className="field">
+            <div className="field" style={{ position: 'relative' }}>
               <label>你的学校 <span style={{ color: 'var(--brand)' }}>*</span></label>
               <input
                 type="text" required
                 value={form.school}
-                onChange={(e) => set('school', e.target.value)}
+                onChange={handleSchoolChange}
+                onFocus={() => setShowSuggestions(form.school.length > 0)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                 placeholder="如：南京市第一中学"
               />
               <p style={{
@@ -125,6 +164,38 @@ export default function Signup() {
               }}>
                 同校同学可以看到彼此创建的课程大纲，省去重复录入。
               </p>
+              
+              {showSuggestions && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                  background: 'white', borderRadius: '10px',
+                  boxShadow: '0 4px 20px rgba(15,23,42,0.1)',
+                  border: '1px solid rgba(15,23,42,0.08)',
+                  zIndex: 100, maxHeight: '200px', overflowY: 'auto',
+                }}>
+                  {(schoolSuggestions.length > 0 ? schoolSuggestions : COMMON_SCHOOLS)
+                    .filter((s) => s.toLowerCase().includes(form.school.toLowerCase()))
+                    .slice(0, 8)
+                    .map((school) => (
+                      <button
+                        key={school}
+                        type="button"
+                        onClick={() => selectSchool(school)}
+                        style={{
+                          display: 'block', width: '100%',
+                          padding: '10px 14px', textAlign: 'left',
+                          fontSize: '13px', color: '#334155',
+                          background: 'transparent', border: 'none',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={(e) => e.target.style.background = 'rgba(99,102,241,0.06)'}
+                        onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                      >
+                        {school}
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
           )}
 

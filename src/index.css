@@ -346,6 +346,49 @@ body::after {
 }
 .record-form { display: flex; flex-direction: column; }
 
+.quick-actions {
+  margin-bottom: 16px;
+}
+.quick-actions-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.quick-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.4);
+  border: 1px solid rgba(255,255,255,0.4);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.quick-action-btn:active {
+  transform: scale(0.96);
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.2);
+}
+.quick-action-course {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.quick-action-form {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* —— 功能区块（区块间 24px 由 rec-block 控制）—— */
 .rec-block {
   margin-bottom: 24px;
@@ -1337,7 +1380,23 @@ textarea::placeholder { color: #9ca3af; }
     0 6px 14px rgba(193,39,45,0.10);
   font-weight: 600;
 }
-.m-nav-icon { display: inline-flex; color: inherit; }
+.m-nav-icon { display: inline-flex; color: inherit; position: relative; }
+.m-nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: #ef4444;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .m-nav-label {
   font-size: 11px;
   line-height: 1.2;
@@ -1409,7 +1468,23 @@ textarea::placeholder { color: #9ca3af; }
     0 1px 2px rgba(193,39,45,0.10);
   font-weight: 600;
 }
-.d-nav-icon { display: inline-flex; }
+.d-nav-icon { display: inline-flex; position: relative; }
+.d-nav-badge {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: #ef4444;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .d-right {
   display: flex; align-items: center; gap: 12px; flex-shrink: 0;
 }

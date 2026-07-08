@@ -776,11 +776,10 @@ function MonthlyBarsBlock({ sessions }) {
 }
 
 /* ================================================================
- *  区块 3：科目投入矩阵（横向滚动卡片）
+ *  区块 3：科目汇总卡片（高信息密度）
  * ================================================================ */
-function SubjectMatrixBlock({ sessions }) {
+function SubjectSummaryBlock({ sessions }) {
   const subjects = useMemo(() => {
-    // 本周（最近 7 天）
     const today = new Date();
     const weekSet = new Set();
     for (let i = 0; i < 7; i++) {
@@ -790,291 +789,199 @@ function SubjectMatrixBlock({ sessions }) {
 
     const bySubj = {};
     for (const s of sessions) {
-      if (!weekSet.has(s.date)) continue;
       const subj = s.subject || '未分类';
       const mins = s.duration_minutes || 0;
       const self = isSelfForm(s.form);
 
       bySubj[subj] = bySubj[subj] || {
         subject: subj,
-        total: 0,
-        review: { total: 0, self: 0 },
-        practice: { total: 0, self: 0 },
-        study: { total: 0, self: 0 },
+        totalMins: 0,
+        review: 0,
+        practice: 0,
+        study: 0,
+        self: 0,
+        scoreSum: 0,
+        scoreCount: 0,
+        weekMins: 0,
       };
 
-      bySubj[subj].total += mins;
-      if (s.category === 2) {
-        bySubj[subj].review.total += mins;
-        if (self) bySubj[subj].review.self += mins;
-      } else if (s.category === 3) {
-        bySubj[subj].practice.total += mins;
-        if (self) bySubj[subj].practice.self += mins;
-      } else if (s.category === 1) {
-        bySubj[subj].study.total += mins;
-        if (self) bySubj[subj].study.self += mins;
+      bySubj[subj].totalMins += mins;
+      if (weekSet.has(s.date)) bySubj[subj].weekMins += mins;
+      if (self) bySubj[subj].self += mins;
+      if (s.category === 2) bySubj[subj].review += mins;
+      else if (s.category === 3) bySubj[subj].practice += mins;
+      else if (s.category === 1) bySubj[subj].study += mins;
+      
+      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '' && !Number.isNaN(Number(s.score))) {
+        bySubj[subj].scoreSum += Number(s.score);
+        bySubj[subj].scoreCount += 1;
       }
     }
 
-    const arr = Object.values(bySubj)
-      .filter((x) => x.total > 0)
-      .sort((a, b) => b.total - a.total);
+    const arr = Object.values(bySubj).map((x) => ({
+      ...x,
+      avgScore: x.scoreCount > 0 ? x.scoreSum / x.scoreCount : 0,
+      grade: x.scoreCount > 0 ? avgScoreToGrade(x.scoreSum / x.scoreCount) : null,
+      selfRatio: x.totalMins > 0 ? x.self / x.totalMins : 0,
+    }));
 
-    // 最大总时长，用于条形相对长度
-    const maxTotal = arr.length > 0 ? Math.max(...arr.map((x) => x.total)) : 0;
-    for (const x of arr) x._maxTotal = maxTotal;
-
-    return arr;
+    return arr.sort((a, b) => b.totalMins - a.totalMins);
   }, [sessions]);
 
   if (subjects.length === 0) {
     return (
       <SectionShell>
-        <SectionTitle Icon={IconBookOpen} title="科目投入" subtitle="本周各科目学习·复习·练习 分解" color="#8b5cf6" />
+        <SectionTitle Icon={IconBookOpen} title="科目汇总" subtitle="各科目学习时长与评估" color="#8b5cf6" />
         <EmptyState />
       </SectionShell>
     );
   }
 
-  const colorSelfRatio = (ratio) => {
-    if (ratio > 0.7) return '#10b981';
-    if (ratio >= 0.3) return '#f59e0b';
-    return '#f43f5e';
-  };
+  const maxMins = Math.max(...subjects.map((s) => s.totalMins), 1);
 
   return (
     <SectionShell>
-      <SectionTitle Icon={IconBookOpen} title="科目投入" subtitle="本周各科目学习·复习·练习 分解" color="#8b5cf6" />
+      <SectionTitle Icon={IconBookOpen} title="科目汇总" subtitle="各科目学习时长与评估" color="#8b5cf6" />
 
       <div style={{
-        display: 'flex',
-        gap: '12px',
-        overflowX: 'auto',
-        paddingBottom: '8px',
-        scrollbarWidth: 'thin',
-        scrollSnapType: 'x mandatory',
+        background: 'rgba(255,255,255,0.4)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.4)',
+        borderRadius: '16px',
+        overflow: 'hidden',
       }}>
-        {subjects.map((subj, idx) => {
-          const totalSelf = subj.review.self + subj.practice.self + subj.study.self;
-          const selfRatio = subj.total > 0 ? totalSelf / subj.total : 0;
+        {/* 表头 */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 60px 60px 50px 40px',
+          gap: '8px',
+          padding: '10px 14px',
+          background: '#f1f5f9',
+          fontSize: '11px',
+          fontWeight: 600,
+          color: '#64748b',
+          borderBottom: '1px solid rgba(148,163,184,0.3)',
+        }}>
+          <div>科目</div>
+          <div style={{ textAlign: 'right' }}>本周</div>
+          <div style={{ textAlign: 'right' }}>总时长</div>
+          <div style={{ textAlign: 'right' }}>自主</div>
+          <div style={{ textAlign: 'center' }}>分数</div>
+        </div>
 
-          const rows = [
-            { key: 'review',  label: '复习', color: '#8b5cf6', data: subj.review },
-            { key: 'practice', label: '练习', color: '#0ea5e9', data: subj.practice },
-            { key: 'study',    label: '学习', color: '#10b981', data: subj.study },
-          ];
+        {/* 数据行 */}
+        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          {subjects.map((subj) => {
+            const grade = subj.grade;
+            const gradeColor = grade ? grade.color : '#94a3b8';
+            const selfColor = subj.selfRatio > 0.7 ? '#10b981' : subj.selfRatio >= 0.3 ? '#f59e0b' : '#f43f5e';
+            
+            const totalPct = (subj.totalMins / maxMins) * 100;
+            const reviewPct = subj.review > 0 ? (subj.review / subj.totalMins) * 100 : 0;
+            const practicePct = subj.practice > 0 ? (subj.practice / subj.totalMins) * 100 : 0;
+            const studyPct = subj.study > 0 ? (subj.study / subj.totalMins) * 100 : 0;
 
-          return (
-            <div key={subj.subject} style={{
-              flex: '0 0 auto',
-              width: '280px',
-              background: 'rgba(255,255,255,0.4)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255,255,255,0.4)',
-              borderRadius: '16px',
-              padding: '20px',
-              scrollSnapAlign: 'start',
-              display: 'flex',
-              flexDirection: 'column',
-            }}>
-              {/* 科目名 + 总时长 */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '16px' }}>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>{subj.subject}</span>
-                <TimeAmount minutes={subj.total} scale={0.9} />
-              </div>
-
-              {/* 三行 行为类型 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {rows.map((row) => {
-                  const selfPct = subj.total > 0 ? Math.round((row.data.self / subj._maxTotal) * 100) : 0;
-                  const totalPct = subj.total > 0 ? Math.round((row.data.total / subj._maxTotal) * 100) : 0;
-                  return (
-                    <div key={row.key}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '4px',
-                      }}>
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontSize: '12px',
-                          color: row.data.total > 0 ? '#475569' : '#94a3b8',
-                        }}>
-                          <span style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '3px',
-                            background: row.color,
-                            display: 'inline-block',
-                          }} />
-                          {row.label}
-                        </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4 }}>
-                          <TimeAmount minutes={row.data.self} scale={0.4} />
-                          <span style={{ fontSize: '11px', color: '#94a3b8' }}>/</span>
-                          <TimeAmount minutes={row.data.total} scale={0.4} />
-                        </span>
-                      </div>
-                      {/* 背景轨道 */}
-                      <div style={{
-                        background: '#e5e7eb',
-                        borderRadius: '999px',
-                        height: '8px',
-                        width: '100%',
-                        overflow: 'hidden',
-                        position: 'relative',
-                      }}>
-                        {/* 非自主部分（同色浅色） */}
-                        {totalPct > 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            left: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: totalPct + '%',
-                            background: row.color + '33',
-                          }} />
-                        )}
-                        {/* 自主部分（实色，覆盖在前） */}
-                        {selfPct > 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            left: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: selfPct + '%',
-                            background: row.color,
-                            borderRadius: '999px',
-                          }} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* 自主占比 */}
-              <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed rgba(148,163,184,0.3)' }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                }}>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>自主占比</span>
-                  <span style={{
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    color: colorSelfRatio(selfRatio),
+            return (
+              <div key={subj.subject} style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 60px 60px 50px 40px',
+                gap: '8px',
+                padding: '10px 14px',
+                borderBottom: '1px solid rgba(148,163,184,0.15)',
+                alignItems: 'center',
+                transition: 'background 0.15s',
+              }}>
+                {/* 科目名 + 行为分布 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                    {subj.subject}
+                  </div>
+                  {/* 迷你堆叠条 */}
+                  <div style={{
+                    display: 'flex',
+                    height: '4px',
+                    borderRadius: '999px',
+                    overflow: 'hidden',
+                    background: '#e5e7eb',
                   }}>
-                    {Math.round(selfRatio * 100)}%
+                    <div style={{
+                      width: studyPct + '%',
+                      background: '#10b981',
+                    }} />
+                    <div style={{
+                      width: reviewPct + '%',
+                      background: '#8b5cf6',
+                    }} />
+                    <div style={{
+                      width: practicePct + '%',
+                      background: '#0ea5e9',
+                    }} />
+                  </div>
+                </div>
+
+                {/* 本周时长 */}
+                <div style={{ textAlign: 'right' }}>
+                  <TimeAmount minutes={subj.weekMins} scale={0.5} />
+                </div>
+
+                {/* 总时长 */}
+                <div style={{ textAlign: 'right' }}>
+                  <TimeAmount minutes={subj.totalMins} scale={0.5} />
+                </div>
+
+                {/* 自主占比 */}
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    color: selfColor,
+                  }}>
+                    {Math.round(subj.selfRatio * 100)}%
+                  </span>
+                </div>
+
+                {/* 分数等级 */}
+                <div style={{ textAlign: 'center' }}>
+                  <span style={{
+                    fontSize: '16px',
+                    fontWeight: 800,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    color: gradeColor,
+                  }}>
+                    {grade ? grade.grade : '—'}
                   </span>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </SectionShell>
-  );
-}
+            );
+          })}
+        </div>
 
-/* ================================================================
- *  区块 4：客观评估平均分
- * ================================================================ */
-function ObjectiveScoresBlock({ sessions }) {
-  const rows = useMemo(() => {
-    // 所有 eval_type 等于 2（客观评估） 且 score 非空的记录聚合。
-    // 注意：Postgres smallint 在 Supabase.js 中可能是 number / string；
-    //       score 同样可能是 string/null。用 Number() 宽松比对。
-    const by = {};
-    for (const s of sessions) {
-      if (Number(s.eval_type) !== 2) continue;
-      if (s.score == null || s.score === '' || Number.isNaN(Number(s.score))) continue;
-      const subj = s.subject || '未分类';
-      by[subj] = by[subj] || { subject: subj, scoreSum: 0, count: 0 };
-      by[subj].scoreSum += Number(s.score);
-      by[subj].count += 1;
-    }
-
-    const arr = Object.values(by).map((x) => ({
-      ...x,
-      avg: x.count > 0 ? x.scoreSum / x.count : 0,
-      grade: x.count > 0 ? avgScoreToGrade(x.scoreSum / x.count) : null,
-    }));
-
-    // 同时也收录没有客观评估但在 sessions 中出现过的科目 → 显示占位
-    // 为简洁起见，这里只展示有客观评估的科目。
-    // 若完全没有客观评估 → EmptyState
-    return arr.sort((a, b) => b.avg - a.avg);
-  }, [sessions]);
-
-  if (rows.length === 0) {
-    return (
-      <SectionShell>
-        <SectionTitle Icon={IconTarget} title="客观评估" subtitle="各科目客观平均分" color="#334155" />
-        <EmptyState />
-      </SectionShell>
-    );
-  }
-
-  return (
-    <SectionShell>
-      <SectionTitle Icon={IconTarget} title="客观评估" subtitle="各科目客观平均分" color="#334155" />
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-        gap: '12px',
-      }}>
-        {rows.map((r) => {
-          const grade = r.grade;
-          const color = grade ? grade.color : '#94a3b8';
-          return (
-            <div key={r.subject} style={{
-              background: color + '14',
-              border: '1px solid ' + color + '40',
-              borderRadius: '16px',
-              padding: '14px 10px 12px',
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '4px',
-            }}>
-              <div style={{
-                fontSize: '12px',
-                fontWeight: 500,
-                color: '#334155',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                maxWidth: '100%',
-              }}>{r.subject}</div>
-              <div style={{
-                fontSize: '32px',
-                lineHeight: 1,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                color: color,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                marginTop: '4px',
-              }}>
-                {grade ? grade.grade : '—'}
-              </div>
-              <div style={{
-                fontSize: '10px',
-                color: '#94a3b8',
-                marginTop: '2px',
-              }}>{r.count} 次 · 平均 {Math.round(r.avg)}</div>
-            </div>
-          );
-        })}
+        {/* 图例 */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '16px',
+          padding: '10px 14px',
+          background: '#f8fafc',
+          fontSize: '10px',
+          color: '#64748b',
+          borderTop: '1px solid rgba(148,163,184,0.2)',
+        }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: '#10b981' }} />
+            学习
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: '#8b5cf6' }} />
+            复习
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: '#0ea5e9' }} />
+            练习
+          </span>
+        </div>
       </div>
     </SectionShell>
   );
@@ -1184,8 +1091,7 @@ export default function Review() {
       <StreakBlock sessions={filteredSessions} />
       <EfficiencyBlock sessions={filteredSessions} />
       <MonthlyBarsBlock sessions={filteredSessions} />
-      <SubjectMatrixBlock sessions={filteredSessions} />
-      <ObjectiveScoresBlock sessions={filteredSessions} />
+      <SubjectSummaryBlock sessions={filteredSessions} />
     </div>
   );
 }
@@ -1313,8 +1219,7 @@ export function ReviewDashboard({ sessions, footerNote }) {
       <StreakBlock sessions={sessions} />
       <EfficiencyBlock sessions={sessions} />
       <MonthlyBarsBlock sessions={sessions} />
-      <SubjectMatrixBlock sessions={sessions} />
-      <ObjectiveScoresBlock sessions={sessions} />
+      <SubjectSummaryBlock sessions={sessions} />
       <SuggestionsBlock sessions={sessions} />
       {footerNote && (
         <div style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '12px' }}>

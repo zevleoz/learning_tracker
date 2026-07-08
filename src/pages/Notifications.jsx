@@ -13,7 +13,7 @@ export default function Notifications() {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       setUser(u);
-      await loadInvites();
+      await loadInvites(u.id);
       startRealtime(u.id);
     })();
 
@@ -22,14 +22,15 @@ export default function Notifications() {
     };
   }, []);
 
-  async function loadInvites() {
-    if (!user) return;
+  async function loadInvites(studentId) {
+    if (!studentId && !user) return;
+    const id = studentId || user.id;
     setLoading(true);
     try {
       const { data: connData, error: connError } = await supabase
         .from('teacher_student_connections')
         .select('id, teacher_id, status, note, created_at, updated_at')
-        .eq('student_id', user.id);
+        .eq('student_id', id);
       
       if (connError) {
         console.error('Connection query error:', connError);
@@ -91,27 +92,36 @@ export default function Notifications() {
   }
 
   async function updateStatus(id, status) {
+    if (!user) return;
     const { error } = await supabase
       .from('teacher_student_connections')
       .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) return toast(error.message, { kind: 'error' });
+      .eq('id', id)
+      .eq('student_id', user.id);
+    if (error) {
+      console.error('updateStatus error:', error);
+      return toast(`操作失败：${error.message}`, { kind: 'error' });
+    }
     toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据 🎉' : '已拒绝邀请', { kind: 'success' });
   }
 
   async function disconnect(id) {
+    if (!user) return;
     if (!confirm('确定要断开与这位老师的连接吗？断开后老师将无法继续查看你的学习数据。')) return;
     const { error } = await supabase
       .from('teacher_student_connections')
       .update({ status: 2, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) return toast(error.message, { kind: 'error' });
+      .eq('id', id)
+      .eq('student_id', user.id);
+    if (error) {
+      console.error('disconnect error:', error);
+      return toast(`操作失败：${error.message}`, { kind: 'error' });
+    }
     toast('已断开连接', { kind: 'success' });
   }
 
   const pending = invites.filter((i) => i.status === 0);
   const accepted = invites.filter((i) => i.status === 1);
-  const rejected = invites.filter((i) => i.status === 2);
 
   return (
     <div style={{ padding: '16px 16px 120px', maxWidth: 760, margin: '0 auto', fontSize: 13, color: '#334155' }}>
@@ -124,7 +134,7 @@ export default function Notifications() {
 
       {loading && <div style={{ marginTop: 20, color: '#94a3b8' }}>加载中…</div>}
 
-      {!loading && pending.length === 0 && accepted.length === 0 && rejected.length === 0 && (
+      {!loading && pending.length === 0 && accepted.length === 0 && (
         <Card style={{ marginTop: 16, textAlign: 'center' }}>
           <div style={{ fontSize: 14, marginBottom: 4 }}>还没有邀请。</div>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>老师邀请你后，你将在这里看到并选择接受/拒绝。</div>
@@ -168,28 +178,6 @@ export default function Notifications() {
                   background: 'rgba(255,255,255,0.8)', cursor: 'pointer',
                 }}>断开</button>
               </div>
-            </div>
-          ))}
-        </Section>
-      )}
-
-      {rejected.length > 0 && (
-        <Section title="已拒绝" count={rejected.length} hint="老师可以再次发起邀请。">
-          {rejected.map((c) => (
-            <div key={c.id} style={{
-              background: '#fff', border: '1px solid rgba(239,68,68,0.18)',
-              padding: '10px 12px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontWeight: 500, color: '#334155' }}>{c.teacher_name}</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                  {c.status === 2 && c.updated_at ? `拒绝于 ${String(c.updated_at).slice(0, 10)}` : '已拒绝'}
-                </div>
-              </div>
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
-                color: '#b91c1c', background: '#fecaca',
-              }}>已拒绝</span>
             </div>
           ))}
         </Section>

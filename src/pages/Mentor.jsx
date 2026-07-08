@@ -44,6 +44,9 @@ export default function Mentor() {
   }, []);
 
   async function loadData(teacherId) {
+    console.log('===== 老师端加载数据 =====');
+    console.log('teacherId:', teacherId);
+
     const [pRes, cRes, sRes] = await Promise.all([
       supabase
         .from('profiles')
@@ -63,6 +66,15 @@ export default function Mentor() {
         .not('school_name', 'eq', ''),
     ]);
 
+    console.log('profiles 查询结果:', pRes);
+    console.log('connections 查询结果:', cRes);
+    console.log('schools 查询结果:', sRes);
+
+    if (pRes.error) {
+      console.error('profiles 查询错误:', pRes.error);
+      setDeployCheck({ ok: false, message: `无法获取学生列表：${pRes.error.message}` });
+    }
+
     if (cRes && cRes.error) {
       const code = cRes.error.code || '';
       const hint = code === '42P01' || /relation.*does not exist/i.test(cRes.error.message)
@@ -75,6 +87,7 @@ export default function Mentor() {
         .select('id, role, full_name')
         .eq('id', user.id)
         .single();
+      console.log('老师身份查询结果:', pRes2);
       if (pRes2.error) {
         setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）` });
       } else if (Number(pRes2.data.role) < 2) {

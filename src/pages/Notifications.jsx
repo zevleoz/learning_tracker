@@ -26,24 +26,45 @@ export default function Notifications() {
     if (!user) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: connData, error: connError } = await supabase
         .from('teacher_student_connections')
         .select('id, teacher_id, status, note, created_at, updated_at')
         .eq('student_id', user.id);
-      if (error) throw error;
+      
+      if (connError) {
+        console.error('Connection query error:', connError);
+        toast(`加载邀请失败：${connError.message}`, { kind: 'error' });
+        setLoading(false);
+        return;
+      }
 
-      const teacherIds = Array.from(new Set((data || []).map((c) => c.teacher_id)));
-      const t = teacherIds.length > 0
-        ? await supabase.from('profiles').select('id, full_name').in('id', teacherIds)
-        : { data: [] };
-      const names = Object.fromEntries((t.data || []).map((p) => [p.id, p.full_name]));
+      console.log('Connection data:', connData);
 
-      const decorated = (data || []).map((c) => ({
+      const teacherIds = Array.from(new Set((connData || []).map((c) => c.teacher_id)));
+      console.log('Teacher IDs:', teacherIds);
+
+      let names = {};
+      if (teacherIds.length > 0) {
+        const { data: profData, error: profError } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', teacherIds);
+        
+        if (profError) {
+          console.error('Profiles query error:', profError);
+          toast('无法获取老师信息', { kind: 'warning' });
+        } else {
+          names = Object.fromEntries((profData || []).map((p) => [p.id, p.full_name]));
+        }
+      }
+
+      const decorated = (connData || []).map((c) => ({
         ...c,
         teacher_name: names[c.teacher_id] || '(未命名老师)',
       }));
       setInvites(decorated);
     } catch (err) {
+      console.error('loadInvites error:', err);
       toast(err.message || '加载邀请失败', { kind: 'error' });
     } finally {
       setLoading(false);

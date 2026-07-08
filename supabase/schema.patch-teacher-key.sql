@@ -4,10 +4,15 @@
 
 -- 修改 profiles select 策略：学生可以查看给自己发过邀请或已连接的老师
 drop policy if exists profiles_select_self on public.profiles;
-create policy profiles_select_self on public.profiles
+drop policy if exists profiles_select_self_or_mentor on public.profiles;
+
+create policy profiles_select_self_or_mentor_or_connected on public.profiles
   for select using (
+    -- 本人可见
     id = auth.uid()
+    -- 老师可见所有人
     or public.is_mentor()
+    -- 学生可见给自己发过邀请或已连接的老师
     or exists (
       select 1 from public.teacher_student_connections c
       where c.student_id = auth.uid()

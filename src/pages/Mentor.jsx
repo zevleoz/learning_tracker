@@ -245,24 +245,7 @@ export default function Mentor() {
                 </div>
               </div>
 
-              <div className="mentor-stats-row">
-                <div className="mentor-stat-card">
-                  <div className="mentor-stat-value">{stats.total}</div>
-                  <div className="mentor-stat-label">学生总数</div>
-                </div>
-                <div className="mentor-stat-card mentor-stat-success">
-                  <div className="mentor-stat-value">{stats.connected}</div>
-                  <div className="mentor-stat-label">已连接</div>
-                </div>
-                <div className="mentor-stat-card mentor-stat-warning">
-                  <div className="mentor-stat-value">{stats.invited}</div>
-                  <div className="mentor-stat-label">邀请中</div>
-                </div>
-                <div className="mentor-stat-card mentor-stat-danger">
-                  <div className="mentor-stat-value">{stats.rejected}</div>
-                  <div className="mentor-stat-label">被拒绝</div>
-                </div>
-              </div>
+
 
               <div className="mentor-main-layout">
                 <div className="mentor-student-list-panel">

@@ -6,21 +6,13 @@
  *   - JSON（Supabase REST）：网络走网络层，不缓存（避免敏感信息留在本地）
  * ========================================================================= */
 
-const CACHE_NAME = "gpa-tracker-v1";
+const CACHE_NAME = "gpa-tracker-v2";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
-  "./login.html",
-  "./signup.html",
-  "./checkin.html",
-  "./dashboard.html",
-  "./mentor.html",
-  "./css/app.css",
-  "./js/app.config.js",
-  "./js/app.supabase.js",
-  "./js/app.ui.js",
   "./manifest.json",
-  "./icon.svg",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -86,8 +78,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification("GPA Tracker", {
       body: payload,
-      icon: "./icon.svg",
-      data: { url: "./checkin.html" },
+      icon: "./icons/icon-192.png",
+      data: { url: "./index.html" },
     })
   );
 });

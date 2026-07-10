@@ -108,6 +108,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith(PROXY_PREFIX):
             self._proxy("GET")
         else:
+            path = self.path.lstrip("/")
+            if not path or not os.path.exists(path):
+                self.path = "index.html"
             super().do_GET()
 
     def do_POST(self):

@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
+const SELF_FORMS = ['自主预习', '自主复习', '自主练习'];
+
+function isSelfForm(form) {
+  return SELF_FORMS.includes(String(form || ''));
+}
+
 function fmtMinutes(mins) {
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
@@ -42,7 +48,7 @@ function StudentOverviewCard({ student, sessions }) {
         scoreCount++;
       }
       const mins = s.duration_minutes || 0;
-      if (s.form && s.form.includes('自主')) {
+      if (isSelfForm(s.form)) {
         selfMins += mins;
       }
       if (s.category === 1) studyMins += mins;
@@ -450,7 +456,7 @@ function LearningBehaviorAnalysis({ sessions }) {
       if (s.category === 1) studyMins += mins;
       else if (s.category === 2) reviewMins += mins;
       else if (s.category === 3) practiceMins += mins;
-      if (s.form && s.form.includes('自主')) {
+      if (isSelfForm(s.form)) {
         selfMins += mins;
       } else {
         externalMins += mins;
@@ -779,7 +785,7 @@ function PainPointAnalysis({ sessions }) {
     
     let selfMins = 0;
     for (const s of sessions) {
-      if (s.form === '自主学习' || s.form === '自主复习' || s.form === '自主练习') {
+      if (isSelfForm(s.form)) {
         selfMins += s.duration_minutes || 0;
       }
     }

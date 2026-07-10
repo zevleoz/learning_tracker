@@ -124,12 +124,12 @@ function TimeAmount({ minutes, scale = 1 }) {
 }
 
 
+const SELF_FORMS = ['自主预习', '自主复习', '自主练习'];
+
 function isSelfForm(form) {
-  // form: varchar(50)。自主 = 2,3,4,5,6 对应文本里含 "自主预习/自主复习/自主练习/校外线上/校外线下"
-  // 同时兼容旧 smallint 值
-  if (typeof form === 'number') return [2, 3, 4, 5, 6].includes(form);
+  if (typeof form === 'number') return [2, 3, 4].includes(form);
   const s = String(form || '');
-  return s.includes('自主') || s.includes('校外');
+  return SELF_FORMS.includes(s);
 }
 
 /* ================================================================

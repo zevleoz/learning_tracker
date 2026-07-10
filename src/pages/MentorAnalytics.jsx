@@ -42,7 +42,7 @@ function StudentOverviewCard({ student, sessions }) {
         scoreCount++;
       }
       const mins = s.duration_minutes || 0;
-      if (s.form === '自主学习' || s.form === '自主复习' || s.form === '自主练习') {
+      if (s.form && s.form.includes('自主')) {
         selfMins += mins;
       }
       if (s.category === 1) studyMins += mins;
@@ -208,7 +208,7 @@ function SubjectComparisonMatrix({ sessions }) {
         bySubj[subj].scoreSum += Number(s.score);
         bySubj[subj].scoreCount++;
       }
-      if (s.form === '自主学习' || s.form === '自主复习' || s.form === '自主练习') {
+      if (s.form && s.form.includes('自主')) {
         bySubj[subj].selfMins += s.duration_minutes || 0;
       }
       if (s.category === 1) bySubj[subj].studyMins += s.duration_minutes || 0;
@@ -450,7 +450,7 @@ function LearningBehaviorAnalysis({ sessions }) {
       if (s.category === 1) studyMins += mins;
       else if (s.category === 2) reviewMins += mins;
       else if (s.category === 3) practiceMins += mins;
-      if (s.form === '自主学习' || s.form === '自主复习' || s.form === '自主练习') {
+      if (s.form && s.form.includes('自主')) {
         selfMins += mins;
       } else {
         externalMins += mins;

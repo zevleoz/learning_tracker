@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
@@ -63,6 +64,15 @@ const GRADE_RANGES = {
   'D':  '63–66',
   'D-': '60–62',
   'F':  '0–59',
+};
+
+const SUBJECT_COLORS = {
+  '数学': { bg: 'rgba(99, 102, 241, 0.15)', text: '#4338ca', border: 'rgba(99, 102, 241, 0.3)' },
+  '物理': { bg: 'rgba(34, 197, 94, 0.15)', text: '#166534', border: 'rgba(34, 197, 94, 0.3)' },
+  '英语': { bg: 'rgba(249, 115, 22, 0.15)', text: '#9a3412', border: 'rgba(249, 115, 22, 0.3)' },
+  '历史': { bg: 'rgba(168, 85, 247, 0.15)', text: '#7e22ce', border: 'rgba(168, 85, 247, 0.3)' },
+  '化学': { bg: 'rgba(236, 72, 153, 0.15)', text: '#be185d', border: 'rgba(236, 72, 153, 0.3)' },
+  '生物': { bg: 'rgba(6, 182, 212, 0.15)', text: '#0891b2', border: 'rgba(6, 182, 212, 0.3)' },
 };
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -168,10 +178,15 @@ export default function LearningPage() {
   /* --- 备注 --- */
   const [notes, setNotes] = useState('');
 
+  /* --- 错误状态 --- */
+  const [errors, setErrors] = useState({});
+
   /* --- 提交状态 / 最近记录 --- */
   const [busy, setBusy] = useState(false);
   const [recent, setRecent] = useState([]);
   const [editingSessionId, setEditingSessionId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [loadingCourses, setLoadingCourses] = useState(true);
 
   /* ========== 载入：课程 tree ========== */
   useEffect(() => {
@@ -182,7 +197,7 @@ export default function LearningPage() {
         .select('id, name, subject, chapters(id, name, units(id, name))')
         .eq('created_by', user.id)
         .order('created_at', { ascending: false });
-      if (error) { console.error(error); return; }
+      if (error) { console.error(error); }
       const list = (data || []).map(c => ({
         ...c,
         chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
@@ -190,6 +205,7 @@ export default function LearningPage() {
       }));
       setCourses(list);
       if (list.length) setCourseId(list[0].id);
+      setLoadingCourses(false);
     })();
   }, [user]);
 
@@ -292,19 +308,28 @@ export default function LearningPage() {
   /* ========== 提交 ========== */
   async function onSubmit(e) {
     e.preventDefault();
-    if (!courseId || !chapterId || !unitId) { alert('请选择课程 / 章节 / 单元'); return; }
-    if (!startStr || !endStr) { alert('请填写开始和结束时间'); return; }
-    if (!formValue) { alert('请选择学习行为形式'); return; }
+    setErrors({});
+
+    const newErrors = {};
+    if (!courseId) newErrors.course = '请选择课程';
+    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
+    if (!formValue) newErrors.form = '请选择学习行为形式';
 
     const duration = computeDuration();
-    if (!duration || duration <= 0) { alert('结束时间需晚于开始时间'); return; }
+    if ((startStr && endStr) && (!duration || duration <= 0)) {
+      newErrors.time = '结束时间需晚于开始时间';
+    }
 
-    // 组装 payload：根据评估方式只传对应字段，避免触发 check 约束
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
     const payload = {
       student_id: user.id,
       course_id: courseId,
-      chapter_id: chapterId,
-      unit_id: unitId,
+      chapter_id: chapterId || null,
+      unit_id: unitId || null,
       category,
       form: formValue,
       eval_type: evalType,
@@ -323,7 +348,8 @@ export default function LearningPage() {
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
 
-      // 重置表单（保留课程选择）
+      toast('记录已保存', { kind: 'success' });
+
       const d = new Date();
       setStartStr(toTimeStr(d));
       setEndStr('');
@@ -332,7 +358,6 @@ export default function LearningPage() {
       setSubjIdx(3);
       setObjIdx(9);
 
-      // 刷新列表
       const { data } = await supabase
         .from('learning_sessions')
         .select(`
@@ -350,18 +375,10 @@ export default function LearningPage() {
       setRecent(data || []);
     } catch (err) {
       const msg = err.message || '保存失败';
-      const details = err.details ? `\n\n详情: ${err.details}` : '';
-      const code = err.code ? `\n代码: ${err.code}` : '';
       if (msg.includes('self_rating') || msg.includes('not-null') || msg.includes('constraint')) {
-        alert(
-          '数据库字段需要调整：\n\n' +
-          '请在 Supabase SQL Editor 执行这两条：\n\n' +
-          'alter table public.learning_sessions alter column self_rating drop not null;\n' +
-          'alter table public.learning_sessions alter column grade_label drop not null;\n\n' +
-          msg + details + code
-        );
+        toast('数据库配置需要更新', { kind: 'error' });
       } else {
-        alert(msg + details + code);
+        toast(msg, { kind: 'error' });
       }
     } finally {
       setBusy(false);
@@ -410,17 +427,27 @@ export default function LearningPage() {
   }
 
   async function onSaveEdit() {
-    if (!courseId || !chapterId || !unitId) { alert('请选择课程 / 章节 / 单元'); return; }
-    if (!startStr || !endStr) { alert('请填写开始和结束时间'); return; }
-    if (!formValue) { alert('请选择学习行为形式'); return; }
+    setErrors({});
+
+    const newErrors = {};
+    if (!courseId) newErrors.course = '请选择课程';
+    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
+    if (!formValue) newErrors.form = '请选择学习行为形式';
 
     const duration = computeDuration();
-    if (!duration || duration <= 0) { alert('结束时间需晚于开始时间'); return; }
+    if ((startStr && endStr) && (!duration || duration <= 0)) {
+      newErrors.time = '结束时间需晚于开始时间';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
 
     const payload = {
       course_id: courseId,
-      chapter_id: chapterId,
-      unit_id: unitId,
+      chapter_id: chapterId || null,
+      unit_id: unitId || null,
       category,
       form: formValue,
       eval_type: evalType,
@@ -443,7 +470,6 @@ export default function LearningPage() {
       if (error) throw error;
       toast('已更新', { kind: 'success' });
 
-      // 重新拉取列表
       const { data } = await supabase
         .from('learning_sessions')
         .select(`
@@ -461,15 +487,19 @@ export default function LearningPage() {
       setRecent(data || []);
       setEditingSessionId(null);
     } catch (err) {
-      alert(err.message || '保存失败');
+      toast(err.message || '保存失败', { kind: 'error' });
     } finally {
       setBusy(false);
     }
   }
 
   /* ========== 删除（软删除）========== */
-  async function onDelete(r) {
-    if (!confirm('确认删除该学习记录？')) return;
+  function onDeleteClick(r) {
+    setDeletingId(r.id);
+  }
+
+  async function onConfirmDelete(r) {
+    setDeletingId(null);
     setBusy(true);
     try {
       const { error } = await supabase
@@ -480,10 +510,14 @@ export default function LearningPage() {
       toast('已删除', { kind: 'success' });
       setRecent(prev => prev.filter(x => x.id !== r.id));
     } catch (err) {
-      alert(err.message || '删除失败');
+      toast(err.message || '删除失败', { kind: 'error' });
     } finally {
       setBusy(false);
     }
+  }
+
+  function onCancelDelete() {
+    setDeletingId(null);
   }
 
   /* ========== helper 渲染 ========== */
@@ -516,7 +550,7 @@ export default function LearningPage() {
         <div className="quick-actions">
           <div className="quick-actions-label">快速记录</div>
           <div className="quick-actions-grid">
-            {courses.slice(0, 4).map((course) => (
+            {courses.slice(0, 6).map((course) => (
               <button
                 key={course.id}
                 className="quick-action-btn"
@@ -532,285 +566,355 @@ export default function LearningPage() {
                 <span className="quick-action-form">自主预习</span>
               </button>
             ))}
+            {courses.length > 6 && (
+              <button
+                className="quick-action-btn quick-action-more"
+                onClick={() => {
+                  if (courses.length > 6) {
+                    setCourseId(courses[6].id);
+                  }
+                  setStartStr(toTimeStr(new Date()));
+                }}
+              >
+                <span className="quick-action-course">更多课程</span>
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {/* ====== 表单卡片 ====== */}
       <div className="glass-sheet record-sheet">
-
-        {/* ---- 1) 课程 / 章节 / 单元 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">课程 / 章节 / 单元</div>
-          <div className="three-col">
-            <div className="field">
-              <label>课程</label>
-              <select className="input input-strong"
-                value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
-                disabled={busy}>
-                <option value="">请选择</option>
-                {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-
-            <div className="field">
-              <label>章节</label>
-              <select className="input input-strong"
-                value={chapterId}
-                onChange={(e) => setChapterId(e.target.value)}
-                disabled={busy || !activeCourse}>
-                <option value="">{activeCourse ? '请选择' : '先选课程'}</option>
-                {activeCourse?.chapters?.map(ch => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
-              </select>
-            </div>
-
-            <div className="field">
-              <label>单元</label>
-              <select className="input input-strong"
-                value={unitId}
-                onChange={(e) => setUnitId(e.target.value)}
-                disabled={busy || !activeChapter}>
-                <option value="">{activeChapter ? '请选择' : '先选章节'}</option>
-                {activeChapter?.units?.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </div>
+        {editingSessionId && (
+          <div className="edit-indicator">
+            <span className="edit-indicator-icon">✏️</span>
+            <span className="edit-indicator-text">编辑中</span>
+            <button className="edit-indicator-close" onClick={onCancelEdit}>✕</button>
           </div>
-        </div>
+        )}
 
-        {/* ---- 2) 日期 + 开始/结束时间 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">时间</div>
-          <div className="three-col">
-            <div className="field">
-              <label>日期</label>
-              <input type="date" className="input input-strong"
-                value={dateStr}
-                onChange={(e) => setDateStr(e.target.value)}
-                disabled={busy} />
-            </div>
-            <div className="field">
-              <label>开始</label>
-              <input type="time" className="input input-strong"
-                value={startStr}
-                onChange={(e) => setStartStr(e.target.value)}
-                disabled={busy} />
-            </div>
-            <div className="field">
-              <label>结束</label>
-              <input type="time" className="input input-strong"
-                value={endStr}
-                onChange={(e) => setEndStr(e.target.value)}
-                disabled={busy} />
-            </div>
+        {loadingCourses ? (
+          <div className="loading-state">
+            <div className="loading-spinner"></div>
+            <span>加载课程中…</span>
           </div>
-          {autoDur ? (
-            <div className="rec-hint">系统自动记录用时：<b>{autoDur}</b> 分钟</div>
-          ) : (
-            <div className="rec-hint rec-hint-dim">填写开始和结束后自动计算用时</div>
-          )}
-        </div>
-
-        {/* ---- 3) 学习行为类别 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">学习行为类别</div>
-          <div className="btn-row">
-            {CATEGORY_OPTS.map(opt => (
-              <button
-                key={opt.key}
-                type="button"
-                className={'seg-btn' + (category === opt.key ? ' active' : '')}
-                onClick={() => setCategory(opt.key)}
-                disabled={busy}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ---- 4) 学习行为形式 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">学习行为形式</div>
-          {!addingCustom ? (
-            <>
-              <select className="input input-strong"
-                value={formValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === ADD_OTHER_SENTINEL) { setAddingCustom(true); return; }
-                  setFormValue(v);
-                }}
-                disabled={busy}>
-                <option value="">请选择</option>
-                {formOptions.map(n => <option key={n} value={n}>{n}</option>)}
-                <option value={ADD_OTHER_SENTINEL}>＋ 其他 / 自定义…</option>
-              </select>
-            </>
-          ) : (
-            <div className="custom-add-row">
-              <input type="text" className="input input-strong"
-                placeholder="填写一个新的形式名称，如：家教辅导"
-                value={customInput}
-                onChange={(e) => setCustomInput(e.target.value)}
-                disabled={busy}
-                autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddCustomForm(); } }}
-              />
-              <button type="button" className="btn btn-ghost" onClick={onAddCustomForm} disabled={busy}>添加</button>
-              <button type="button" className="btn btn-ghost btn-ghost-dim" onClick={() => { setAddingCustom(false); setCustomInput(''); }} disabled={busy}>取消</button>
-            </div>
-          )}
-        </div>
-
-        {/* ---- 5) 评估方式 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">评估方式</div>
-          <div className="btn-row">
-            <button type="button"
-              className={'seg-btn' + (evalType === 1 ? ' active' : '')}
-              onClick={() => setEvalType(1)} disabled={busy}>主观评估</button>
-            <button type="button"
-              className={'seg-btn' + (evalType === 2 ? ' active' : '')}
-              onClick={() => setEvalType(2)} disabled={busy}>客观评估</button>
-          </div>
-
-          {evalType === 1 ? (
-            <GlassRail
-              steps={SUBJECTIVE_STEPS}
-              idx={subjIdx}
-              onChange={setSubjIdx}
-              disabled={busy}
-              labelFn={(s) => s.label}
-            />
-          ) : (
-            <div>
-              <GlassRail
-                steps={OBJECTIVE_STEPS}
-                idx={objIdx}
-                onChange={setObjIdx}
-                disabled={busy}
-                labelFn={(s) => s.label}
-              />
-              {/* letter grade → 百分制 参考表 */}
-              <div className="grade-legend" style={{
-                marginTop: 12,
-                padding: '10px 12px',
-                borderRadius: 12,
-                background: 'rgba(99,102,241,0.05)',
-                border: '1px solid rgba(99,102,241,0.18)',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
-                rowGap: 4,
-                columnGap: 10,
-                fontSize: 12,
-                color: '#334155',
-              }}>
-                {/* 首行标题，4 列合并 */}
-                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
-                  letter grade 对应的百分制区间（参考）
+        ) : (
+          <>
+            {/* ---- 1) 课程 / 章节 / 单元 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">课程 / 章节 / 单元</div>
+              <div className="three-col">
+                <div className="field">
+                  <label>课程</label>
+                  <select className={`input input-strong ${errors.course ? 'input-error' : ''}`}
+                    value={courseId}
+                    onChange={(e) => setCourseId(e.target.value)}
+                    disabled={busy}>
+                    <option value="">请选择</option>
+                    {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  {errors.course && <span className="field-error">{errors.course}</span>}
                 </div>
-                {['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F'].map(g => (
-                  <div key={g} style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    padding: '2px 4px',
-                    background: g === OBJECTIVE_STEPS[objIdx]?.label
-                      ? 'rgba(99,102,241,0.18)'
-                      : 'transparent',
-                    borderRadius: 6,
-                  }}>
-                    <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label ? '#4338ca' : '#475569' }}>
-                      {g}
-                    </span>
-                    <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-                      {GRADE_RANGES[g]}
-                    </span>
-                  </div>
+
+                <div className="field">
+                  <label>章节 <span className="field-optional">可选</span></label>
+                  <select className="input input-strong"
+                    value={chapterId}
+                    onChange={(e) => setChapterId(e.target.value)}
+                    disabled={busy || !activeCourse}>
+                    <option value="">{activeCourse ? '不选' : '先选课程'}</option>
+                    {activeCourse?.chapters?.map(ch => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>单元 <span className="field-optional">可选</span></label>
+                  <select className="input input-strong"
+                    value={unitId}
+                    onChange={(e) => setUnitId(e.target.value)}
+                    disabled={busy || !activeChapter}>
+                    <option value="">{activeChapter ? '不选' : '先选章节'}</option>
+                    {activeChapter?.units?.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* ---- 2) 日期 + 开始/结束时间 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">时间</div>
+              <div className="three-col">
+                <div className="field">
+                  <label>日期</label>
+                  <input type="date" className="input input-strong"
+                    value={dateStr}
+                    onChange={(e) => setDateStr(e.target.value)}
+                    disabled={busy} />
+                </div>
+                <div className="field">
+                  <label>开始</label>
+                  <input type="time" className={`input input-strong ${errors.time ? 'input-error' : ''}`}
+                    value={startStr}
+                    onChange={(e) => setStartStr(e.target.value)}
+                    disabled={busy} />
+                </div>
+                <div className="field">
+                  <label>结束</label>
+                  <input type="time" className={`input input-strong ${errors.time ? 'input-error' : ''}`}
+                    value={endStr}
+                    onChange={(e) => setEndStr(e.target.value)}
+                    disabled={busy} />
+                </div>
+              </div>
+              {errors.time && <span className="field-error">{errors.time}</span>}
+              {autoDur ? (
+                <div className="rec-hint">系统自动记录用时：<b>{autoDur}</b> 分钟</div>
+              ) : (
+                <div className="rec-hint rec-hint-dim">填写开始和结束后自动计算用时</div>
+              )}
+              <div className="duration-shortcuts">
+                <span className="duration-shortcuts-label">快速设置时长：</span>
+                {[30, 45, 60, 90, 120].map(mins => (
+                  <button
+                    key={mins}
+                    type="button"
+                    className="duration-shortcut-btn"
+                    onClick={() => {
+                      if (!startStr) return;
+                      const [h, m] = startStr.split(':').map(Number);
+                      const total = h * 60 + m + mins;
+                      const nh = Math.floor(total / 60) % 24;
+                      const nm = total % 60;
+                      setEndStr(`${pad(nh)}:${pad(nm)}`);
+                    }}
+                    disabled={busy || !startStr}
+                  >
+                    {mins}分钟
+                  </button>
                 ))}
               </div>
             </div>
-          )}
-        </div>
 
-        {/* ---- 6) 备注 ---- */}
-        <div className="rec-block">
-          <div className="rec-label">备注</div>
-          <textarea
-            rows="3"
-            className="input input-strong"
-            placeholder={evalType === 2
-              ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
-              : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={busy}
-          />
-        </div>
+            {/* ---- 3) 学习行为类别 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">学习行为类别</div>
+              <div className="btn-row">
+                {CATEGORY_OPTS.map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    className={'seg-btn' + (category === opt.key ? ' active' : '')}
+                    onClick={() => setCategory(opt.key)}
+                    disabled={busy}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* ---- 提交 ---- */}
-        {editingSessionId ? (
-          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            <button type="button" className="btn btn-primary btn-submit" onClick={onSaveEdit} disabled={busy}>
-              {busy ? '保存中…' : '保存修改'}
-            </button>
-            <button type="button" className="btn btn-ghost btn-submit" onClick={onCancelEdit} disabled={busy}>
-              取消编辑
-            </button>
-          </div>
-        ) : (
-          <button type="button" className="btn btn-primary btn-submit" onClick={onSubmit} disabled={busy}>
-            {busy ? '保存中…' : '保存记录'}
-          </button>
+            {/* ---- 4) 学习行为形式 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">学习行为形式</div>
+              {!addingCustom ? (
+                <>
+                  <select className={`input input-strong ${errors.form ? 'input-error' : ''}`}
+                    value={formValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === ADD_OTHER_SENTINEL) { setAddingCustom(true); return; }
+                      setFormValue(v);
+                    }}
+                    disabled={busy}>
+                    <option value="">请选择</option>
+                    {formOptions.map(n => <option key={n} value={n}>{n}</option>)}
+                    <option value={ADD_OTHER_SENTINEL}>＋ 其他 / 自定义…</option>
+                  </select>
+                  {errors.form && <span className="field-error">{errors.form}</span>}
+                </>
+              ) : (
+                <div className="custom-add-row">
+                  <input type="text" className="input input-strong"
+                    placeholder="填写一个新的形式名称，如：家教辅导"
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    disabled={busy}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddCustomForm(); } }}
+                  />
+                  <button type="button" className="btn btn-ghost" onClick={onAddCustomForm} disabled={busy}>添加</button>
+                  <button type="button" className="btn btn-ghost btn-ghost-dim" onClick={() => { setAddingCustom(false); setCustomInput(''); }} disabled={busy}>取消</button>
+                </div>
+              )}
+            </div>
+
+            {/* ---- 5) 评估方式 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">评估方式</div>
+              <div className="eval-tabs">
+                <button
+                  type="button"
+                  className={'eval-tab' + (evalType === 1 ? ' active' : '')}
+                  onClick={() => { setEvalType(1); }}
+                  disabled={busy}
+                >主观评估</button>
+                <button
+                  type="button"
+                  className={'eval-tab' + (evalType === 2 ? ' active' : '')}
+                  onClick={() => { setEvalType(2); }}
+                  disabled={busy}
+                >客观评估</button>
+              </div>
+
+              {evalType === 1 ? (
+                <GlassRail
+                  steps={SUBJECTIVE_STEPS}
+                  idx={subjIdx}
+                  onChange={setSubjIdx}
+                  disabled={busy}
+                />
+              ) : (
+                <div>
+                  <GlassRail
+                    steps={OBJECTIVE_STEPS}
+                    idx={objIdx}
+                    onChange={setObjIdx}
+                    disabled={busy}
+                  />
+                  <div className="grade-legend" style={{
+                    marginTop: 12,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    background: 'rgba(99,102,241,0.05)',
+                    border: '1px solid rgba(99,102,241,0.18)',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
+                    rowGap: 4,
+                    columnGap: 10,
+                    fontSize: 12,
+                    color: '#334155',
+                  }}>
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
+                      letter grade 对应的百分制区间（参考）
+                    </div>
+                    {['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F'].map(g => (
+                      <div key={g} style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        padding: '2px 4px',
+                        background: g === OBJECTIVE_STEPS[objIdx]?.label
+                          ? 'rgba(99,102,241,0.18)'
+                          : 'transparent',
+                        borderRadius: 6,
+                      }}>
+                        <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label ? '#4338ca' : '#475569' }}>
+                          {g}
+                        </span>
+                        <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                          {GRADE_RANGES[g]}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ---- 6) 备注 ---- */}
+            <div className="rec-block">
+              <div className="rec-label">备注</div>
+              <textarea
+                rows="3"
+                className="input input-strong"
+                placeholder={evalType === 2
+                  ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
+                  : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+
+            {/* ---- 提交 ---- */}
+            {editingSessionId ? (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button type="button" className="btn btn-primary btn-submit" onClick={onSaveEdit} disabled={busy}>
+                  {busy ? '保存中…' : '保存修改'}
+                </button>
+                <button type="button" className="btn btn-ghost btn-submit" onClick={onCancelEdit} disabled={busy}>
+                  取消编辑
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-primary btn-submit" onClick={onSubmit} disabled={busy}>
+                {busy ? '保存中…' : '保存记录'}
+              </button>
+            )}
+          </>
         )}
       </div>
 
       {/* ====== 最近记录 ====== */}
-      <div className="recent-title">最近记录</div>
-      {recent.length === 0 ? (
-        <div className="glass recent-empty">还没有记录，从上面的表单开始吧</div>
-      ) : (
-        <div className="recent-list">
-          {recent.map(r => (
-            <div key={r.id} className="glass record-item"
-              style={editingSessionId === r.id ? { border: '2px solid #6366f1', boxShadow: '0 2px 8px rgba(99,102,241,0.18)' } : {}}
-            >
-              <div className="record-main">
-                <div className="record-course">{r.course?.name || '-'}</div>
-                <div className="record-path">
-                  {r.chapter?.name || '-'} · {r.unit?.name || '-'}
-                </div>
-                <div className="record-meta">
-                  <span className="pill pill-soft">{catLabel(r.category)}</span>
-                  <span className="pill pill-soft">{r.form}</span>
-                  <span className="pill pill-soft">{evalLabel(r.eval_type, r.self_rating, r.grade_label)}</span>
-                </div>
-                {r.notes && <div className="record-notes">{r.notes}</div>}
-              </div>
-              <div className="record-right">
-                <div className="record-minutes">{r.duration_minutes} 分钟</div>
-                <div className="record-time">{fmtRecentDate(r.session_date, r.start_time)}</div>
-                <div style={{ display: 'flex', gap: '6px', marginTop: '8px', justifyContent: 'flex-end' }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    type="button"
-                    onClick={() => onStartEdit(r)}
-                    title="编辑"
-                    style={{ padding: '4px 10px', fontSize: '12px' }}
-                  >✏️ 编辑</button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    type="button"
-                    onClick={() => onDelete(r)}
-                    title="删除"
-                    style={{ padding: '4px 10px', fontSize: '12px', color: '#c05621' }}
-                  >🗑️ 删除</button>
-                </div>
-              </div>
-            </div>
-          ))}
+      <div className="recent-section">
+        <div className="recent-header">
+          <h2 className="recent-title">最近记录</h2>
+          <span className="recent-count">{recent.length} 条</span>
         </div>
-      )}
+        {recent.length === 0 ? (
+          <div className="recent-empty">还没有记录，从上面的表单开始吧</div>
+        ) : (
+          <div className="recent-list">
+            {recent.map(r => (
+              <div 
+                key={r.id} 
+                className={`record-card ${editingSessionId === r.id ? 'record-card--editing' : ''}`}
+              >
+                <div className="record-card__info">
+                  <div className="record-card__course">
+                    {r.course?.name || '-'}
+                    <span className="record-card__subject" style={{ color: SUBJECT_COLORS[r.course?.subject]?.text || '#64748b' }}>
+                      {r.course?.subject}
+                    </span>
+                  </div>
+                  <div className="record-card__path">{r.chapter?.name || '-'} · {r.unit?.name || '-'}</div>
+                  <div className="record-card__tags">
+                    <span className="record-tag record-tag--category">{catLabel(r.category)}</span>
+                    <span className="record-tag record-tag--form">{r.form}</span>
+                    <span className="record-tag record-tag--eval">{r.eval_type === 1 ? SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label : r.grade_label}</span>
+                  </div>
+                  {r.notes && <div className="record-card__notes">{r.notes}</div>}
+                </div>
+                <div className="record-card__top-right">
+                  <div className="record-card__time">{fmtRecentDate(r.session_date, r.start_time)}</div>
+                  <div className="record-card__actions">
+                    <button className="record-action-btn" onClick={() => onStartEdit(r)} title="编辑">
+                      <Pencil size={14} strokeWidth={2} />
+                    </button>
+                    {deletingId === r.id ? (
+                      <div className="record-delete-confirm">
+                        <button className="record-action-btn record-action-btn--confirm" onClick={() => onConfirmDelete(r)} title="确认删除">
+                          ✓
+                        </button>
+                        <button className="record-action-btn record-action-btn--cancel" onClick={onCancelDelete} title="取消">
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="record-action-btn record-action-btn--delete" onClick={() => onDeleteClick(r)} title="删除">
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="record-card__duration">
+                  <span className="record-card__duration-num">{r.duration_minutes}</span>
+                  <span className="record-card__duration-unit">分钟</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
     </div>
   );

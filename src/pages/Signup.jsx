@@ -18,6 +18,8 @@ export default function Signup() {
   const nav = useNavigate();
   const toasts = useToasts();
   const [form, setForm] = useState({ name: '', email: '', password: '', school: '', role: '1', teacherKey: '' });
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [schoolSuggestions, setSchoolSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -53,6 +55,7 @@ export default function Signup() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (!form.name.trim()) return toast('请填写昵称', { kind: 'error' });
     if (!form.email.trim()) return toast('请填写邮箱', { kind: 'error' });
     if (form.password.length < 6) return toast('密码至少 6 位', { kind: 'error' });
     const role = Number(form.role) || 1;
@@ -119,9 +122,9 @@ export default function Signup() {
 
         <form onSubmit={onSubmit}>
           <div className="field">
-            <label>昵称 <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>可选</span></label>
+            <label>昵称 <span style={{ color: 'var(--brand)' }}>*</span></label>
             <input
-              type="text"
+              type="text" required
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
               placeholder="如：小王"

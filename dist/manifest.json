@@ -1,6 +1,6 @@
 {
-  "name": "Samson GPA 学习追踪",
-  "short_name": "GPA Tracker",
+  "name": "一表人才",
+  "short_name": "一表人才",
   "description": "每日学习打卡、学科学习行为记录和进度追踪。",
   "start_url": "./index.html",
   "display": "standalone",

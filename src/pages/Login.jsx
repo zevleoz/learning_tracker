@@ -12,6 +12,28 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function handleReset(e) {
+    e.preventDefault();
+    if (!resetEmail.trim()) return toast('请填写邮箱', { kind: 'error' });
+    setResetBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+        redirectTo: window.location.origin + '/login'
+      });
+      if (error) throw error;
+      toast('密码重置邮件已发送！请检查邮箱', { kind: 'success' });
+      setShowReset(false);
+      setResetEmail('');
+    } catch (err) {
+      toast(err.message || '发送失败', { kind: 'error' });
+    } finally {
+      setResetBusy(false);
+    }
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -79,7 +101,64 @@ export default function Login() {
           >
             {busy ? '登录中…' : '登录'}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setShowReset(true)}
+            style={{
+              marginTop: '8px', width: '100%', padding: '8px',
+              background: 'transparent', border: 'none',
+              fontSize: '13px', color: '#6366f1', cursor: 'pointer'
+            }}
+          >
+            忘记密码？
+          </button>
         </form>
+
+        {showReset && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '16px', padding: '24px',
+              width: '90%', maxWidth: '320px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#0f172a' }}>重置密码</h3>
+              <form onSubmit={handleReset}>
+                <div className="field">
+                  <label>邮箱</label>
+                  <input
+                    type="email" required
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    autoComplete="email"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={resetBusy}
+                  className="btn btn-primary"
+                  style={{ marginTop: '8px' }}
+                >
+                  {resetBusy ? '发送中…' : '发送重置邮件'}
+                </button>
+              </form>
+              <button
+                onClick={() => setShowReset(false)}
+                style={{
+                  marginTop: '12px', width: '100%', padding: '10px',
+                  background: 'rgba(15,23,42,0.06)', border: 'none',
+                  borderRadius: '10px', fontSize: '14px', color: '#475569', cursor: 'pointer'
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="auth-link-row">
           <span>还没有账号？</span>

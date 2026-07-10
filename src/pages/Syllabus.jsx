@@ -734,7 +734,7 @@ const inputStyle = {
   color: 'var(--text-strong)'
 };
 
-/* ============ 桌面端：树形表格视图 ============ */
+/* ============ 桌面端：现代化课程管理视图 ============ */
 function DesktopTree({
   myCourses, sharedCourses, loading, schoolName,
   onAddCourse, onAddChapter, onAddUnit,
@@ -743,553 +743,122 @@ function DesktopTree({
   onUpdateUnit, onDeleteUnit,
 }) {
   return (
-    <div className="animate-fade-in">
-      <div className="page-title">
-        <h1>课程大纲</h1>
-        <p>
-          {schoolName
-            ? <>所在学校：<strong style={{ color: 'var(--brand)' }}>{schoolName}</strong> · 与同学共享课程</>
-            : '在这里管理你的课程 → 章节 → 单元'}
-        </p>
-      </div>
-
-      <AddCourseCard onSubmit={onAddCourse} />
-
-      {loading ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">⏳</div>
-          <h3>加载中…</h3>
+    <div className="desktop-course-page">
+      <div className="animate-fade-in">
+        <div className="page-title">
+          <h1>课程大纲</h1>
+          <p>
+            {schoolName
+              ? <>所在学校：<strong style={{ color: 'var(--brand)' }}>{schoolName}</strong> · 与同学共享课程</>
+              : '在这里管理你的课程 → 章节 → 单元'}
+          </p>
         </div>
-      ) : (
-        <>
-          {myCourses.length > 0 && (
-            <>
-              <SectionLabel title="我创建的课程" count={myCourses.length} />
-              <DesktopTreeTable
-                courses={myCourses}
-                canEdit
-                onAddChapter={onAddChapter}
-                onAddUnit={onAddUnit}
-                onUpdateCourse={onUpdateCourse}
-                onDeleteCourse={onDeleteCourse}
-                onUpdateChapter={onUpdateChapter}
-                onDeleteChapter={onDeleteChapter}
-                onUpdateUnit={onUpdateUnit}
-                onDeleteUnit={onDeleteUnit}
-              />
-            </>
-          )}
 
-          {sharedCourses.length > 0 && (
-            <>
-              <SectionLabel title="同校同学创建的课程" count={sharedCourses.length} />
-              <DesktopTreeTable
-                courses={sharedCourses}
-                onAddChapter={onAddChapter}
-                onAddUnit={onAddUnit}
-              />
-            </>
-          )}
-
-          {myCourses.length === 0 && sharedCourses.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-icon">📖</div>
-              <h3>还没有任何课程</h3>
-              <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ---- 桌面表格容器 ---- */
-function DesktopTreeTable({
-  courses, canEdit,
-  onAddChapter, onAddUnit,
-  onUpdateCourse, onDeleteCourse,
-  onUpdateChapter, onDeleteChapter,
-  onUpdateUnit, onDeleteUnit,
-}) {
-  return (
-    <div style={{
-      background: 'var(--glass)',
-      WebkitBackdropFilter: 'var(--blur-card)',
-      backdropFilter: 'var(--blur-card)',
-      border: '1px solid var(--edge-soft)',
-      borderRadius: '18px',
-      overflow: 'hidden',
-      marginBottom: '12px',
-      boxShadow:
-        'inset 1px 1px 0 rgba(255,255,255,0.55),' +
-        'inset -1px -1px 0 rgba(15,23,42,0.05),' +
-        '0 1px 2px rgba(15,23,42,0.03),' +
-        '0 6px 16px rgba(15,23,42,0.04)',
-    }}>
-      {/* 表头 */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '2fr 1fr 1.5fr',
-        gap: '12px',
-        padding: '10px 18px',
-        fontSize: '11px',
-        fontWeight: 600,
-        color: 'var(--text-muted)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        borderBottom: '1px solid var(--edge-soft)',
-        background: 'rgba(255,255,255,0.2)',
-      }}>
-        <div>课程名</div>
-        <div>学科</div>
-        <div style={{ textAlign: 'right' }}>章节</div>
-      </div>
-      {/* 课程行 */}
-      {courses.map((c, idx) => (
-        <DesktopCourseRow
-          key={c.id}
-          course={c}
-          canEdit={canEdit}
-          isLast={idx === courses.length - 1}
-          onAddChapter={onAddChapter}
-          onAddUnit={onAddUnit}
-          onUpdateCourse={onUpdateCourse}
-          onDeleteCourse={onDeleteCourse}
-          onUpdateChapter={onUpdateChapter}
-          onDeleteChapter={onDeleteChapter}
-          onUpdateUnit={onUpdateUnit}
-          onDeleteUnit={onDeleteUnit}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* ---- 桌面课程行 ---- */
-function DesktopCourseRow({
-  course, canEdit, isLast,
-  onAddChapter, onAddUnit,
-  onUpdateCourse, onDeleteCourse,
-  onUpdateChapter, onDeleteChapter,
-  onUpdateUnit, onDeleteUnit,
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const [hovered, setHovered] = useState(false);
-  const [addingChapter, setAddingChapter] = useState(false);
-  const [editNameSignal, setEditNameSignal] = useState(0);
-
-  const chapterCount = course.chapters?.length || 0;
-  const unitCount = (course.chapters || []).reduce(
-    (sum, ch) => sum + (ch.units?.length || 0), 0
-  );
-
-  return (
-    <div style={{ borderBottom: isLast ? 'none' : '1px solid var(--edge-soft)' }}>
-      {/* 课程行 */}
-      <div
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '2fr 1fr 1.5fr',
-          gap: '12px',
-          padding: '14px 18px',
-          alignItems: 'center',
-          background: hovered ? 'rgba(255,255,255,0.25)' : 'transparent',
-          transition: 'background 140ms ease',
-        }}
-      >
-        {/* 课程名 + 展开箭头 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
           <button
-            onClick={() => setExpanded(!expanded)}
-            title={expanded ? '折叠' : '展开'}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '2px',
-              fontSize: '12px',
-              color: 'var(--text-soft)',
-              transition: 'transform 140ms ease',
-              transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-              flexShrink: 0,
-            }}
+            onClick={() => onAddCourse({ name: '', subject: '' })}
+            className="btn btn-primary"
           >
-            ▾
+            + 添加新课程
           </button>
-          <DesktopInlineEdit
-            value={course.name}
-            canEdit={canEdit}
-            editSignal={editNameSignal}
-            onSave={(name) => onUpdateCourse(course.id, { name, subject: course.subject })}
-            style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-strong)' }}
-          />
         </div>
-        {/* 学科 */}
-        <div>
-          <DesktopInlineEdit
-            value={course.subject}
-            canEdit={canEdit}
-            onSave={(subject) => onUpdateCourse(course.id, { name: course.name, subject })}
-            style={{ fontSize: '13px', color: 'var(--text-soft)' }}
-          />
-        </div>
-        {/* 章节摘要 + 操作 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
-          <span className="pill">
-            {chapterCount} 章 · {unitCount} 单元
-          </span>
-          {canEdit && (
-            <div style={{
-              display: 'flex',
-              gap: '2px',
-              opacity: hovered ? 1 : 0,
-              transition: 'opacity 140ms ease',
-            }}>
-              <IconBtn title="编辑课程" onClick={() => setEditNameSignal((s) => s + 1)}>
-                <Pencil size={14} strokeWidth={2.2} />
-              </IconBtn>
-              <IconBtn title="删除课程" onClick={() => onDeleteCourse(course.id)}>
-                <Trash2 size={14} strokeWidth={2.2} />
-              </IconBtn>
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* 展开的章节区域 */}
-      {expanded && (
-        <div style={{ padding: '4px 18px 14px 42px' }}>
-          {chapterCount > 0 ? (
-            course.chapters.map((ch, idx) => (
-              <DesktopChapterRow
-                key={ch.id}
-                chapter={ch}
-                index={idx}
-                courseId={course.id}
-                canEdit={canEdit}
-                onAddUnit={onAddUnit}
-                onUpdate={onUpdateChapter}
-                onDelete={onDeleteChapter}
-                onUpdateUnit={onUpdateUnit}
-                onDeleteUnit={onDeleteUnit}
-              />
-            ))
-          ) : (
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '8px 0' }}>
-              还没有章节
-            </div>
-          )}
-
-          {/* 添加章节 */}
-          {canEdit && (
-            addingChapter ? (
-              <div style={{ marginTop: '6px' }}>
-                <InlineInput
-                  placeholder="如：函数与导数"
-                  small
-                  onSubmit={(name) => { onAddChapter(course.id, name); setAddingChapter(false); }}
-                  onCancel={() => setAddingChapter(false)}
-                />
+        {loading ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">⏳</div>
+            <h3>加载中…</h3>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: '20px' }}>
+            {myCourses.length > 0 && (
+              <div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  <span>我创建的课程</span>
+                  <span style={{
+                    fontSize: '11px',
+                    background: 'rgba(255,255,255,0.5)',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    color: 'var(--text-soft)',
+                  }}>{myCourses.length}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                  {myCourses.map((c) => (
+                    <DesktopCourseCard
+                      key={c.id}
+                      course={c}
+                      canEdit
+                      onAddChapter={onAddChapter}
+                      onAddUnit={onAddUnit}
+                      onUpdateCourse={onUpdateCourse}
+                      onDeleteCourse={onDeleteCourse}
+                      onUpdateChapter={onUpdateChapter}
+                      onDeleteChapter={onDeleteChapter}
+                      onUpdateUnit={onUpdateUnit}
+                      onDeleteUnit={onDeleteUnit}
+                    />
+                  ))}
+                </div>
               </div>
-            ) : (
-              <button
-                onClick={() => setAddingChapter(true)}
-                style={desktopAddBtnStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.6)';
-                  e.currentTarget.style.color = 'var(--brand)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--text-soft)';
-                }}
-              >
-                <span style={{ fontSize: '13px', lineHeight: 1 }}>+</span> 添加章节
-              </button>
-            )
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+            )}
 
-/* ---- 桌面章节行 ---- */
-function DesktopChapterRow({
-  chapter, index, courseId, canEdit,
-  onAddUnit, onUpdate, onDelete,
-  onUpdateUnit, onDeleteUnit,
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const [hovered, setHovered] = useState(false);
-  const [addingUnit, setAddingUnit] = useState(false);
-  const [editSignal, setEditSignal] = useState(0);
+            {sharedCourses.length > 0 && (
+              <div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  <span>同校共享课程</span>
+                  <span style={{
+                    fontSize: '11px',
+                    background: 'rgba(255,255,255,0.5)',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    color: 'var(--text-soft)',
+                  }}>{sharedCourses.length}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                  {sharedCourses.map((c) => (
+                    <DesktopCourseCard
+                      key={c.id}
+                      course={c}
+                      shared
+                      onAddChapter={onAddChapter}
+                      onAddUnit={onAddUnit}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-  const unitCount = chapter.units?.length || 0;
-
-  return (
-    <div style={{ marginBottom: '2px' }}>
-      {/* 章节头 */}
-      <div
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 10px',
-          borderRadius: '8px',
-          background: hovered ? 'rgba(255,255,255,0.4)' : 'transparent',
-          transition: 'background 140ms ease',
-        }}
-      >
-        <button
-          onClick={() => setExpanded(!expanded)}
-          title={expanded ? '折叠' : '展开'}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '2px',
-            fontSize: '11px',
-            color: 'var(--text-soft)',
-            transition: 'transform 140ms ease',
-            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-            flexShrink: 0,
-          }}
-        >
-          ▾
-        </button>
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          color: '#7f1d1d',
-          background: 'var(--brand-soft)',
-          border: '1px solid rgba(193, 39, 45, 0.22)',
-          padding: '3px 8px',
-          borderRadius: '6px',
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-        }}>第 {index + 1} 章</span>
-        <DesktopInlineEdit
-          value={chapter.name}
-          canEdit={canEdit}
-          editSignal={editSignal}
-          onSave={(name) => onUpdate(chapter.id, name, courseId)}
-          style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-strong)', flex: 1 }}
-        />
-        {unitCount > 0 && (
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {unitCount} 单元
-          </span>
-        )}
-        {canEdit && (
-          <div style={{
-            display: 'flex',
-            gap: '2px',
-            opacity: hovered ? 1 : 0,
-            transition: 'opacity 140ms ease',
-          }}>
-            <IconBtn title="编辑章节" onClick={() => setEditSignal((s) => s + 1)}>
-              <Pencil size={12} strokeWidth={2.2} />
-            </IconBtn>
-            <IconBtn title="删除章节" onClick={() => onDelete(chapter.id, courseId)}>
-              <Trash2 size={12} strokeWidth={2.2} />
-            </IconBtn>
+            {myCourses.length === 0 && sharedCourses.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-icon">📖</div>
+                <h3>还没有任何课程</h3>
+                <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* 展开的单元列表 */}
-      {expanded && (
-        <div style={{
-          marginLeft: '38px',
-          paddingLeft: '10px',
-          borderLeft: '1px solid rgba(15,23,42,0.06)',
-        }}>
-          {unitCount > 0 && chapter.units.map((u) => (
-            <DesktopUnitRow
-              key={u.id}
-              unit={u}
-              chapterId={chapter.id}
-              courseId={courseId}
-              canEdit={canEdit}
-              onUpdate={onUpdateUnit}
-              onDelete={onDeleteUnit}
-            />
-          ))}
-
-          {/* 添加单元 */}
-          {canEdit && (
-            addingUnit ? (
-              <div style={{ marginTop: '4px' }}>
-                <InlineInput
-                  placeholder="如：导数的定义"
-                  small
-                  onSubmit={(name) => { onAddUnit(courseId, chapter.id, name); setAddingUnit(false); }}
-                  onCancel={() => setAddingUnit(false)}
-                />
-              </div>
-            ) : (
-              <button
-                onClick={() => setAddingUnit(true)}
-                style={desktopAddBtnStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.6)';
-                  e.currentTarget.style.color = 'var(--brand)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--text-soft)';
-                }}
-              >
-                <span style={{ fontSize: '13px', lineHeight: 1 }}>+</span> 添加单元
-              </button>
-            )
-          )}
-        </div>
-      )}
     </div>
-  );
-}
-
-/* ---- 桌面单元行 ---- */
-function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete }) {
-  const [hovered, setHovered] = useState(false);
-  const [editSignal, setEditSignal] = useState(0);
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '4px 8px',
-        borderRadius: '8px',
-        background: hovered ? 'rgba(255,255,255,0.5)' : 'transparent',
-        transition: 'background 140ms ease',
-      }}
-    >
-      <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0, fontSize: '12px' }}>·</span>
-      <DesktopInlineEdit
-        value={unit.name}
-        canEdit={canEdit}
-        editSignal={editSignal}
-        onSave={(name) => onUpdate(unit.id, name, chapterId, courseId)}
-        style={{ fontSize: '13px', color: 'var(--text-soft)', flex: 1 }}
-      />
-      {canEdit && (
-        <div style={{
-          display: 'flex',
-          gap: '2px',
-          opacity: hovered ? 1 : 0,
-          transition: 'opacity 140ms ease',
-        }}>
-          <IconBtn title="编辑单元" onClick={() => setEditSignal((s) => s + 1)}>
-            <Pencil size={11} strokeWidth={2.2} />
-          </IconBtn>
-          <IconBtn title="删除单元" onClick={() => onDelete(unit.id, chapterId, courseId)}>
-            <Trash2 size={11} strokeWidth={2.2} />
-          </IconBtn>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---- 桌面端行内编辑（点击文字 / 点编辑按钮触发） ---- */
-function DesktopInlineEdit({ value, canEdit, onSave, placeholder, style, editSignal = 0 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const committedRef = useRef(false);
-
-  // 外部 value 变化时同步 draft
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  // 通过 editSignal（编辑按钮）触发编辑
-  useEffect(() => {
-    if (editSignal > 0) {
-      committedRef.current = false;
-      setDraft(value);
-      setEditing(true);
-    }
-  }, [editSignal]);
-
-  function start() {
-    committedRef.current = false;
-    setDraft(value);
-    setEditing(true);
-  }
-
-  function commit() {
-    if (committedRef.current) return;
-    committedRef.current = true;
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) {
-      onSave(trimmed);
-    } else {
-      setDraft(value);
-    }
-    setEditing(false);
-  }
-
-  function cancel() {
-    committedRef.current = true;
-    setDraft(value);
-    setEditing(false);
-  }
-
-  function onKeyDown(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancel();
-    }
-  }
-
-  if (!canEdit) {
-    return <span style={style}>{value}</span>;
-  }
-
-  if (!editing) {
-    return (
-      <span
-        onClick={start}
-        style={{ cursor: 'text', borderBottom: '1px dashed transparent', ...style }}
-        onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = 'rgba(193,39,45,0.25)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderBottomColor = 'transparent'; }}
-      >
-        {value}
-      </span>
-    );
-  }
-
-  return (
-    <input
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={onKeyDown}
-      onBlur={commit}
-      placeholder={placeholder}
-      style={{
-        ...inputStyle,
-        padding: '4px 8px',
-        fontSize: style?.fontSize || '14px',
-        fontWeight: style?.fontWeight || 500,
-        width: '100%',
-        maxWidth: '320px',
-      }}
-    />
   );
 }
 
@@ -1308,3 +877,682 @@ const desktopAddBtnStyle = {
   gap: '4px',
   transition: 'background 140ms ease, color 140ms ease',
 };
+
+const SUBJECT_COLORS = {
+  '数学': { bg: 'rgba(99, 102, 241, 0.1)', text: '#4f46e5', border: 'rgba(99, 102, 241, 0.25)' },
+  '物理': { bg: 'rgba(34, 197, 94, 0.1)', text: '#16a34a', border: 'rgba(34, 197, 94, 0.25)' },
+  '英语': { bg: 'rgba(249, 115, 22, 0.1)', text: '#ea580c', border: 'rgba(249, 115, 22, 0.25)' },
+  '历史': { bg: 'rgba(168, 85, 247, 0.1)', text: '#9333ea', border: 'rgba(168, 85, 247, 0.25)' },
+  '化学': { bg: 'rgba(236, 72, 153, 0.1)', text: '#db2777', border: 'rgba(236, 72, 153, 0.25)' },
+  '生物': { bg: 'rgba(6, 182, 212, 0.1)', text: '#0891b2', border: 'rgba(6, 182, 212, 0.25)' },
+};
+
+function DesktopCourseCard({
+  course, canEdit, shared,
+  onAddChapter, onAddUnit,
+  onUpdateCourse, onDeleteCourse,
+  onUpdateChapter, onDeleteChapter,
+  onUpdateUnit, onDeleteUnit,
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [hovered, setHovered] = useState(false);
+  const [addingChapter, setAddingChapter] = useState(false);
+  const [editNameSignal, setEditNameSignal] = useState(0);
+
+  const chapterCount = course.chapters?.length || 0;
+  const unitCount = (course.chapters || []).reduce(
+    (sum, ch) => sum + (ch.units?.length || 0), 0
+  );
+
+  const subjectStyle = SUBJECT_COLORS[course.subject] || {
+    bg: 'rgba(148, 163, 184, 0.1)',
+    text: '#64748b',
+    border: 'rgba(148, 163, 184, 0.25)',
+  };
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: 'var(--glass)',
+        WebkitBackdropFilter: 'var(--blur-card)',
+        backdropFilter: 'var(--blur-card)',
+        border: '1px solid var(--edge-soft)',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        transition: 'all 200ms ease',
+        boxShadow: hovered
+          ? '0 4px 20px rgba(15, 23, 42, 0.08)'
+          : '0 2px 8px rgba(15, 23, 42, 0.04)',
+        borderColor: hovered ? 'rgba(99, 102, 241, 0.2)' : 'var(--edge-soft)',
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '16px 20px',
+        gap: '12px',
+      }}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? '折叠' : '展开'}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '4px',
+            fontSize: '14px',
+            color: 'var(--text-soft)',
+            transition: 'transform 150ms ease',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            flexShrink: 0,
+          }}
+        >
+          ▾
+        </button>
+
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+            <DesktopInlineEdit
+              value={course.name}
+              canEdit={canEdit}
+              editSignal={editNameSignal}
+              onSave={(name) => onUpdateCourse(course.id, { name, subject: course.subject })}
+              style={{
+                fontSize: '16px',
+                fontWeight: 600,
+                color: 'var(--text-strong)',
+                cursor: canEdit ? 'pointer' : 'default',
+                borderBottom: canEdit ? '2px dashed transparent' : 'none',
+                paddingBottom: '2px',
+                transition: 'border-color 150ms ease',
+              }}
+              hoverStyle={{ borderBottomColor: 'rgba(99, 102, 241, 0.4)' }}
+            />
+            {canEdit && (
+              <span style={{
+                fontSize: '12px',
+                color: '#94a3b8',
+                opacity: hovered ? 1 : 0.5,
+                transition: 'opacity 150ms ease',
+              }}>点击编辑</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 500,
+              padding: '4px 10px',
+              borderRadius: '999px',
+              background: subjectStyle.bg,
+              color: subjectStyle.text,
+              border: `1px solid ${subjectStyle.border}`,
+            }}>{course.subject}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              {chapterCount} 章节 · {unitCount} 单元
+            </span>
+            {shared && (
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '3px 8px',
+                borderRadius: '999px',
+                background: 'rgba(251, 191, 36, 0.1)',
+                color: '#b45309',
+                border: '1px solid rgba(251, 191, 36, 0.25)',
+              }}>同校共享</span>
+            )}
+          </div>
+        </div>
+
+        {canEdit && (
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              onClick={() => setEditNameSignal((s) => s + 1)}
+              title="编辑课程"
+              style={{
+                background: 'rgba(255,255,255,0.6)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                fontSize: '13px',
+                color: '#64748b',
+                transition: 'all 150ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#6366f1';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.6)';
+                e.currentTarget.style.color = '#64748b';
+              }}
+            >
+              <Pencil size={13} strokeWidth={2.2} />
+              编辑
+            </button>
+            <button
+              onClick={() => onDeleteCourse(course.id)}
+              title="删除课程"
+              style={{
+                background: 'rgba(239,68,68,0.08)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                fontSize: '13px',
+                color: '#dc2626',
+                transition: 'all 150ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#ef4444';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(239,68,68,0.08)';
+                e.currentTarget.style.color = '#dc2626';
+              }}
+            >
+              <Trash2 size={13} strokeWidth={2.2} />
+              删除
+            </button>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{
+          borderTop: '1px solid var(--edge-soft)',
+          padding: '8px 20px 16px',
+          background: 'rgba(15,23,42,0.02)',
+        }}>
+          {chapterCount > 0 ? (
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {course.chapters.map((ch, idx) => (
+                <DesktopChapterBlock
+                  key={ch.id}
+                  chapter={ch}
+                  index={idx}
+                  courseId={course.id}
+                  canEdit={canEdit}
+                  onAddUnit={onAddUnit}
+                  onUpdate={onUpdateChapter}
+                  onDelete={onDeleteChapter}
+                  onUpdateUnit={onUpdateUnit}
+                  onDeleteUnit={onDeleteUnit}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--text-muted)',
+              padding: '12px 0',
+              textAlign: 'center',
+              border: '2px dashed var(--edge-soft)',
+              borderRadius: '12px',
+              marginBottom: '8px',
+            }}>
+              还没有章节
+            </div>
+          )}
+
+          {canEdit && (
+            addingChapter ? (
+              <div style={{ marginTop: '8px' }}>
+                <InlineInput
+                  placeholder="输入章节名称，如：函数与导数"
+                  onSubmit={(name) => { onAddChapter(course.id, name); setAddingChapter(false); }}
+                  onCancel={() => setAddingChapter(false)}
+                />
+              </div>
+            ) : (
+              <button
+                onClick={() => setAddingChapter(true)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: '14px',
+                  color: 'var(--text-soft)',
+                  background: 'rgba(255,255,255,0.4)',
+                  border: '2px dashed var(--edge-soft)',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 150ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(99,102,241,0.08)';
+                  e.currentTarget.style.borderColor = '#6366f1';
+                  e.currentTarget.style.color = '#6366f1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.4)';
+                  e.currentTarget.style.borderColor = 'var(--edge-soft)';
+                  e.currentTarget.style.color = 'var(--text-soft)';
+                }}
+              >
+                <span style={{ fontSize: '18px', lineHeight: 1 }}>+</span>
+                添加章节
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DesktopChapterBlock({
+  chapter, index, courseId, canEdit,
+  onAddUnit, onUpdate, onDelete,
+  onUpdateUnit, onDeleteUnit,
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [hovered, setHovered] = useState(false);
+  const [addingUnit, setAddingUnit] = useState(false);
+  const [editSignal, setEditSignal] = useState(0);
+
+  const unitCount = chapter.units?.length || 0;
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: 'rgba(255,255,255,0.5)',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        border: '1px solid rgba(15,23,42,0.06)',
+        transition: 'border-color 150ms ease',
+        borderColor: hovered ? 'rgba(99,102,241,0.2)' : 'rgba(15,23,42,0.06)',
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '12px 16px',
+        gap: '10px',
+      }}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? '折叠' : '展开'}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '2px',
+            fontSize: '12px',
+            color: 'var(--text-soft)',
+            transition: 'transform 150ms ease',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            flexShrink: 0,
+          }}
+        >
+          ▾
+        </button>
+
+        <span style={{
+          fontSize: '11px',
+          fontWeight: 700,
+          color: '#7f1d1d',
+          background: 'rgba(193, 39, 45, 0.08)',
+          border: '1px solid rgba(193, 39, 45, 0.2)',
+          padding: '3px 10px',
+          borderRadius: '999px',
+          flexShrink: 0,
+        }}>第 {index + 1} 章</span>
+
+        <DesktopInlineEdit
+          value={chapter.name}
+          canEdit={canEdit}
+          editSignal={editSignal}
+          onSave={(name) => onUpdate(chapter.id, name, courseId)}
+          style={{
+            fontSize: '14px',
+            fontWeight: 600,
+            color: 'var(--text-strong)',
+            flex: 1,
+            cursor: canEdit ? 'pointer' : 'default',
+            borderBottom: canEdit ? '2px dashed transparent' : 'none',
+            paddingBottom: '1px',
+            transition: 'border-color 150ms ease',
+          }}
+          hoverStyle={{ borderBottomColor: 'rgba(99, 102, 241, 0.4)' }}
+        />
+
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>
+          {unitCount} 单元
+        </span>
+
+        {canEdit && (
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button
+              onClick={() => setEditSignal((s) => s + 1)}
+              title="编辑章节"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: '#94a3b8',
+                transition: 'all 150ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#6366f1';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#94a3b8';
+              }}
+            >
+              <Pencil size={12} strokeWidth={2.2} />
+            </button>
+            <button
+              onClick={() => onDelete(chapter.id, courseId)}
+              title="删除章节"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: '#ef4444',
+                transition: 'all 150ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#ef4444';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+            >
+              <Trash2 size={12} strokeWidth={2.2} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{
+          borderTop: '1px solid rgba(15,23,42,0.06)',
+          padding: '8px 16px 12px',
+          marginLeft: '28px',
+        }}>
+          {unitCount > 0 ? (
+            <div style={{ display: 'grid', gap: '4px' }}>
+              {chapter.units.map((u) => (
+                <DesktopUnitRow
+                  key={u.id}
+                  unit={u}
+                  chapterId={chapter.id}
+                  courseId={courseId}
+                  canEdit={canEdit}
+                  onUpdate={onUpdateUnit}
+                  onDelete={onDeleteUnit}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              padding: '8px 0',
+              textAlign: 'center',
+              border: '1px dashed rgba(15,23,42,0.1)',
+              borderRadius: '8px',
+              marginBottom: '8px',
+            }}>
+              还没有单元
+            </div>
+          )}
+
+          {canEdit && (
+            addingUnit ? (
+              <div style={{ marginTop: '8px' }}>
+                <InlineInput
+                  placeholder="输入单元名称，如：导数的定义"
+                  small
+                  onSubmit={(name) => { onAddUnit(courseId, chapter.id, name); setAddingUnit(false); }}
+                  onCancel={() => setAddingUnit(false)}
+                />
+              </div>
+            ) : (
+              <button
+                onClick={() => setAddingUnit(true)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  color: 'var(--text-soft)',
+                  background: 'rgba(255,255,255,0.6)',
+                  border: '1px dashed var(--edge-soft)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 150ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(99,102,241,0.08)';
+                  e.currentTarget.style.borderColor = '#6366f1';
+                  e.currentTarget.style.color = '#6366f1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.6)';
+                  e.currentTarget.style.borderColor = 'var(--edge-soft)';
+                  e.currentTarget.style.color = 'var(--text-soft)';
+                }}
+              >
+                <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span>
+                添加单元
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete }) {
+  const [hovered, setHovered] = useState(false);
+  const [editSignal, setEditSignal] = useState(0);
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '8px 12px',
+        borderRadius: '8px',
+        transition: 'background 150ms ease',
+        background: hovered ? 'rgba(99,102,241,0.05)' : 'transparent',
+      }}
+    >
+      <span style={{
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        background: '#6366f1',
+        marginRight: '10px',
+        flexShrink: 0,
+      }}></span>
+
+      <DesktopInlineEdit
+        value={unit.name}
+        canEdit={canEdit}
+        editSignal={editSignal}
+        onSave={(name) => onUpdate(unit.id, name, chapterId, courseId)}
+        style={{
+          fontSize: '13px',
+          color: 'var(--text-main)',
+          flex: 1,
+          cursor: canEdit ? 'pointer' : 'default',
+          borderBottom: canEdit ? '1px dashed transparent' : 'none',
+          paddingBottom: '1px',
+          transition: 'border-color 150ms ease',
+        }}
+        hoverStyle={{ borderBottomColor: 'rgba(99, 102, 241, 0.4)' }}
+      />
+
+      {canEdit && (
+        <div style={{ display: 'flex', gap: '2px', opacity: hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
+          <button
+            onClick={() => setEditSignal((s) => s + 1)}
+            title="编辑单元"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              color: '#94a3b8',
+              transition: 'all 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#6366f1';
+              e.currentTarget.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = '#94a3b8';
+            }}
+          >
+            <Pencil size={11} strokeWidth={2.2} />
+          </button>
+          <button
+            onClick={() => onDelete(unit.id, chapterId, courseId)}
+            title="删除单元"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              color: '#ef4444',
+              transition: 'all 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#ef4444';
+              e.currentTarget.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = '#ef4444';
+            }}
+          >
+            <Trash2 size={11} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DesktopInlineEdit({ value, canEdit, editSignal, onSave, style, hoverStyle }) {
+  const [editing, setEditing] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const submitGuard = useRef(false);
+
+  useEffect(() => {
+    if (editSignal > 0) {
+      setEditing(true);
+    }
+  }, [editSignal]);
+
+  useEffect(() => {
+    if (!editing) {
+      setInputValue(value);
+      submitGuard.current = false;
+    }
+  }, [editing, value]);
+
+  function handleSave() {
+    if (submitGuard.current) return;
+    submitGuard.current = true;
+    const trimmed = inputValue.trim();
+    if (trimmed && trimmed !== value) {
+      onSave(trimmed);
+    }
+    setEditing(false);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditing(false);
+    }
+  }
+
+  if (!canEdit) {
+    return <span style={style}>{value}</span>;
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="text"
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={handleSave}
+        autoFocus
+        style={{
+          ...style,
+          borderBottom: '2px solid #6366f1',
+          outline: 'none',
+          backgroundColor: 'transparent',
+          fontFamily: 'inherit',
+          padding: '0',
+          margin: '0',
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      style={style}
+      onMouseEnter={(e) => {
+        if (hoverStyle) {
+          Object.assign(e.currentTarget.style, hoverStyle);
+        }
+      }}
+      onMouseLeave={(e) => {
+        Object.assign(e.currentTarget.style, style);
+      }}
+    >
+      {value}
+    </span>
+  );
+}

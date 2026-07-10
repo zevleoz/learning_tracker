@@ -1575,8 +1575,8 @@ textarea::placeholder { color: #9ca3af; }
 }
 
 @media (min-width: 768px) {
-  .main { max-width: 760px; }
-  .d-topbar-inner { max-width: 760px; }
+  .main { max-width: 1200px; }
+  .d-topbar-inner { max-width: 1200px; }
 
   /* 记录页桌面优化 */
   .record-sheet { padding: 24px 28px 28px; }
@@ -1587,6 +1587,13 @@ textarea::placeholder { color: #9ca3af; }
   }
   .quick-actions-grid {
     grid-template-columns: repeat(4, 1fr);
+  }
+
+  /* 课程页桌面优化 */
+  .desktop-course-page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
   }
 }
 

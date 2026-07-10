@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
 import logo from '../logo/logo_color.png';
 
+const MOBILE_BREAKPOINT = 767;
+
 export default function Login() {
   const nav = useNavigate();
   const toasts = useToasts();
@@ -24,7 +26,8 @@ export default function Login() {
       const role = Number(data?.user?.user_metadata?.role) || 1;
       console.log('User role:', role);
       toast('登录成功', { kind: 'success' });
-      nav(role >= 2 ? '/mentor' : '/syllabus', { replace: true });
+      const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+      nav(role >= 2 ? '/mentor' : (isMobile ? '/learning' : '/syllabus'), { replace: true });
     } catch (err) {
       console.error('Login error:', err);
       toast(err.message || '登录失败', { kind: 'error' });

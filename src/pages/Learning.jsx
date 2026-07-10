@@ -68,14 +68,14 @@ const GRADE_RANGES = {
 function pad(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function toTimeStr(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
-function fmtRecentDate(iso) {
+function fmtRecentDate(iso, timeStr) {
   if (!iso) return '';
-  const d = new Date(iso);
+  const d = new Date(iso + 'T00:00:00');
   const now = new Date();
   const today = toDateStr(now);
   const yest = new Date(now); yest.setDate(now.getDate() - 1);
   const ds = toDateStr(d);
-  const ts = toTimeStr(d);
+  const ts = timeStr ? timeStr.slice(0, 5) : toTimeStr(d);
   if (ds === today) return `今天 ${ts}`;
   if (ds === toDateStr(yest)) return `昨天 ${ts}`;
   return `${d.getMonth()+1}/${d.getDate()} ${ts}`;
@@ -258,7 +258,7 @@ export default function LearningPage() {
   async function onAddCustomForm() {
     const name = customInput.trim();
     if (!name) return;
-    if (FORM_PRESET.includes(name) || customForms.includes(name)) {
+    if (ALL_FORM_PRESET.includes(name) || customForms.includes(name)) {
       setFormValue(name);
       setAddingCustom(false);
       setCustomInput('');
@@ -789,7 +789,7 @@ export default function LearningPage() {
               </div>
               <div className="record-right">
                 <div className="record-minutes">{r.duration_minutes} 分钟</div>
-                <div className="record-time">{fmtRecentDate(r.session_date)}</div>
+                <div className="record-time">{fmtRecentDate(r.session_date, r.start_time)}</div>
                 <div style={{ display: 'flex', gap: '6px', marginTop: '8px', justifyContent: 'flex-end' }}>
                   <button
                     className="btn btn-ghost btn-sm"

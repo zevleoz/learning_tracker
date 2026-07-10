@@ -16,14 +16,17 @@ export default function Login() {
     if (!email || !pw) return toast('请填写邮箱和密码', { kind: 'error' });
     setBusy(true);
     try {
+      console.log('Login attempt:', { email });
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
+      console.log('Login result:', { data, error });
       if (error) throw error;
 
-      // 根据角色路由：老师 → /mentor，学生 → /syllabus
       const role = Number(data?.user?.user_metadata?.role) || 1;
+      console.log('User role:', role);
       toast('登录成功', { kind: 'success' });
       nav(role >= 2 ? '/mentor' : '/syllabus', { replace: true });
     } catch (err) {
+      console.error('Login error:', err);
       toast(err.message || '登录失败', { kind: 'error' });
     } finally {
       setBusy(false);

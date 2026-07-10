@@ -471,18 +471,16 @@ function EfficiencyBlock({ sessions }) {
     const scorePerHour = hours > 0 ? Math.round(avgScore / hours * 10) / 10 : 0;
     const avgSession = Math.round(totalMins / sessions.length);
 
-    let efficiencyGrade = null;
-    if (hours > 0) {
-      if (scorePerHour >= 15) efficiencyGrade = { grade: 'A', color: '#10b981' };
-      else if (scorePerHour >= 10) efficiencyGrade = { grade: 'B', color: '#0ea5e9' };
-      else if (scorePerHour >= 5) efficiencyGrade = { grade: 'C', color: '#f59e0b' };
-      else efficiencyGrade = { grade: 'D', color: '#fb923c' };
-    }
+    let efficiencyColor = '#94a3b8';
+    if (scorePerHour >= 15) efficiencyColor = '#10b981';
+    else if (scorePerHour >= 10) efficiencyColor = '#0ea5e9';
+    else if (scorePerHour >= 5) efficiencyColor = '#f59e0b';
+    else if (scorePerHour > 0) efficiencyColor = '#fb923c';
 
-    return { scorePerHour, avgSession, efficiencyGrade };
+    return { scorePerHour, avgSession, efficiencyColor };
   }, [sessions]);
 
-  if (stats.efficiencyGrade === null) {
+  if (stats.scorePerHour === 0) {
     return null;
   }
 
@@ -504,18 +502,18 @@ function EfficiencyBlock({ sessions }) {
           padding: '16px',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>效率评分</div>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>效率指数</div>
           <div style={{
             fontSize: '48px',
             fontWeight: 800,
-            color: stats.efficiencyGrade.color,
+            color: stats.efficiencyColor,
             lineHeight: 1,
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           }}>
-            {stats.efficiencyGrade.grade}
+            {stats.scorePerHour}
           </div>
           <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
-            每小时平均分数：{stats.scorePerHour} 分
+            分/小时
           </div>
         </div>
 
@@ -877,10 +875,10 @@ function SubjectSummaryBlock({ sessions }) {
             const gradeColor = grade ? grade.color : '#94a3b8';
             const selfColor = subj.selfRatio > 0.7 ? '#10b981' : subj.selfRatio >= 0.3 ? '#f59e0b' : '#f43f5e';
             
-            const totalPct = (subj.totalMins / maxMins) * 100;
-            const reviewPct = subj.review > 0 ? (subj.review / subj.totalMins) * 100 : 0;
-            const practicePct = subj.practice > 0 ? (subj.practice / subj.totalMins) * 100 : 0;
-            const studyPct = subj.study > 0 ? (subj.study / subj.totalMins) * 100 : 0;
+            const totalBarWidth = (subj.totalMins / maxMins) * 100;
+            const studyWidth = subj.totalMins > 0 ? (subj.study / subj.totalMins) * totalBarWidth : 0;
+            const reviewWidth = subj.totalMins > 0 ? (subj.review / subj.totalMins) * totalBarWidth : 0;
+            const practiceWidth = subj.totalMins > 0 ? (subj.practice / subj.totalMins) * totalBarWidth : 0;
 
             return (
               <div key={subj.subject} style={{
@@ -897,24 +895,25 @@ function SubjectSummaryBlock({ sessions }) {
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
                     {subj.subject}
                   </div>
-                  {/* 迷你堆叠条 */}
+                  {/* 迷你堆叠条 - 总时长决定条长度 */}
                   <div style={{
                     display: 'flex',
                     height: '4px',
                     borderRadius: '999px',
                     overflow: 'hidden',
                     background: '#e5e7eb',
+                    width: totalBarWidth + '%',
                   }}>
                     <div style={{
-                      width: studyPct + '%',
+                      width: studyWidth + '%',
                       background: '#10b981',
                     }} />
                     <div style={{
-                      width: reviewPct + '%',
+                      width: reviewWidth + '%',
                       background: '#8b5cf6',
                     }} />
                     <div style={{
-                      width: practicePct + '%',
+                      width: practiceWidth + '%',
                       background: '#0ea5e9',
                     }} />
                   </div>

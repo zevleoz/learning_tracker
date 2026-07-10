@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { ReviewDashboard } from './Review.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
+import MentorAnalyticsPage from './MentorAnalytics.jsx';
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -15,7 +16,7 @@ function fmtMinutes(mins) {
 export default function Mentor() {
   const [user, setUser] = useState(null);
   const [students, setStudents] = useState([]);
-  const [connections, setConnections] = useState({});
+  const [connections, setConnections] = useState([]);
   const [picked, setPicked] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -35,12 +36,7 @@ export default function Mentor() {
       if (!u) return;
       setUser(u);
       await loadData(u.id);
-      startRealtime(u.id);
     })();
-
-    return () => {
-      if (sub) sub.unsubscribe();
-    };
   }, []);
 
   async function loadData(teacherId) {
@@ -157,8 +153,12 @@ export default function Mentor() {
   }
 
   function startRealtime(teacherId) {
+    if (sub) {
+      sub.unsubscribe();
+    }
+    const channelName = `teacher_connections_${teacherId}`;
     const subscription = supabase
-      .channel('public:teacher_student_connections')
+      .channel(channelName)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -517,16 +517,12 @@ export default function Mentor() {
           )}
 
           {activeView === 'analytics' && (
-            <div className="mentor-analytics-page">
-              <div className="mentor-page-header">
-                <h1 className="mentor-page-title">数据分析</h1>
-                <p className="mentor-page-subtitle">整体学习趋势和学生表现分析</p>
-              </div>
-              <div className="mentor-empty-state">
-                <div>数据分析功能即将上线</div>
-                <div className="mentor-empty-sub">敬请期待更多数据可视化功能</div>
-              </div>
-            </div>
+            <MentorAnalyticsPage 
+              user={user} 
+              students={students} 
+              connections={Array.isArray(connections) ? connections : Object.values(connections)}
+              onSelectStudent={(s) => { setPicked(s); setActiveView('students'); }}
+            />
           )}
 
           {activeView === 'settings' && (
@@ -550,115 +546,154 @@ export default function Mentor() {
     <div className="mentor-page" style={{ padding: '16px 16px 120px', maxWidth: 900, margin: '0 auto' }}>
       <header>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>导师视图</h1>
-        <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
-          下方是所有注册了的学生。点击“发送邀请”，学生接受后你就能看到他的学习数据与 Review。
-        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button
+            onClick={() => setActiveView('students')}
+            className={`mentor-tab-btn ${activeView === 'students' ? 'mentor-tab-btn-active' : ''}`}
+          >
+            学生管理
+          </button>
+          <button
+            onClick={() => setActiveView('analytics')}
+            className={`mentor-tab-btn ${activeView === 'analytics' ? 'mentor-tab-btn-active' : ''}`}
+          >
+            数据分析
+          </button>
+        </div>
       </header>
 
-      {!deployCheck.ok && (
-        <section style={{
-          marginTop: 16, padding: '14px 16px', borderRadius: 12,
-          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
-          color: '#7f1d1d', fontSize: 13, lineHeight: 1.55,
-        }}>
-          <b style={{ fontSize: 14 }}>⚠️ 邀请系统未就绪</b>
-          <div style={{ marginTop: 4 }}>{deployCheck.message}</div>
-          <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b' }}>
-            请打开项目根目录下的 <code>supabase/schema.patch-invites.sql</code>，
-            复制全部内容到 Supabase Console → SQL Editor → 执行。完成后刷新本页。
-          </div>
-        </section>
-      )}
+      {activeView === 'students' ? (
+        <>
+          {!deployCheck.ok && (
+            <section style={{
+              marginTop: 16, padding: '14px 16px', borderRadius: 12,
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
+              color: '#7f1d1d', fontSize: 13, lineHeight: 1.55,
+            }}>
+              <b style={{ fontSize: 14 }}>⚠️ 邀请系统未就绪</b>
+              <div style={{ marginTop: 4 }}>{deployCheck.message}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b' }}>
+                请打开项目根目录下的 <code>supabase/schema.patch-invites.sql</code>，
+                复制全部内容到 Supabase Console → SQL Editor → 执行。完成后刷新本页。
+              </div>
+            </section>
+          )}
 
-      <section className="glass-card" style={{ marginTop: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-          <SmallStat label="学生总数" value={stats.total} color="#64748b" />
-          <SmallStat label="已连接" value={stats.connected} color="#10b981" />
-          <SmallStat label="邀请中" value={stats.invited} color="#f59e0b" />
-          <SmallStat label="被拒绝" value={stats.rejected} color="#ef4444" />
-        </div>
-      </section>
+          <section className="glass-card" style={{ marginTop: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <SmallStat label="学生总数" value={stats.total} color="#64748b" />
+              <SmallStat label="已连接" value={stats.connected} color="#10b981" />
+              <SmallStat label="邀请中" value={stats.invited} color="#f59e0b" />
+              <SmallStat label="被拒绝" value={stats.rejected} color="#ef4444" />
+            </div>
+          </section>
 
-      {stats.connected > 0 && (
-        <section className="glass-card" style={{ marginTop: 16 }}>
-          <div className="field" style={{ marginBottom: 8 }}>
-            <label>查看某学生的 Review（下拉中只有你已连接的学生）</label>
-            <select
-              value={picked?.id || ''}
-              onChange={(e) => {
-                const id = e.target.value;
-                if (!id) return setPicked(null);
-                const stu = students.find((x) => x.id === id);
-                setPicked(stu || null);
-              }}
-              style={{ width: '100%' }}
-            >
-              <option value="">-- 选择学生 --</option>
-              {students
-                .filter((s) => connections[s.id]?.status === 1)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name || '(未命名)'}
-                  </option>
-                ))}
-            </select>
-          </div>
+          {stats.connected > 0 && (
+            <section className="glass-card" style={{ marginTop: 16 }}>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label>查看某学生的 Review（下拉中只有你已连接的学生）</label>
+                <select
+                  value={picked?.id || ''}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    if (!id) return setPicked(null);
+                    const stu = students.find((x) => x.id === id);
+                    setPicked(stu || null);
+                  }}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">-- 选择学生 --</option>
+                  {students
+                    .filter((s) => connections[s.id]?.status === 1)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name || '(未命名)'}
+                      </option>
+                    ))}
+                </select>
+              </div>
 
-          {picked && (
-            <div style={{ marginTop: 8 }}>
-              {busy ? (
-                <p style={{ color: '#94a3b8', fontSize: 13 }}>加载中…</p>
-              ) : (
-                <div>
-                  <div style={{
-                    padding: '12px 16px', fontSize: 13, color: '#334155',
-                    background: 'rgba(99,102,241,0.06)',
-                    border: '1px solid rgba(99,102,241,0.2)',
-                    borderRadius: 10, marginBottom: 12,
-                  }}>
-                    <b>{picked.full_name || '(未命名)'}</b> · 最近学习记录 {sessions.length} 条 ·
-                    累计 {fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}
-                  </div>
-                  {sessions.length > 0 ? (
-                    <ReviewDashboard sessions={sessions} />
+              {picked && (
+                <div style={{ marginTop: 8 }}>
+                  {busy ? (
+                    <p style={{ color: '#94a3b8', fontSize: 13 }}>加载中…</p>
                   ) : (
-                    <EmptyBlock text="该学生暂无学习记录。" />
+                    <div>
+                      <div style={{
+                        padding: '12px 16px', fontSize: 13, color: '#334155',
+                        background: 'rgba(99,102,241,0.06)',
+                        border: '1px solid rgba(99,102,241,0.2)',
+                        borderRadius: 10, marginBottom: 12,
+                      }}>
+                        <b>{picked.full_name || '(未命名)'}</b> · 最近学习记录 {sessions.length} 条 ·
+                        累计 {fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}
+                      </div>
+                      {sessions.length > 0 ? (
+                        <ReviewDashboard sessions={sessions} />
+                      ) : (
+                        <EmptyBlock text="该学生暂无学习记录。" />
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
+            </section>
           )}
-        </section>
+
+          <section className="glass-card" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <h2 style={{ fontSize: 15, margin: 0 }}>学生列表</h2>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {students.length} 位</span>
+            </div>
+
+            {students.length === 0 ? (
+              <EmptyBlock text="暂无学生注册。" sub="让学生在你的学校注册，他们出现后你可以在这里发送邀请。" />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                {students.map((s) => {
+                  const c = connections[s.id];
+                  return (
+                    <StudentRow
+                      key={s.id}
+                      student={s}
+                      connection={c || null}
+                      onInvite={() => sendInvite(s.id)}
+                      onWithdraw={() => withdrawInvite(s.id)}
+                      onPick={() => { if (c?.status === 1) setPicked(s); }}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        <MentorAnalyticsPage 
+          user={user} 
+          students={students} 
+          connections={Array.isArray(connections) ? connections : Object.values(connections)}
+          onSelectStudent={(s) => { setPicked(s); setActiveView('students'); }}
+        />
       )}
 
-      <section className="glass-card" style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <h2 style={{ fontSize: 15, margin: 0 }}>学生列表</h2>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {students.length} 位</span>
-        </div>
-
-        {students.length === 0 ? (
-          <EmptyBlock text="暂无学生注册。" sub="让学生在你的学校注册，他们出现后你可以在这里发送邀请。" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-            {students.map((s) => {
-              const c = connections[s.id];
-              return (
-                <StudentRow
-                  key={s.id}
-                  student={s}
-                  connection={c || null}
-                  onInvite={() => sendInvite(s.id)}
-                  onWithdraw={() => withdrawInvite(s.id)}
-                  onPick={() => { if (c?.status === 1) setPicked(s); }}
-                />
-              );
-            })}
-          </div>
-        )}
-      </section>
-
       <style>{`
+        .mentor-tab-btn {
+          padding: 6px 16px;
+          border-radius: 20px;
+          font-size: 13px;
+          background: rgba(255,255,255,0.5);
+          border: 1px solid rgba(15,23,42,0.08);
+          color: #64748b;
+          transition: all 0.2s;
+        }
+        .mentor-tab-btn:hover {
+          background: rgba(255,255,255,0.8);
+        }
+        .mentor-tab-btn-active {
+          background: #6366f1;
+          border-color: #6366f1;
+          color: white;
+        }
         .glass-card {
           background: rgba(255,255,255,0.4);
           border: 1px solid rgba(255,255,255,0.4);

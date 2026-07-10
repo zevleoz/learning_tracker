@@ -10,6 +10,13 @@ import Mentor from './pages/Mentor.jsx';
 import Notifications from './pages/Notifications.jsx';
 import DebugTools from './pages/DebugTools.jsx';
 
+const MOBILE_BREAKPOINT = 767;
+
+function ResponsiveRedirect() {
+  const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+  return <Navigate to={isMobile ? '/learning' : '/syllabus'} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -17,7 +24,7 @@ export default function App() {
       <Route path="/signup" element={<Signup />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route path="/" element={<Navigate to="/syllabus" replace />} />
+          <Route path="/" element={<ResponsiveRedirect />} />
           <Route path="/syllabus" element={<Syllabus />} />
           <Route path="/learning" element={<Learning />} />
           <Route path="/review" element={<Review />} />

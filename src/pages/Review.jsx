@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { fmtMinutes, isWeekday } from '../lib/date.js';
 
@@ -993,6 +994,7 @@ export default function Review() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('week');
+  const location = useLocation();
 
   useEffect(() => {
     (async () => {
@@ -1023,7 +1025,7 @@ export default function Review() {
       setSessions(list);
       setLoading(false);
     })();
-  }, []);
+  }, [location.pathname]);
 
   const filteredSessions = useMemo(() => {
     if (!sessions || sessions.length === 0) return [];

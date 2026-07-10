@@ -98,6 +98,19 @@ create policy sessions_select_access on public.learning_sessions
     or public.is_connected_teacher_of(student_id)
   );
 
+drop policy if exists sessions_insert on public.learning_sessions;
+create policy sessions_insert on public.learning_sessions
+  for insert to public with check (student_id = auth.uid());
+
+drop policy if exists sessions_update on public.learning_sessions;
+create policy sessions_update on public.learning_sessions
+  for update to public using (student_id = auth.uid())
+  with check (student_id = auth.uid());
+
+drop policy if exists sessions_delete on public.learning_sessions;
+create policy sessions_delete on public.learning_sessions
+  for delete using (student_id = auth.uid());
+
 -- ================================================================
 -- 完成
 -- ================================================================

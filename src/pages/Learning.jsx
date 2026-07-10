@@ -256,6 +256,7 @@ export default function LearningPage() {
         .select(`
           id, session_date, start_time, end_time, duration_minutes,
           category, form, eval_type, self_rating, grade_label, notes,
+          course_id, chapter_id, unit_id,
           course:courses(id,name,subject),
           chapter:chapters(id,name),
           unit:units(id,name)
@@ -467,7 +468,10 @@ export default function LearningPage() {
         .from('learning_sessions')
         .update(payload)
         .eq('id', editingSessionId);
-      if (error) throw error;
+      if (error) {
+        console.error('Update session error:', error);
+        throw error;
+      }
       toast('已更新', { kind: 'success' });
 
       const { data } = await supabase
@@ -475,6 +479,7 @@ export default function LearningPage() {
         .select(`
           id, session_date, start_time, end_time, duration_minutes,
           category, form, eval_type, self_rating, grade_label, notes,
+          course_id, chapter_id, unit_id,
           course:courses(id,name,subject),
           chapter:chapters(id,name),
           unit:units(id,name)

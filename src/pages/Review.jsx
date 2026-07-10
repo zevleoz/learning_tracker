@@ -996,8 +996,9 @@ export default function Review() {
   const [timeRange, setTimeRange] = useState('week');
   const location = useLocation();
 
-  useEffect(() => {
-    (async () => {
+  async function fetchSessions() {
+    setLoading(true);
+    try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
@@ -1023,8 +1024,13 @@ export default function Review() {
         subject: s.course?.subject || s.course?.name || '未分类',
       }));
       setSessions(list);
+    } finally {
       setLoading(false);
-    })();
+    }
+  }
+
+  useEffect(() => {
+    fetchSessions();
   }, [location.pathname]);
 
   const filteredSessions = useMemo(() => {
@@ -1066,6 +1072,27 @@ export default function Review() {
         padding: '0 16px 12px',
         overflowX: 'auto',
       }}>
+        <button
+          onClick={fetchSessions}
+          disabled={loading}
+          style={{
+            flex: '0 0 auto',
+            padding: '6px 10px',
+            borderRadius: '999px',
+            fontSize: '12px',
+            fontWeight: 500,
+            border: 'none',
+            cursor: 'pointer',
+            background: 'rgba(255,255,255,0.4)',
+            color: '#475569',
+            transition: 'all 0.15s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          {loading ? '刷新中…' : '🔄'}
+        </button>
         {rangeOptions.map((opt) => (
           <button
             key={opt.key}

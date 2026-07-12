@@ -133,7 +133,7 @@ export default function Signup() {
           </div>
 
           <div className="field">
-            <label>邮箱</label>
+            <label>邮箱 <span style={{ color: 'var(--brand)' }}>*</span></label>
             <input
               type="email" required
               value={form.email}
@@ -144,7 +144,7 @@ export default function Signup() {
           </div>
 
           <div className="field">
-            <label>密码（至少 6 位）</label>
+            <label>密码（至少 6 位）<span style={{ color: 'var(--brand)' }}>*</span></label>
             <input
               type="password" required
               value={form.password}
@@ -206,7 +206,7 @@ export default function Signup() {
           )}
 
           <div className="field">
-            <label>身份</label>
+            <label>身份 <span style={{ color: 'var(--brand)' }}>*</span></label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <label style={{
                 display: 'flex', alignItems: 'center', gap: '8px',

@@ -6,7 +6,7 @@
  *   - JSON（Supabase REST）：网络走网络层，不缓存（避免敏感信息留在本地）
  * ========================================================================= */
 
-const CACHE_NAME = "gpa-tracker-v2";
+const CACHE_NAME = "gpa-tracker-v3";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -76,7 +76,7 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   const payload = event.data ? event.data.text() : "该打卡啦！";
   event.waitUntil(
-    self.registration.showNotification("GPA Tracker", {
+    self.registration.showNotification("一表人才", {
       body: payload,
       icon: "./icons/icon-192.png",
       data: { url: "./index.html" },

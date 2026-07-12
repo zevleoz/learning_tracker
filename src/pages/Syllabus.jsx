@@ -23,10 +23,11 @@ export default function Syllabus() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('school:schools(name)')
+        .select('school_name')
         .eq('id', user.id)
         .maybeSingle();
-      if (profile?.school?.name) setSchoolName(profile.school.name);
+      const mySchool = profile?.school_name;
+      if (mySchool) setSchoolName(mySchool);
 
       const { data: cs } = await supabase
         .from('courses')
@@ -37,7 +38,11 @@ export default function Syllabus() {
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
-      const sorted = (cs || []).map((c) => ({
+      const sorted = (cs || []).filter((c) => {
+        if (c.created_by === user.id) return true;
+        if (!mySchool) return false;
+        return true;
+      }).map((c) => ({
         ...c,
         _isOwn: c.created_by === user.id,
         chapters: (c.chapters || [])

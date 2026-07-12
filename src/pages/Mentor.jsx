@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
-import { ReviewDashboard } from './Review.jsx';
+import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
 import MentorAnalyticsPage from './MentorAnalytics.jsx';
 
@@ -29,6 +29,8 @@ export default function Mentor() {
   const [sub, setSub] = useState(null);
   const [schools, setSchools] = useState([]);
   const [classStats, setClassStats] = useState({});
+  const [editingSchoolId, setEditingSchoolId] = useState(null);
+  const [editingSchoolValue, setEditingSchoolValue] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -271,6 +273,31 @@ export default function Mentor() {
     }
   }
 
+  async function saveSchoolName(studentId, newSchool) {
+    if (!newSchool.trim()) {
+      toast('学校名称不能为空', { kind: 'error' });
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ school_name: newSchool.trim(), updated_at: new Date().toISOString() })
+        .eq('id', studentId);
+      if (error) throw error;
+      setStudents((prev) => prev.map((s) => s.id === studentId ? { ...s, school_name: newSchool.trim() } : s));
+      setSchools((prev) => {
+        const updated = [...prev.filter((s) => s !== studentId), newSchool.trim()];
+        return [...new Set(updated)].sort();
+      });
+      setEditingSchoolId(null);
+      setEditingSchoolValue('');
+      toast('学校名称已更新', { kind: 'success' });
+    } catch (err) {
+      console.error('saveSchoolName failed:', err);
+      toast(`更新失败：${err.message}`, { kind: 'error' });
+    }
+  }
+
   const stats = useMemo(() => {
     const invited = Object.values(connections).filter((c) => c.status === 0).length;
     const connected = Object.values(connections).filter((c) => c.status === 1).length;
@@ -389,6 +416,7 @@ export default function Mentor() {
                       <thead>
                         <tr>
                           <th>学生姓名</th>
+                          <th>学校</th>
                           <th>注册时间</th>
                           <th>状态</th>
                           <th>操作</th>
@@ -398,6 +426,7 @@ export default function Mentor() {
                         {filteredStudents.map((s) => {
                           const conn = connections[s.id];
                           const status = conn?.status ?? -1;
+                          const isEditingSchool = editingSchoolId === s.id;
                           return (
                             <tr
                               key={s.id}
@@ -406,6 +435,36 @@ export default function Mentor() {
                             >
                               <td>
                                 <div className="mentor-table-name">{s.full_name || '(未命名)'}</div>
+                              </td>
+                              <td>
+                                {isEditingSchool ? (
+                                  <div className="mentor-school-edit">
+                                    <input
+                                      type="text"
+                                      value={editingSchoolValue}
+                                      onChange={(e) => setEditingSchoolValue(e.target.value)}
+                                      className="mentor-school-input"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.stopPropagation();
+                                          saveSchoolName(s.id, editingSchoolValue);
+                                        } else if (e.key === 'Escape') {
+                                          e.stopPropagation();
+                                          setEditingSchoolId(null);
+                                          setEditingSchoolValue('');
+                                        }
+                                      }}
+                                    />
+                                    <button className="mentor-school-btn-save" onClick={(e) => { e.stopPropagation(); saveSchoolName(s.id, editingSchoolValue); }}>✓</button>
+                                    <button className="mentor-school-btn-cancel" onClick={(e) => { e.stopPropagation(); setEditingSchoolId(null); setEditingSchoolValue(''); }}>✕</button>
+                                  </div>
+                                ) : (
+                                  <div className="mentor-table-school">
+                                    {s.school_name || '-'}
+                                    <button className="mentor-school-edit-btn" onClick={(e) => { e.stopPropagation(); setEditingSchoolId(s.id); setEditingSchoolValue(s.school_name || ''); }}>✏️</button>
+                                  </div>
+                                )}
                               </td>
                               <td className="mentor-table-date">
                                 {String(s.created_at || '').slice(0, 10)}
@@ -660,12 +719,42 @@ export default function Mentor() {
                       onInvite={() => sendInvite(s.id)}
                       onWithdraw={() => withdrawInvite(s.id)}
                       onPick={() => { if (c?.status === 1) setPicked(s); }}
+                      onEditSchool={() => { setEditingSchoolId(s.id); setEditingSchoolValue(s.school_name || ''); }}
                     />
                   );
                 })}
               </div>
             )}
           </section>
+
+          {editingSchoolId && (
+            <section className="glass-card" style={{ marginTop: 16, position: 'sticky', top: 16, zIndex: 100 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h3 style={{ fontSize: 14, margin: 0 }}>修改学校名称</h3>
+                <button onClick={() => { setEditingSchoolId(null); setEditingSchoolValue(''); }} style={{
+                  fontSize: 16, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer'
+                }}>✕</button>
+              </div>
+              <input
+                type="text"
+                value={editingSchoolValue}
+                onChange={(e) => setEditingSchoolValue(e.target.value)}
+                placeholder="请输入学校名称"
+                style={{ width: '100%', marginBottom: 8 }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setEditingSchoolId(null); setEditingSchoolValue(''); }} style={{
+                  flex: 1, padding: '8px', borderRadius: 10, border: '1px solid rgba(15,23,42,0.15)',
+                  background: '#fff', color: '#0f172a', cursor: 'pointer'
+                }}>取消</button>
+                <button onClick={() => saveSchoolName(editingSchoolId, editingSchoolValue)} style={{
+                  flex: 1, padding: '8px', borderRadius: 10, background: '#6366f1',
+                  color: '#fff', border: 'none', cursor: 'pointer'
+                }}>保存</button>
+              </div>
+            </section>
+          )}
         </>
       ) : (
         <MentorAnalyticsPage 
@@ -742,9 +831,10 @@ function EmptyBlock({ text, sub }) {
   );
 }
 
-function StudentRow({ student, connection, onInvite, onWithdraw, onPick }) {
+function StudentRow({ student, connection, onInvite, onWithdraw, onPick, onEditSchool }) {
   const status = connection?.status ?? -1;
   const name = student.full_name || '(未命名)';
+  const school = student.school_name || '-';
 
   const statusPill = (() => {
     switch (status) {
@@ -766,8 +856,18 @@ function StudentRow({ student, connection, onInvite, onWithdraw, onPick }) {
         <div style={{ fontSize: 14, fontWeight: 500, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-          注册时间：{String(student.created_at || '').slice(0, 10)}
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>注册时间：{String(student.created_at || '').slice(0, 10)}</span>
+          <button onClick={onEditSchool} style={{
+            fontSize: 10, padding: '2px 6px', borderRadius: 6,
+            background: 'rgba(99,102,241,0.1)', color: '#4338ca',
+            border: 'none', cursor: 'pointer'
+          }}>
+            修改学校
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 1 }}>
+          学校：{school}
         </div>
       </div>
 

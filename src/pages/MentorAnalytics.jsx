@@ -1,11 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-
-const SELF_FORMS = ['自主预习', '自主复习', '自主练习'];
-
-function isSelfForm(form) {
-  return SELF_FORMS.includes(String(form || ''));
-}
+import { isSelfForm } from '../components/SharedDashboard.jsx';
 
 function fmtMinutes(mins) {
   if (mins < 60) return `${mins}m`;

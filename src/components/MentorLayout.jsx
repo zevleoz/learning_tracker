@@ -49,7 +49,7 @@ export default function MentorLayout({ children, activeView = 'students', onView
         <div className="mentor-sidebar-header">
           <img src={logoColor} alt="GPA Tracker" className="mentor-sidebar-logo" />
           <div className="mentor-sidebar-brand">
-            <span className="mentor-sidebar-title">GPA Tracker</span>
+            <span className="mentor-sidebar-title">一表人才</span>
             <span className="mentor-sidebar-subtitle">导师管理系统</span>
           </div>
         </div>

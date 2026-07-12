@@ -2367,6 +2367,61 @@ textarea::placeholder { color: #9ca3af; }
   font-size: 13px;
 }
 
+.mentor-table-school {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mentor-school-edit-btn {
+  font-size: 12px;
+  padding: 2px 6px;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.mentor-table-row:hover .mentor-school-edit-btn {
+  opacity: 1;
+}
+
+.mentor-school-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mentor-school-input {
+  padding: 6px 10px;
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  font-size: 13px;
+  width: 150px;
+  outline: none;
+}
+
+.mentor-school-btn-save,
+.mentor-school-btn-cancel {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mentor-school-btn-save {
+  background: #6366f1;
+  color: white;
+}
+
+.mentor-school-btn-cancel {
+  background: rgba(148,163,184,0.15);
+  color: #64748b;
+}
+
 .mentor-table-actions {
   display: flex;
   gap: 8px;

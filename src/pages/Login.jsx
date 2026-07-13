@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
@@ -15,6 +15,42 @@ export default function Login() {
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updateBusy, setUpdateBusy] = useState(false);
+
+  useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const type = hashParams.get('type');
+    const accessToken = hashParams.get('access_token');
+    const code = hashParams.get('code');
+    
+    if (type === 'recovery' && (accessToken || code)) {
+      const checkSession = () => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session) {
+            setRecoveryMode(true);
+          } else {
+            toast('链接已过期或无效，请重新请求密码重置', { kind: 'error' });
+            window.location.hash = '';
+          }
+        });
+      };
+
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session) {
+          setRecoveryMode(true);
+        }
+      });
+
+      checkSession();
+
+      return () => {
+        authListener?.subscription?.unsubscribe();
+      };
+    }
+  }, []);
 
   async function handleReset(e) {
     e.preventDefault();
@@ -32,6 +68,28 @@ export default function Login() {
       toast(err.message || '发送失败', { kind: 'error' });
     } finally {
       setResetBusy(false);
+    }
+  }
+
+  async function handleUpdatePassword(e) {
+    e.preventDefault();
+    if (!newPassword.trim()) return toast('请输入新密码', { kind: 'error' });
+    if (newPassword.length < 6) return toast('密码至少 6 位', { kind: 'error' });
+    if (newPassword !== confirmPassword) return toast('两次输入的密码不一致', { kind: 'error' });
+    setUpdateBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      toast('密码修改成功！请重新登录', { kind: 'success' });
+      await supabase.auth.signOut();
+      setRecoveryMode(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      window.location.hash = '';
+    } catch (err) {
+      toast(err.message || '密码修改失败', { kind: 'error' });
+    } finally {
+      setUpdateBusy(false);
     }
   }
 
@@ -65,55 +123,116 @@ export default function Login() {
           <img src={logo} alt="logo" />
         </div>
 
-        <h1 className="auth-title">欢迎回来</h1>
-        <p className="auth-subtitle">登录你的账号继续使用</p>
+        {recoveryMode ? (
+          <>
+            <h1 className="auth-title">设置新密码</h1>
+            <p className="auth-subtitle">请设置你的新密码</p>
 
-        <form onSubmit={onSubmit}>
-          <div className="field">
-            <label>邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              required
-              autoComplete="email"
-            />
-          </div>
+            <form onSubmit={handleUpdatePassword}>
+              <div className="field">
+                <label>新密码</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="至少 6 位"
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
 
-          <div className="field">
-            <label>密码</label>
-            <input
-              type="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              placeholder="至少 6 位"
-              required
-              autoComplete="current-password"
-            />
-          </div>
+              <div className="field">
+                <label>确认密码</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入密码"
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="btn btn-primary"
-            style={{ marginTop: '4px' }}
-          >
-            {busy ? '登录中…' : '登录'}
-          </button>
+              <button
+                type="submit"
+                disabled={updateBusy}
+                className="btn btn-primary"
+                style={{ marginTop: '4px' }}
+              >
+                {updateBusy ? '设置中…' : '设置新密码'}
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setShowReset(true)}
-            style={{
-              marginTop: '8px', width: '100%', padding: '8px',
-              background: 'transparent', border: 'none',
-              fontSize: '13px', color: '#6366f1', cursor: 'pointer'
-            }}
-          >
-            忘记密码？
-          </button>
-        </form>
+              <button
+                type="button"
+                onClick={() => {
+                  setRecoveryMode(false);
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  window.location.hash = '';
+                }}
+                style={{
+                  marginTop: '8px', width: '100%', padding: '8px',
+                  background: 'transparent', border: 'none',
+                  fontSize: '13px', color: '#6366f1', cursor: 'pointer'
+                }}
+              >
+                返回登录
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h1 className="auth-title">欢迎回来</h1>
+            <p className="auth-subtitle">登录你的账号继续使用</p>
+
+            <form onSubmit={onSubmit}>
+              <div className="field">
+                <label>邮箱</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+
+              <div className="field">
+                <label>密码</label>
+                <input
+                  type="password"
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  placeholder="至少 6 位"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="btn btn-primary"
+                style={{ marginTop: '4px' }}
+              >
+                {busy ? '登录中…' : '登录'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowReset(true)}
+                style={{
+                  marginTop: '8px', width: '100%', padding: '8px',
+                  background: 'transparent', border: 'none',
+                  fontSize: '13px', color: '#6366f1', cursor: 'pointer'
+                }}
+              >
+                忘记密码？
+              </button>
+            </form>
+          </>
+        )}
 
         {showReset && (
           <div style={{

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
@@ -188,26 +189,31 @@ export default function LearningPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
 
+  const location = useLocation();
+
   /* ========== 载入：课程 tree ========== */
-  useEffect(() => {
+  async function loadCourses() {
     if (!user) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from('courses')
-        .select('id, name, subject, chapters(id, name, units(id, name))')
-        .eq('created_by', user.id)
-        .order('created_at', { ascending: false });
-      if (error) { console.error(error); }
-      const list = (data || []).map(c => ({
-        ...c,
-        chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
-          .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),
-      }));
-      setCourses(list);
-      if (list.length) setCourseId(list[0].id);
-      setLoadingCourses(false);
-    })();
-  }, [user]);
+    const { data, error } = await supabase
+      .from('courses')
+      .select('id, name, subject, chapters(id, name, units(id, name))')
+      .eq('created_by', user.id)
+      .order('created_at', { ascending: false });
+    if (error) { console.error(error); }
+    const list = (data || []).map(c => ({
+      ...c,
+      chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
+        .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),
+    }));
+    setCourses(list);
+    if (list.length && !courses.length) setCourseId(list[0].id);
+    setLoadingCourses(false);
+  }
+
+  useEffect(() => {
+    setLoadingCourses(true);
+    loadCourses();
+  }, [user, location.pathname]);
 
   /* --- 课程变化 -> 预选第一个章节 --- */
   useEffect(() => {
@@ -248,28 +254,30 @@ export default function LearningPage() {
   }, [user]);
 
   /* ========== 载入：最近记录 ========== */
-  useEffect(() => {
+  async function loadRecent() {
     if (!user) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from('learning_sessions')
-        .select(`
-          id, session_date, start_time, end_time, duration_minutes,
-          category, form, eval_type, self_rating, grade_label, notes,
-          course_id, chapter_id, unit_id,
-          course:courses(id,name,subject),
-          chapter:chapters(id,name),
-          unit:units(id,name)
-        `)
-        .eq('student_id', user.id)
-        .is('deleted_at', null)
-        .order('session_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) { console.error(error); return; }
-      setRecent(data || []);
-    })();
-  }, [user]);
+    const { data, error } = await supabase
+      .from('learning_sessions')
+      .select(`
+        id, session_date, start_time, end_time, duration_minutes,
+        category, form, eval_type, self_rating, grade_label, notes,
+        course_id, chapter_id, unit_id,
+        course:courses(id,name,subject),
+        chapter:chapters(id,name),
+        unit:units(id,name)
+      `)
+      .eq('student_id', user.id)
+      .is('deleted_at', null)
+      .order('session_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (error) { console.error(error); return; }
+    setRecent(data || []);
+  }
+
+  useEffect(() => {
+    loadRecent();
+  }, [user, location.pathname]);
 
   /* ========== 添加自定义 学习行为形式 ========== */
   async function onAddCustomForm() {

@@ -136,31 +136,40 @@ export default function Syllabus() {
 
   /* ========== 编辑 ========== */
   async function updateCourse(courseId, { name, subject }) {
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('courses')
       .update({ name: name.trim(), subject: subject.trim() })
-      .eq('id', courseId);
+      .eq('id', courseId)
+      .select()
+      .single();
     if (error) return toast(error.message, { kind: 'error' });
+    if (!data) return toast('更新失败：无权修改此课程', { kind: 'error' });
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, name: name.trim(), subject: subject.trim() } : c));
   }
 
   async function updateChapter(chapterId, name, courseId) {
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('chapters')
       .update({ name: name.trim() })
-      .eq('id', chapterId);
+      .eq('id', chapterId)
+      .select()
+      .single();
     if (error) return toast(error.message, { kind: 'error' });
+    if (!data) return toast('更新失败：无权修改此章节', { kind: 'error' });
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, name: name.trim() } : ch) } : c));
   }
 
   async function updateUnit(unitId, name, chapterId, courseId) {
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('units')
       .update({ name: name.trim() })
-      .eq('id', unitId);
+      .eq('id', unitId)
+      .select()
+      .single();
     if (error) return toast(error.message, { kind: 'error' });
+    if (!data) return toast('更新失败：无权修改此单元', { kind: 'error' });
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).map(u => u.id === unitId ? { ...u, name: name.trim() } : u) } : ch) } : c));
   }

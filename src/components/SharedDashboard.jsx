@@ -728,7 +728,7 @@ function MonthlyBarsBlock({ sessions }) {
 }
 
 function SubjectSummaryBlock({ sessions }) {
-  const subjects = useMemo(() => {
+  const courses = useMemo(() => {
     const today = new Date();
     const weekSet = new Set();
     for (let i = 0; i < 7; i++) {
@@ -736,14 +736,14 @@ function SubjectSummaryBlock({ sessions }) {
       weekSet.add(d.toISOString().slice(0, 10));
     }
 
-    const bySubj = {};
+    const byCourse = {};
     for (const s of sessions) {
-      const subj = s.subject || '未分类';
+      const courseName = s.course?.name || s.course_name || '未分类';
       const mins = s.duration_minutes || 0;
       const self = isSelfForm(s.form);
 
-      bySubj[subj] = bySubj[subj] || {
-        subject: subj,
+      byCourse[courseName] = byCourse[courseName] || {
+        courseName: courseName,
         totalMins: 0,
         review: 0,
         practice: 0,
@@ -754,20 +754,20 @@ function SubjectSummaryBlock({ sessions }) {
         weekMins: 0,
       };
 
-      bySubj[subj].totalMins += mins;
-      if (weekSet.has(s.date)) bySubj[subj].weekMins += mins;
-      if (self) bySubj[subj].self += mins;
-      if (s.category === 2) bySubj[subj].review += mins;
-      else if (s.category === 3) bySubj[subj].practice += mins;
-      else if (s.category === 1) bySubj[subj].study += mins;
+      byCourse[courseName].totalMins += mins;
+      if (weekSet.has(s.date)) byCourse[courseName].weekMins += mins;
+      if (self) byCourse[courseName].self += mins;
+      if (s.category === 2) byCourse[courseName].review += mins;
+      else if (s.category === 3) byCourse[courseName].practice += mins;
+      else if (s.category === 1) byCourse[courseName].study += mins;
       
       if (Number(s.eval_type) === 2 && s.score != null && s.score !== '' && !Number.isNaN(Number(s.score))) {
-        bySubj[subj].scoreSum += Number(s.score);
-        bySubj[subj].scoreCount += 1;
+        byCourse[courseName].scoreSum += Number(s.score);
+        byCourse[courseName].scoreCount += 1;
       }
     }
 
-    const arr = Object.values(bySubj).map((x) => ({
+    const arr = Object.values(byCourse).map((x) => ({
       ...x,
       avgScore: x.scoreCount > 0 ? x.scoreSum / x.scoreCount : 0,
       grade: x.scoreCount > 0 ? avgScoreToGrade(x.scoreSum / x.scoreCount) : null,
@@ -777,20 +777,20 @@ function SubjectSummaryBlock({ sessions }) {
     return arr.sort((a, b) => b.totalMins - a.totalMins);
   }, [sessions]);
 
-  if (subjects.length === 0) {
+  if (courses.length === 0) {
     return (
       <SectionShell>
-        <SectionTitle Icon={IconBookOpen} title="科目汇总" subtitle="各科目学习时长与评估" color="#8b5cf6" />
+        <SectionTitle Icon={IconBookOpen} title="课程汇总" subtitle="各课程学习时长与评估" color="#8b5cf6" />
         <EmptyState />
       </SectionShell>
     );
   }
 
-  const maxMins = Math.max(...subjects.map((s) => s.totalMins), 1);
+  const maxMins = Math.max(...courses.map((s) => s.totalMins), 1);
 
   return (
     <SectionShell>
-      <SectionTitle Icon={IconBookOpen} title="科目汇总" subtitle="各科目学习时长与评估" color="#8b5cf6" />
+      <SectionTitle Icon={IconBookOpen} title="课程汇总" subtitle="各课程学习时长与评估" color="#8b5cf6" />
 
       <div style={{
         background: 'rgba(255,255,255,0.4)',
@@ -801,17 +801,17 @@ function SubjectSummaryBlock({ sessions }) {
         overflow: 'hidden',
       }}>
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 60px 60px 50px 40px',
-          gap: '8px',
-          padding: '10px 14px',
-          background: '#f1f5f9',
-          fontSize: '11px',
-          fontWeight: 600,
-          color: '#64748b',
-          borderBottom: '1px solid rgba(148,163,184,0.3)',
-        }}>
-          <div>科目</div>
+        display: 'grid',
+        gridTemplateColumns: '1fr 60px 60px 50px 40px',
+        gap: '8px',
+        padding: '10px 14px',
+        background: '#f1f5f9',
+        fontSize: '11px',
+        fontWeight: 600,
+        color: '#64748b',
+        borderBottom: '1px solid rgba(148,163,184,0.3)',
+      }}>
+          <div>课程</div>
           <div style={{ textAlign: 'right' }}>本周</div>
           <div style={{ textAlign: 'right' }}>总时长</div>
           <div style={{ textAlign: 'right' }}>自主</div>
@@ -819,18 +819,18 @@ function SubjectSummaryBlock({ sessions }) {
         </div>
 
         <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-          {subjects.map((subj) => {
-            const grade = subj.grade;
+          {courses.map((course) => {
+            const grade = course.grade;
             const gradeColor = grade ? grade.color : '#94a3b8';
-            const selfColor = subj.selfRatio > 0.7 ? '#10b981' : subj.selfRatio >= 0.3 ? '#f59e0b' : '#f43f5e';
+            const selfColor = course.selfRatio > 0.7 ? '#10b981' : course.selfRatio >= 0.3 ? '#f59e0b' : '#f43f5e';
             
-            const totalBarWidth = (subj.totalMins / maxMins) * 100;
-            const studyWidth = subj.totalMins > 0 ? (subj.study / subj.totalMins) * totalBarWidth : 0;
-            const reviewWidth = subj.totalMins > 0 ? (subj.review / subj.totalMins) * totalBarWidth : 0;
-            const practiceWidth = subj.totalMins > 0 ? (subj.practice / subj.totalMins) * totalBarWidth : 0;
+            const totalBarWidth = (course.totalMins / maxMins) * 100;
+            const studyWidth = course.totalMins > 0 ? (course.study / course.totalMins) * totalBarWidth : 0;
+            const reviewWidth = course.totalMins > 0 ? (course.review / course.totalMins) * totalBarWidth : 0;
+            const practiceWidth = course.totalMins > 0 ? (course.practice / course.totalMins) * totalBarWidth : 0;
 
             return (
-              <div key={subj.subject} style={{
+              <div key={course.courseName} style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 60px 60px 50px 40px',
                 gap: '8px',
@@ -841,7 +841,7 @@ function SubjectSummaryBlock({ sessions }) {
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    {subj.subject}
+                    {course.courseName}
                   </div>
                   <div style={{
                     display: 'flex',
@@ -867,11 +867,11 @@ function SubjectSummaryBlock({ sessions }) {
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
-                  <TimeAmount minutes={subj.weekMins} scale={0.5} />
+                  <TimeAmount minutes={course.weekMins} scale={0.5} />
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
-                  <TimeAmount minutes={subj.totalMins} scale={0.5} />
+                  <TimeAmount minutes={course.totalMins} scale={0.5} />
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
@@ -881,7 +881,7 @@ function SubjectSummaryBlock({ sessions }) {
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                     color: selfColor,
                   }}>
-                    {Math.round(subj.selfRatio * 100)}%
+                    {Math.round(course.selfRatio * 100)}%
                   </span>
                 </div>
 

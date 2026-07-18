@@ -59,7 +59,7 @@ export default function Syllabus() {
   }, []);
 
   /* ===== 添加课程 ===== */
-  async function createCourse({ name, subject }) {
+  async function createCourse({ name, courseType }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return toast('请先登录', { kind: 'error' });
 
@@ -73,7 +73,8 @@ export default function Syllabus() {
       .from('courses')
       .insert({
         name: name.trim(),
-        subject: subject.trim(),
+        subject: '',
+        course_type: courseType,
         school_id: profile?.school_id || null,
         created_by: user.id
       })
@@ -135,41 +136,32 @@ export default function Syllabus() {
   }
 
   /* ========== 编辑 ========== */
-  async function updateCourse(courseId, { name, subject }) {
-    const { error, data } = await supabase
+  async function updateCourse(courseId, { name, courseType }) {
+    const { error } = await supabase
       .from('courses')
-      .update({ name: name.trim(), subject: subject.trim() })
-      .eq('id', courseId)
-      .select()
-      .single();
+      .update({ name: name.trim(), course_type: courseType })
+      .eq('id', courseId);
     if (error) return toast(error.message, { kind: 'error' });
-    if (!data) return toast('更新失败：无权修改此课程', { kind: 'error' });
     toast('已更新', { kind: 'success' });
-    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, name: name.trim(), subject: subject.trim() } : c));
+    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, name: name.trim(), course_type: courseType } : c));
   }
 
   async function updateChapter(chapterId, name, courseId) {
-    const { error, data } = await supabase
+    const { error } = await supabase
       .from('chapters')
       .update({ name: name.trim() })
-      .eq('id', chapterId)
-      .select()
-      .single();
+      .eq('id', chapterId);
     if (error) return toast(error.message, { kind: 'error' });
-    if (!data) return toast('更新失败：无权修改此章节', { kind: 'error' });
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, name: name.trim() } : ch) } : c));
   }
 
   async function updateUnit(unitId, name, chapterId, courseId) {
-    const { error, data } = await supabase
+    const { error } = await supabase
       .from('units')
       .update({ name: name.trim() })
-      .eq('id', unitId)
-      .select()
-      .single();
+      .eq('id', unitId);
     if (error) return toast(error.message, { kind: 'error' });
-    if (!data) return toast('更新失败：无权修改此单元', { kind: 'error' });
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).map(u => u.id === unitId ? { ...u, name: name.trim() } : u) } : ch) } : c));
   }
@@ -314,15 +306,15 @@ function SectionLabel({ title, count }) {
 function AddCourseCard({ onSubmit }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
-  const [subject, setSubject] = useState('');
+  const [courseType, setCourseType] = useState(1);
 
   function submit(e) {
     e.preventDefault();
-    if (!name.trim() || !subject.trim()) {
-      return toast('请填写课程名称和学科', { kind: 'error' });
+    if (!name.trim()) {
+      return toast('请填写课程名称', { kind: 'error' });
     }
-    onSubmit({ name, subject });
-    setName(''); setSubject('');
+    onSubmit({ name, courseType });
+    setName(''); setCourseType(1);
     setExpanded(false);
   }
 
@@ -345,7 +337,7 @@ function AddCourseCard({ onSubmit }) {
           添加新课程
         </div>
         <button
-          onClick={() => { setExpanded(false); setName(''); setSubject(''); }}
+          onClick={() => { setExpanded(false); setName(''); setCourseType(1); }}
           className="btn btn-ghost btn-sm"
           style={{ padding: '6px 12px' }}
         >
@@ -365,13 +357,14 @@ function AddCourseCard({ onSubmit }) {
           />
         </div>
         <div className="field">
-          <label>学科</label>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="如：数学、物理、英语、历史"
-          />
+          <label>课程类型</label>
+          <select
+            value={courseType}
+            onChange={(e) => setCourseType(Number(e.target.value))}
+          >
+            <option value={1}>校内课程</option>
+            <option value={2}>校外课程</option>
+          </select>
         </div>
         <button type="submit" className="btn btn-primary">创建课程</button>
       </form>
@@ -389,16 +382,18 @@ function CourseCard({
   const [addingChapter, setAddingChapter] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(course.name);
-  const [editSubject, setEditSubject] = useState(course.subject);
+  const [editCourseType, setEditCourseType] = useState(course.course_type || 1);
 
   function submitCourseEdit(e) {
     e.preventDefault();
-    if (!editName.trim() || !editSubject.trim()) {
-      return toast('请填写课程名称和学科', { kind: 'error' });
+    if (!editName.trim()) {
+      return toast('请填写课程名称', { kind: 'error' });
     }
-    onUpdateCourse(course.id, { name: editName, subject: editSubject });
+    onUpdateCourse(course.id, { name: editName, courseType: editCourseType });
     setEditing(false);
   }
+
+  const courseTypeLabel = editCourseType === 2 ? '校外课程' : '校内课程';
 
   return (
     <div className="course-card">
@@ -412,18 +407,20 @@ function CourseCard({
                 placeholder="课程名称"
                 style={inputStyle}
               />
-              <input
-                value={editSubject}
-                onChange={(e) => setEditSubject(e.target.value)}
-                placeholder="学科"
+              <select
+                value={editCourseType}
+                onChange={(e) => setEditCourseType(Number(e.target.value))}
                 style={inputStyle}
-              />
+              >
+                <option value={1}>校内课程</option>
+                <option value={2}>校外课程</option>
+              </select>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button className="btn btn-primary btn-sm" type="submit">保存</button>
                 <button
                   className="btn btn-ghost btn-sm"
                   type="button"
-                  onClick={() => { setEditing(false); setEditName(course.name); setEditSubject(course.subject); }}
+                  onClick={() => { setEditing(false); setEditName(course.name); setEditCourseType(course.course_type || 1); }}
                 >取消</button>
               </div>
             </form>
@@ -431,7 +428,7 @@ function CourseCard({
         ) : (
           <div>
             <div className="course-card-title">{course.name}</div>
-            <div className="course-card-subject">{course.subject}</div>
+            <div className="course-card-subject">{(course.course_type === 2 ? '校外课程' : '校内课程')}</div>
           </div>
         )}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

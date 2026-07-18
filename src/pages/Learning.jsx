@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
@@ -189,31 +188,26 @@ export default function LearningPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
 
-  const location = useLocation();
-
   /* ========== 载入：课程 tree ========== */
-  async function loadCourses() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('courses')
-      .select('id, name, subject, chapters(id, name, units(id, name))')
-      .eq('created_by', user.id)
-      .order('created_at', { ascending: false });
-    if (error) { console.error(error); }
-    const list = (data || []).map(c => ({
-      ...c,
-      chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
-        .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),
-    }));
-    setCourses(list);
-    if (list.length && !courses.length) setCourseId(list[0].id);
-    setLoadingCourses(false);
-  }
-
   useEffect(() => {
-    setLoadingCourses(true);
-    loadCourses();
-  }, [user, location.pathname]);
+    if (!user) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('courses')
+        .select('id, name, subject, chapters(id, name, units(id, name))')
+        .eq('created_by', user.id)
+        .order('created_at', { ascending: false });
+      if (error) { console.error(error); }
+      const list = (data || []).map(c => ({
+        ...c,
+        chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
+          .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),
+      }));
+      setCourses(list);
+      if (list.length) setCourseId(list[0].id);
+      setLoadingCourses(false);
+    })();
+  }, [user]);
 
   /* --- 课程变化 -> 预选第一个章节 --- */
   useEffect(() => {
@@ -254,30 +248,28 @@ export default function LearningPage() {
   }, [user]);
 
   /* ========== 载入：最近记录 ========== */
-  async function loadRecent() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('learning_sessions')
-      .select(`
-        id, session_date, start_time, end_time, duration_minutes,
-        category, form, eval_type, self_rating, grade_label, notes,
-        course_id, chapter_id, unit_id,
-        course:courses(id,name,subject),
-        chapter:chapters(id,name),
-        unit:units(id,name)
-      `)
-      .eq('student_id', user.id)
-      .is('deleted_at', null)
-      .order('session_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (error) { console.error(error); return; }
-    setRecent(data || []);
-  }
-
   useEffect(() => {
-    loadRecent();
-  }, [user, location.pathname]);
+    if (!user) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('learning_sessions')
+        .select(`
+          id, session_date, start_time, end_time, duration_minutes,
+          category, form, eval_type, self_rating, grade_label, notes,
+          course_id, chapter_id, unit_id,
+          course:courses(id,name,subject),
+          chapter:chapters(id,name),
+          unit:units(id,name)
+        `)
+        .eq('student_id', user.id)
+        .is('deleted_at', null)
+        .order('session_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) { console.error(error); return; }
+      setRecent(data || []);
+    })();
+  }, [user]);
 
   /* ========== 添加自定义 学习行为形式 ========== */
   async function onAddCustomForm() {
@@ -334,26 +326,47 @@ export default function LearningPage() {
       return;
     }
 
-    const payload = {
-      student_id: user.id,
-      course_id: courseId,
-      chapter_id: chapterId || null,
-      unit_id: unitId || null,
-      category,
-      form: formValue,
-      eval_type: evalType,
-      duration_minutes: duration,
-      notes: notes.trim() || null,
-      session_date: dateStr,
-      start_time: startStr + ':00',
-      end_time: endStr + ':00',
-      ...(evalType === 1
-        ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value }
-        : { grade_label: OBJECTIVE_STEPS[objIdx].label }),
-    };
+    const newStartTime = startStr + ':00';
+    const newEndTime = endStr + ':00';
 
     setBusy(true);
     try {
+      const { data: conflicts, error: conflictError } = await supabase
+        .from('learning_sessions')
+        .select('id, start_time, end_time')
+        .eq('student_id', user.id)
+        .eq('session_date', dateStr)
+        .is('deleted_at', null)
+        .lt('start_time', newEndTime)
+        .gt('end_time', newStartTime);
+
+      if (conflictError) throw conflictError;
+      if (conflicts && conflicts.length > 0) {
+        const conflict = conflicts[0];
+        newErrors.time = `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）`;
+        setErrors(newErrors);
+        setBusy(false);
+        return;
+      }
+
+      const payload = {
+        student_id: user.id,
+        course_id: courseId,
+        chapter_id: chapterId || null,
+        unit_id: unitId || null,
+        category,
+        form: formValue,
+        eval_type: evalType,
+        duration_minutes: duration,
+        notes: notes.trim() || null,
+        session_date: dateStr,
+        start_time: newStartTime,
+        end_time: newEndTime,
+        ...(evalType === 1
+          ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value }
+          : { grade_label: OBJECTIVE_STEPS[objIdx].label }),
+      };
+
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
 
@@ -453,25 +466,47 @@ export default function LearningPage() {
       return;
     }
 
-    const payload = {
-      course_id: courseId,
-      chapter_id: chapterId || null,
-      unit_id: unitId || null,
-      category,
-      form: formValue,
-      eval_type: evalType,
-      duration_minutes: duration,
-      notes: notes.trim() || null,
-      session_date: dateStr,
-      start_time: startStr + ':00',
-      end_time: endStr + ':00',
-      ...(evalType === 1
-        ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value, grade_label: null }
-        : { grade_label: OBJECTIVE_STEPS[objIdx].label, self_rating: null }),
-    };
+    const newStartTime = startStr + ':00';
+    const newEndTime = endStr + ':00';
 
     setBusy(true);
     try {
+      const { data: conflicts, error: conflictError } = await supabase
+        .from('learning_sessions')
+        .select('id, start_time, end_time')
+        .eq('student_id', user.id)
+        .eq('session_date', dateStr)
+        .is('deleted_at', null)
+        .neq('id', editingSessionId)
+        .lt('start_time', newEndTime)
+        .gt('end_time', newStartTime);
+
+      if (conflictError) throw conflictError;
+      if (conflicts && conflicts.length > 0) {
+        const conflict = conflicts[0];
+        newErrors.time = `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）`;
+        setErrors(newErrors);
+        setBusy(false);
+        return;
+      }
+
+      const payload = {
+        course_id: courseId,
+        chapter_id: chapterId || null,
+        unit_id: unitId || null,
+        category,
+        form: formValue,
+        eval_type: evalType,
+        duration_minutes: duration,
+        notes: notes.trim() || null,
+        session_date: dateStr,
+        start_time: newStartTime,
+        end_time: newEndTime,
+        ...(evalType === 1
+          ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value, grade_label: null }
+          : { grade_label: OBJECTIVE_STEPS[objIdx].label, self_rating: null }),
+      };
+
       const { error } = await supabase
         .from('learning_sessions')
         .update(payload)
@@ -885,8 +920,8 @@ export default function LearningPage() {
                 <div className="record-card__info">
                   <div className="record-card__course">
                     {r.course?.name || '-'}
-                    <span className="record-card__subject" style={{ color: SUBJECT_COLORS[r.course?.subject]?.text || '#64748b' }}>
-                      {r.course?.subject}
+                    <span className="record-card__subject" style={{ color: r.course?.course_type === 2 ? '#f59e0b' : '#64748b' }}>
+                      {r.course?.course_type === 2 ? '校外' : '校内'}
                     </span>
                   </div>
                   <div className="record-card__path">{r.chapter?.name || '-'} · {r.unit?.name || '-'}</div>

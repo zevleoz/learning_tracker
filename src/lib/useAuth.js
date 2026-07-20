@@ -51,10 +51,16 @@ export function useAuth() {
         .maybeSingle();
       if (!error) {
         if (data) {
-          setProfile(data);
+          let finalRole = data.role;
+          if (metaRole && Number(metaRole) !== data.role) {
+            console.warn('Role mismatch detected:', { 
+              user_metadata_role: metaRole, 
+              profiles_role: data.role 
+            });
+            finalRole = Number(metaRole);
+          }
+          setProfile({ ...data, role: finalRole });
         } else if (metaRole) {
-          // profile 表没有行（可能 trigger 没触发），但 user_metadata 里有 role
-          // 用 RPC 方式 insert 可能需要 service role，这里先 fallback
           setProfile({ id: uid, role: Number(metaRole), full_name: 'User' });
         }
       }

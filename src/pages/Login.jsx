@@ -56,26 +56,32 @@ export default function Login() {
   async function handleReset(e) {
     e.preventDefault();
     if (!resetEmail.trim()) return toast('请填写邮箱', { kind: 'error' });
+    if (!resetEmail.includes('@') || !resetEmail.includes('.')) {
+      return toast('请输入有效的邮箱地址', { kind: 'error' });
+    }
     setResetBusy(true);
     try {
+      logger.log('Reset password attempt:', { email: resetEmail });
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
         redirectTo: window.location.origin + '/login'
       });
       if (error) {
+        logger.error('Reset password error:', error);
         if (error.status === 429) {
-          throw new Error('发送请求过于频繁，请稍后再试');
+          throw new Error('请求过于频繁，请稍后再试');
         }
-        if (error.status === 400) {
-          throw new Error('无效的邮箱地址，请检查输入');
+        if (error.status === 500) {
+          throw new Error('服务器发送邮件失败，请联系管理员');
         }
         throw error;
       }
-      toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件箱）', { kind: 'success' });
+      logger.log('Reset password email sent successfully');
+      toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件）', { kind: 'success' });
       setShowReset(false);
       setResetEmail('');
     } catch (err) {
-      const msg = err.message || '邮件发送失败，请联系管理员';
-      toast(msg, { kind: 'error' });
+      logger.error('Reset password catch error:', err);
+      toast(err.message || '发送失败，请检查网络连接', { kind: 'error' });
     } finally {
       setResetBusy(false);
     }
@@ -86,10 +92,22 @@ export default function Login() {
     if (!newPassword.trim()) return toast('请输入新密码', { kind: 'error' });
     if (newPassword.length < 6) return toast('密码至少 6 位', { kind: 'error' });
     if (newPassword !== confirmPassword) return toast('两次输入的密码不一致', { kind: 'error' });
+    if (newPassword.length > 128) return toast('密码不能超过 128 位', { kind: 'error' });
     setUpdateBusy(true);
     try {
+      logger.log('Update password attempt');
       const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
+      if (error) {
+        logger.error('Update password error:', error);
+        if (error.status === 400) {
+          throw new Error('无效的密码重置链接，请重新请求');
+        }
+        if (error.status === 401) {
+          throw new Error('登录状态已过期，请重新请求密码重置');
+        }
+        throw error;
+      }
+      logger.log('Update password successful');
       toast('密码修改成功！请重新登录', { kind: 'success' });
       await supabase.auth.signOut();
       setRecoveryMode(false);
@@ -97,7 +115,8 @@ export default function Login() {
       setConfirmPassword('');
       window.location.hash = '';
     } catch (err) {
-      toast(err.message || '密码修改失败', { kind: 'error' });
+      logger.error('Update password catch error:', err);
+      toast(err.message || '密码修改失败，请检查网络连接', { kind: 'error' });
     } finally {
       setUpdateBusy(false);
     }

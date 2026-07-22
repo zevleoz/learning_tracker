@@ -63,6 +63,12 @@ export default function Syllabus() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return toast('请先登录', { kind: 'error' });
 
+    const trimmedName = name.trim();
+    if (!trimmedName) return toast('请填写课程名称', { kind: 'error' });
+
+    const existing = courses.find(c => c.name === trimmedName);
+    if (existing) return toast('该课程名称已存在', { kind: 'error' });
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('school_id')
@@ -72,7 +78,7 @@ export default function Syllabus() {
     const { error, data: created } = await supabase
       .from('courses')
       .insert({
-        name: name.trim(),
+        name: trimmedName,
         subject: '',
         course_type: courseType,
         school_id: profile?.school_id || null,

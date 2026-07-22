@@ -192,13 +192,24 @@ export default function LearningPage() {
   useEffect(() => {
     if (!user) return;
     (async () => {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('school_name')
+        .eq('id', user.id)
+        .maybeSingle();
+      const mySchool = profile?.school_name;
+
       const { data, error } = await supabase
         .from('courses')
-        .select('id, name, subject, chapters(id, name, units(id, name))')
-        .eq('created_by', user.id)
+        .select('id, name, subject, created_by, chapters(id, name, units(id, name))')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
       if (error) { console.error(error); }
-      const list = (data || []).map(c => ({
+      const list = (data || []).filter(c => {
+        if (c.created_by === user.id) return true;
+        if (!mySchool) return false;
+        return true;
+      }).map(c => ({
         ...c,
         chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
           .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),

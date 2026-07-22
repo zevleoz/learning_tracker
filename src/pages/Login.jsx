@@ -61,12 +61,21 @@ export default function Login() {
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
         redirectTo: window.location.origin + '/login'
       });
-      if (error) throw error;
-      toast('密码重置邮件已发送！请检查邮箱', { kind: 'success' });
+      if (error) {
+        if (error.status === 429) {
+          throw new Error('发送请求过于频繁，请稍后再试');
+        }
+        if (error.status === 400) {
+          throw new Error('无效的邮箱地址，请检查输入');
+        }
+        throw error;
+      }
+      toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件箱）', { kind: 'success' });
       setShowReset(false);
       setResetEmail('');
     } catch (err) {
-      toast(err.message || '发送失败', { kind: 'error' });
+      const msg = err.message || '邮件发送失败，请联系管理员';
+      toast(msg, { kind: 'error' });
     } finally {
       setResetBusy(false);
     }

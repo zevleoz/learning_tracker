@@ -29,6 +29,31 @@ const statCardVariants = {
   }),
 };
 
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{
+      padding: '12px 10px',
+      borderRadius: 12,
+      background: 'rgba(255,255,255,0.6)',
+      border: '1px solid rgba(0,0,0,0.06)',
+      textAlign: 'center',
+    }}>
+      <div style={{
+        fontSize: 20,
+        fontWeight: 700,
+        color: color,
+        lineHeight: 1.2,
+        marginBottom: 4,
+      }}>{value}</div>
+      <div style={{
+        fontSize: 11,
+        color: '#94a3b8',
+        fontWeight: 500,
+      }}>{label}</div>
+    </div>
+  );
+}
+
 const rowVariants = {
   hidden: { opacity: 0, x: -20 },
   visible: {
@@ -831,10 +856,10 @@ export default function Mentor() {
 
           <section className="glass-card" style={{ marginTop: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <SmallStat label="学生总数" value={stats.total} color="#64748b" />
-              <SmallStat label="已连接" value={stats.connected} color="#171717" />
-              <SmallStat label="邀请中" value={stats.invited} color="#8E8E93" />
-              <SmallStat label="被拒绝" value={stats.rejected} color="#B91C1C" />
+              <StatCard label="学生总数" value={stats.total} color="#64748b" />
+              <StatCard label="已连接" value={stats.connected} color="#171717" />
+              <StatCard label="邀请中" value={stats.invited} color="#8E8E93" />
+              <StatCard label="被拒绝" value={stats.rejected} color="#B91C1C" />
             </div>
           </section>
 

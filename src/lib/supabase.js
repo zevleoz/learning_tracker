@@ -1,13 +1,42 @@
 import { createClient } from '@supabase/supabase-js';
 
-const VITE_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-  || 'https://rkmspodctprrwmeiteos.supabase.co';
-const VITE_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV09hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y65p0ZM';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true }
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.');
+}
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true },
+  schema: 'public',
+  global: {
+    fetch: (url, options = {}) => {
+      return fetch(url, {
+        ...options,
+        signal: AbortSignal.timeout(10000)
+      });
+    }
+  }
 });
+
+export async function safeQuery(promise, errorMsg = '操作失败') {
+  try {
+    const result = await promise;
+    if (result.error) {
+      throw new Error(result.error.message || errorMsg);
+    }
+    return result;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络连接');
+    }
+    if (err.message?.includes('NetworkError') || err.message?.includes('Failed to fetch')) {
+      throw new Error('网络连接异常，请检查网络');
+    }
+    throw err;
+  }
+}
 
 export const SOURCE_LABEL = { 1: '校内课程', 2: '外部考试', 3: '语言学习', 4: '自学' };
 export const SOURCE_ICON  = { 1: '🏫', 2: '📜', 3: '🗣', 4: '📖' };

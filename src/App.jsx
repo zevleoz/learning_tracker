@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
 import Syllabus from './pages/Syllabus.jsx';
@@ -19,21 +20,23 @@ function ResponsiveRedirect() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/" element={<ResponsiveRedirect />} />
-          <Route path="/syllabus" element={<Syllabus />} />
-          <Route path="/learning" element={<Learning />} />
-          <Route path="/review" element={<Review />} />
-          <Route path="/mentor" element={<Mentor />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/debug-tools" element={<DebugTools />} />
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route path="/" element={<ResponsiveRedirect />} />
+            <Route path="/syllabus" element={<Syllabus />} />
+            <Route path="/learning" element={<Learning />} />
+            <Route path="/review" element={<Review />} />
+            <Route path="/mentor" element={<Mentor />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/debug-tools" element={<DebugTools />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }

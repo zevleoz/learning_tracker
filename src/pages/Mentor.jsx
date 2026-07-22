@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
 import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
 import MentorAnalyticsPage from './MentorAnalytics.jsx';
+import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -12,6 +15,51 @@ function fmtMinutes(mins) {
   const m = mins % 60;
   return m ? `${h}h ${m}min` : `${h} 小时`;
 }
+
+const statCardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.1,
+      duration: 0.4,
+      ease: [0.4, 0, 0.2, 1],
+    },
+  }),
+};
+
+const rowVariants = {
+  hidden: { opacity: 0, x: -20 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.3,
+      ease: [0.4, 0, 0.2, 1],
+    },
+  },
+  exit: {
+    opacity: 0,
+    x: 20,
+    transition: {
+      duration: 0.2,
+    },
+  },
+};
+
+const detailPanelVariants = {
+  hidden: { opacity: 0, x: 20 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: {
+      type: 'spring',
+      damping: 25,
+      stiffness: 200,
+    },
+  },
+};
 
 export default function Mentor() {
   const [user, setUser] = useState(null);
@@ -31,6 +79,7 @@ export default function Mentor() {
   const [classStats, setClassStats] = useState({});
   const [editingSchoolId, setEditingSchoolId] = useState(null);
   const [editingSchoolValue, setEditingSchoolValue] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -38,12 +87,13 @@ export default function Mentor() {
       if (!u) return;
       setUser(u);
       await loadData(u.id);
+      setIsLoading(false);
     })();
   }, []);
 
   async function loadData(teacherId) {
-    console.log('===== 老师端加载数据 =====');
-    console.log('teacherId:', teacherId);
+    logger.log('===== 老师端加载数据 =====');
+    logger.log('teacherId:', teacherId);
 
     const [pRes, cRes, sRes] = await Promise.all([
       supabase
@@ -64,12 +114,12 @@ export default function Mentor() {
         .not('school_name', 'eq', ''),
     ]);
 
-    console.log('profiles 查询结果:', pRes);
-    console.log('connections 查询结果:', cRes);
-    console.log('schools 查询结果:', sRes);
+    logger.log('profiles 查询结果:', pRes);
+    logger.log('connections 查询结果:', cRes);
+    logger.log('schools 查询结果:', sRes);
 
     if (pRes.error) {
-      console.error('profiles 查询错误:', pRes.error);
+      logger.error('profiles 查询错误:', pRes.error);
       setDeployCheck({ ok: false, message: `无法获取学生列表：${pRes.error.message}` });
     }
 
@@ -85,7 +135,7 @@ export default function Mentor() {
         .select('id, role, full_name')
         .eq('id', user.id)
         .single();
-      console.log('老师身份查询结果:', pRes2);
+      logger.log('老师身份查询结果:', pRes2);
       if (pRes2.error) {
         setDeployCheck({ ok: false, message: `无法读取你的老师身份（${pRes2.error.code}: ${pRes2.error.message}）` });
       } else if (Number(pRes2.data.role) < 2) {
@@ -126,7 +176,7 @@ export default function Mentor() {
       .gte('session_date', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 
     if (error) {
-      console.error('loadClassStats error:', error);
+      logger.error('loadClassStats error:', error);
       return;
     }
 
@@ -167,7 +217,7 @@ export default function Mentor() {
         table: 'teacher_student_connections',
         filter: `teacher_id=eq.${teacherId}`,
       }, (payload) => {
-        console.log('Connection realtime event:', payload);
+        logger.log('Connection realtime event:', payload);
         loadData(teacherId);
       })
       .subscribe();
@@ -190,7 +240,7 @@ export default function Mentor() {
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
-          console.error('mentor load sessions', error);
+          logger.error('mentor load sessions', error);
           toast('加载学生学习记录失败：' + error.message, { kind: 'error' });
           setSessions([]);
         } else {
@@ -223,7 +273,7 @@ export default function Mentor() {
       setInviteNotes((m) => ({ ...m, [studentId]: '' }));
       toast('已发送邀请，等待学生接受。', { kind: 'success' });
     } catch (err) {
-      console.error('sendInvite failed:', err);
+      logger.error('sendInvite failed:', err);
       const code = err && err.code;
       const msg = err && err.message;
       if (code === '42P01' || /relation.*does not exist/i.test(msg || '')) {
@@ -249,7 +299,7 @@ export default function Mentor() {
       setConnections((m) => { const next = { ...m }; delete next[studentId]; return next; });
       toast('已撤回邀请', { kind: 'success' });
     } catch (err) {
-      console.error('withdrawInvite failed:', err);
+      logger.error('withdrawInvite failed:', err);
       toast(`撤回失败`, { kind: 'error' });
     }
   }
@@ -268,7 +318,7 @@ export default function Mentor() {
       if (picked?.id === studentId) setPicked(null);
       toast('已断开连接', { kind: 'success' });
     } catch (err) {
-      console.error('disconnectStudent failed:', err);
+      logger.error('disconnectStudent failed:', err);
       toast(`断开失败`, { kind: 'error' });
     }
   }
@@ -293,7 +343,7 @@ export default function Mentor() {
       setEditingSchoolValue('');
       toast('学校名称已更新', { kind: 'success' });
     } catch (err) {
-      console.error('saveSchoolName failed:', err);
+      logger.error('saveSchoolName failed:', err);
       toast(`更新失败：${err.message}`, { kind: 'error' });
     }
   }
@@ -337,42 +387,68 @@ export default function Mentor() {
       <MentorLayout activeView={activeView} onViewChange={setActiveView}>
         <div className="mentor-desktop-content">
           {!deployCheck.ok && (
-            <div className="mentor-alert mentor-alert-error">
+            <motion.div 
+              className="mentor-alert mentor-alert-error"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
               <strong>⚠️ 邀请系统未就绪</strong>
               <div>{deployCheck.message}</div>
-            </div>
+            </motion.div>
           )}
 
           {activeView === 'students' && (
-            <div className="mentor-students-page">
-              <div className="mentor-page-header">
+            <motion.div 
+              className="mentor-students-page"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <motion.div 
+                className="mentor-page-header"
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+              >
                 <div>
                   <h1 className="mentor-page-title">学生管理</h1>
                   <p className="mentor-page-subtitle">管理你的学生连接和查看学习数据</p>
                 </div>
-              </div>
+              </motion.div>
 
-
-
-              <div className="mentor-main-layout">
+              <motion.div 
+                className="mentor-main-layout"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.3 }}
+              >
                 <div className="mentor-student-list-panel">
                   <div className="mentor-class-overview">
-                    <div className="mentor-class-stat">
-                      <div className="mentor-class-stat-value">{classStats.totalStudents || 0}</div>
-                      <div className="mentor-class-stat-label">已连接学生</div>
-                    </div>
-                    <div className="mentor-class-stat">
-                      <div className="mentor-class-stat-value">{classStats.activeStudents || 0}</div>
-                      <div className="mentor-class-stat-label">本周活跃</div>
-                    </div>
-                    <div className="mentor-class-stat">
-                      <div className="mentor-class-stat-value">{classStats.avgDailyMinutes || 0}m</div>
-                      <div className="mentor-class-stat-label">日均学习</div>
-                    </div>
-                    <div className="mentor-class-stat">
-                      <div className="mentor-class-stat-value">{classStats.avgScore || 0}</div>
-                      <div className="mentor-class-stat-label">平均分数</div>
-                    </div>
+                    {[
+                      { value: classStats.totalStudents || 0, label: '已连接学生', suffix: '' },
+                      { value: classStats.activeStudents || 0, label: '本周活跃', suffix: '' },
+                      { value: classStats.avgDailyMinutes || 0, label: '日均学习', suffix: 'm' },
+                      { value: classStats.avgScore || 0, label: '平均分数', suffix: '' },
+                    ].map((stat, index) => (
+                      <motion.div
+                        key={stat.label}
+                        className="mentor-class-stat"
+                        variants={statCardVariants}
+                        initial="hidden"
+                        animate="visible"
+                        custom={index}
+                      >
+                        <div className="mentor-class-stat-value">
+                          {isLoading ? (
+                            <Skeleton height={28} width="60%" />
+                          ) : (
+                            <AnimatedNumber value={stat.value} suffix={stat.suffix} />
+                          )}
+                        </div>
+                        <div className="mentor-class-stat-label">{stat.label}</div>
+                      </motion.div>
+                    ))}
                   </div>
 
                   <div className="mentor-panel-header">
@@ -381,34 +457,40 @@ export default function Mentor() {
                   </div>
 
                   <div className="mentor-search-bar">
-                    <input
+                    <motion.input
                       type="text"
                       placeholder="搜索学生姓名…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="mentor-search-input"
+                      whileFocus={{ scale: 1.01 }}
+                      transition={{ type: 'spring', stiffness: 300 }}
                     />
-                    <select
+                    <motion.select
                       value={filterSchool}
                       onChange={(e) => setFilterSchool(e.target.value)}
                       className="mentor-filter-select"
+                      whileFocus={{ scale: 1.01 }}
+                      transition={{ type: 'spring', stiffness: 300 }}
                     >
                       <option value="all">所有学校</option>
                       {schools.map((school) => (
                         <option key={school} value={school}>{school}</option>
                       ))}
-                    </select>
-                    <select
+                    </motion.select>
+                    <motion.select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
                       className="mentor-filter-select"
+                      whileFocus={{ scale: 1.01 }}
+                      transition={{ type: 'spring', stiffness: 300 }}
                     >
                       <option value="all">全部状态</option>
                       <option value="connected">已连接</option>
                       <option value="invited">邀请中</option>
                       <option value="rejected">已拒绝</option>
                       <option value="uninvited">未邀请</option>
-                    </select>
+                    </motion.select>
                   </div>
 
                   <div className="mentor-student-table-container">
@@ -423,142 +505,246 @@ export default function Mentor() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredStudents.map((s) => {
-                          const conn = connections[s.id];
-                          const status = conn?.status ?? -1;
-                          const isEditingSchool = editingSchoolId === s.id;
-                          return (
-                            <tr
-                              key={s.id}
-                              onClick={() => status === 1 && setPicked(s)}
-                              className={`mentor-table-row ${status === 1 ? 'mentor-table-row-clickable' : ''} ${picked?.id === s.id ? 'mentor-table-row-selected' : ''}`}
-                            >
-                              <td>
-                                <div className="mentor-table-name">{s.full_name || '(未命名)'}</div>
-                              </td>
-                              <td>
-                                {isEditingSchool ? (
-                                  <div className="mentor-school-edit">
-                                    <input
-                                      type="text"
-                                      value={editingSchoolValue}
-                                      onChange={(e) => setEditingSchoolValue(e.target.value)}
-                                      className="mentor-school-input"
-                                      autoFocus
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.stopPropagation();
-                                          saveSchoolName(s.id, editingSchoolValue);
-                                        } else if (e.key === 'Escape') {
-                                          e.stopPropagation();
-                                          setEditingSchoolId(null);
-                                          setEditingSchoolValue('');
-                                        }
-                                      }}
-                                    />
-                                    <button className="mentor-school-btn-save" onClick={(e) => { e.stopPropagation(); saveSchoolName(s.id, editingSchoolValue); }}>✓</button>
-                                    <button className="mentor-school-btn-cancel" onClick={(e) => { e.stopPropagation(); setEditingSchoolId(null); setEditingSchoolValue(''); }}>✕</button>
-                                  </div>
-                                ) : (
-                                  <div className="mentor-table-school">
-                                    {s.school_name || '-'}
-                                    <button className="mentor-school-edit-btn" onClick={(e) => { e.stopPropagation(); setEditingSchoolId(s.id); setEditingSchoolValue(s.school_name || ''); }}>✏️</button>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="mentor-table-date">
-                                {String(s.created_at || '').slice(0, 10)}
-                              </td>
-                              <td>
-                                <span className={`mentor-status-pill mentor-status-${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
-                                  {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
-                                </span>
-                              </td>
-                              <td className="mentor-table-actions">
-                                {status === -1 && (
-                                  <div className="mentor-invite-group">
-                                    <input
-                                      type="text"
-                                      placeholder="邀请备注（可选）"
-                                      value={inviteNotes[s.id] || ''}
-                                      onChange={(e) => setInviteNotes((m) => ({ ...m, [s.id]: e.target.value }))}
-                                      className="mentor-invite-note"
-                                    />
-                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
-                                      发送邀请
-                                    </button>
-                                  </div>
-                                )}
-                                {status === 0 && (
-                                  <>
-                                    <button className="mentor-btn mentor-btn-secondary" onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}>
-                                      撤回
-                                    </button>
-                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
-                                      重发
-                                    </button>
-                                  </>
-                                )}
-                                {status === 2 && (
-                                  <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}>
-                                    再次邀请
-                                  </button>
-                                )}
-                                {status === 1 && (
-                                  <>
-                                    <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
-                                      查看数据
-                                    </button>
-                                    <button className="mentor-btn mentor-btn-secondary" onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}>
-                                      断开
-                                    </button>
-                                  </>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        <AnimatePresence>
+                          {filteredStudents.map((s, index) => {
+                            const conn = connections[s.id];
+                            const status = conn?.status ?? -1;
+                            const isEditingSchool = editingSchoolId === s.id;
+                            return (
+                              <motion.tr
+                                key={s.id}
+                                initial="hidden"
+                                animate="visible"
+                                exit="exit"
+                                variants={rowVariants}
+                                custom={index}
+                                onClick={() => status === 1 && setPicked(s)}
+                                className={`mentor-table-row ${status === 1 ? 'mentor-table-row-clickable' : ''} ${picked?.id === s.id ? 'mentor-table-row-selected' : ''}`}
+                                whileHover={{ scale: 1.002 }}
+                                transition={{ type: 'spring', stiffness: 300 }}
+                              >
+                                <td>
+                                  <div className="mentor-table-name">{s.full_name || '(未命名)'}</div>
+                                </td>
+                                <td>
+                                  {isEditingSchool ? (
+                                    <div className="mentor-school-edit">
+                                      <motion.input
+                                        type="text"
+                                        value={editingSchoolValue}
+                                        onChange={(e) => setEditingSchoolValue(e.target.value)}
+                                        className="mentor-school-input"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.stopPropagation();
+                                            saveSchoolName(s.id, editingSchoolValue);
+                                          } else if (e.key === 'Escape') {
+                                            e.stopPropagation();
+                                            setEditingSchoolId(null);
+                                            setEditingSchoolValue('');
+                                          }
+                                        }}
+                                        layout
+                                        transition={{ duration: 0.2 }}
+                                      />
+                                      <motion.button 
+                                        className="mentor-school-btn-save" 
+                                        onClick={(e) => { e.stopPropagation(); saveSchoolName(s.id, editingSchoolValue); }}
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                      >✓</motion.button>
+                                      <motion.button 
+                                        className="mentor-school-btn-cancel" 
+                                        onClick={(e) => { e.stopPropagation(); setEditingSchoolId(null); setEditingSchoolValue(''); }}
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                      >✕</motion.button>
+                                    </div>
+                                  ) : (
+                                    <div className="mentor-table-school">
+                                      {s.school_name || '-'}
+                                      <motion.button 
+                                        className="mentor-school-edit-btn" 
+                                        onClick={(e) => { e.stopPropagation(); setEditingSchoolId(s.id); setEditingSchoolValue(s.school_name || ''); }}
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                      >✏️</motion.button>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="mentor-table-date">
+                                  {String(s.created_at || '').slice(0, 10)}
+                                </td>
+                                <td>
+                                  <motion.span 
+                                    className={`mentor-status-pill mentor-status-${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}
+                                    whileHover={{ scale: 1.05 }}
+                                    transition={{ type: 'spring', stiffness: 300 }}
+                                  >
+                                    {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
+                                  </motion.span>
+                                </td>
+                                <td className="mentor-table-actions">
+                                  {status === -1 && (
+                                    <div className="mentor-invite-group">
+                                      <motion.input
+                                        type="text"
+                                        placeholder="邀请备注（可选）"
+                                        value={inviteNotes[s.id] || ''}
+                                        onChange={(e) => setInviteNotes((m) => ({ ...m, [s.id]: e.target.value }))}
+                                        className="mentor-invite-note"
+                                        whileFocus={{ scale: 1.01 }}
+                                      />
+                                      <motion.button 
+                                        className="mentor-btn mentor-btn-primary" 
+                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        whileFocus={{ scale: 1.02 }}
+                                      >
+                                        发送邀请
+                                      </motion.button>
+                                    </div>
+                                  )}
+                                  {status === 0 && (
+                                    <>
+                                      <motion.button 
+                                        className="mentor-btn mentor-btn-secondary" 
+                                        onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                      >
+                                        撤回
+                                      </motion.button>
+                                      <motion.button 
+                                        className="mentor-btn mentor-btn-primary" 
+                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                      >
+                                        重发
+                                      </motion.button>
+                                    </>
+                                  )}
+                                  {status === 2 && (
+                                    <motion.button 
+                                      className="mentor-btn mentor-btn-primary" 
+                                      onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                      whileHover={{ scale: 1.02 }}
+                                      whileTap={{ scale: 0.98 }}
+                                    >
+                                      再次邀请
+                                    </motion.button>
+                                  )}
+                                  {status === 1 && (
+                                    <>
+                                      <motion.button 
+                                        className="mentor-btn mentor-btn-primary" 
+                                        onClick={(e) => { e.stopPropagation(); setPicked(s); }}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                      >
+                                        查看数据
+                                      </motion.button>
+                                      <motion.button 
+                                        className="mentor-btn mentor-btn-secondary" 
+                                        onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                      >
+                                        断开
+                                      </motion.button>
+                                    </>
+                                  )}
+                                </td>
+                              </motion.tr>
+                            );
+                          })}
+                        </AnimatePresence>
                       </tbody>
                     </table>
 
                     {filteredStudents.length === 0 && (
-                      <div className="mentor-empty-state">
+                      <motion.div 
+                        className="mentor-empty-state"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <div>暂无学生</div>
                         <div className="mentor-empty-sub">让学生注册后，他们会出现在这里</div>
-                      </div>
+                      </motion.div>
                     )}
                   </div>
                 </div>
 
-                <div className="mentor-detail-panel">
+                <motion.div 
+                  className="mentor-detail-panel"
+                  key={picked?.id || 'empty'}
+                  variants={detailPanelVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
                   {picked ? (
                     <>
                       <div className="mentor-panel-header">
                         <h2 className="mentor-panel-title">{picked.full_name || '学生'} 的学习数据</h2>
-                        <button className="mentor-close-detail" onClick={() => setPicked(null)}>关闭</button>
+                        <motion.button 
+                          className="mentor-close-detail" 
+                          onClick={() => setPicked(null)}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >关闭</motion.button>
                       </div>
 
                       {busy ? (
-                        <div className="mentor-loading">加载中…</div>
+                        <div className="mentor-loading">
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                            <Skeleton height={20} width="40%" />
+                            <Skeleton height={16} width="60%" />
+                            <Skeleton height={16} width="40%" />
+                          </div>
+                        </div>
                       ) : (
                         <div className="mentor-detail-content">
-                          <div className="mentor-student-summary">
+                          <motion.div 
+                            className="mentor-student-summary"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3 }}
+                          >
                             <div className="mentor-summary-item">
                               <span className="mentor-summary-label">学习记录</span>
-                              <span className="mentor-summary-value">{sessions.length} 条</span>
+                              <span className="mentor-summary-value">
+                                <AnimatedNumber value={sessions.length} suffix=" 条" />
+                              </span>
                             </div>
                             <div className="mentor-summary-item">
                               <span className="mentor-summary-label">累计时长</span>
-                              <span className="mentor-summary-value">{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</span>
+                              <span className="mentor-summary-value">
+                                {fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}
+                              </span>
                             </div>
-                          </div>
+                          </motion.div>
 
                           {sessions.length > 0 ? (
-                            <ReviewDashboard sessions={sessions} />
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: 0.1, duration: 0.3 }}
+                            >
+                              <ReviewDashboard sessions={sessions} />
+                            </motion.div>
                           ) : (
-                            <div className="mentor-empty-state">
+                            <motion.div 
+                              className="mentor-empty-state"
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ duration: 0.3 }}
+                            >
                               <div>该学生暂无学习记录</div>
-                            </div>
+                            </motion.div>
                           )}
                         </div>
                       )}
@@ -570,9 +756,9 @@ export default function Mentor() {
                       <div className="mentor-detail-placeholder-desc">从左侧列表选择已连接的学生，查看他们的学习分析报告</div>
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
+                </motion.div>
+              </motion.div>
+            </motion.div>
           )}
 
           {activeView === 'analytics' && (
@@ -585,7 +771,12 @@ export default function Mentor() {
           )}
 
           {activeView === 'settings' && (
-            <div className="mentor-settings-page">
+            <motion.div 
+              className="mentor-settings-page"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
               <div className="mentor-page-header">
                 <h1 className="mentor-page-title">系统设置</h1>
                 <p className="mentor-page-subtitle">管理你的导师账号和系统配置</p>
@@ -594,7 +785,7 @@ export default function Mentor() {
                 <div>系统设置功能即将上线</div>
                 <div className="mentor-empty-sub">敬请期待更多设置选项</div>
               </div>
-            </div>
+            </motion.div>
           )}
         </div>
       </MentorLayout>
@@ -641,278 +832,107 @@ export default function Mentor() {
           <section className="glass-card" style={{ marginTop: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <SmallStat label="学生总数" value={stats.total} color="#64748b" />
-              <SmallStat label="已连接" value={stats.connected} color="#10b981" />
-              <SmallStat label="邀请中" value={stats.invited} color="#f59e0b" />
-              <SmallStat label="被拒绝" value={stats.rejected} color="#ef4444" />
+              <SmallStat label="已连接" value={stats.connected} color="#171717" />
+              <SmallStat label="邀请中" value={stats.invited} color="#8E8E93" />
+              <SmallStat label="被拒绝" value={stats.rejected} color="#B91C1C" />
             </div>
           </section>
-
-          {stats.connected > 0 && (
-            <section className="glass-card" style={{ marginTop: 16 }}>
-              <div className="field" style={{ marginBottom: 8 }}>
-                <label>查看某学生的 Review（下拉中只有你已连接的学生）</label>
-                <select
-                  value={picked?.id || ''}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    if (!id) return setPicked(null);
-                    const stu = students.find((x) => x.id === id);
-                    setPicked(stu || null);
-                  }}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">-- 选择学生 --</option>
-                  {students
-                    .filter((s) => connections[s.id]?.status === 1)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.full_name || '(未命名)'}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              {picked && (
-                <div style={{ marginTop: 8 }}>
-                  {busy ? (
-                    <p style={{ color: '#94a3b8', fontSize: 13 }}>加载中…</p>
-                  ) : (
-                    <div>
-                      <div style={{
-                        padding: '12px 16px', fontSize: 13, color: '#334155',
-                        background: 'rgba(99,102,241,0.06)',
-                        border: '1px solid rgba(99,102,241,0.2)',
-                        borderRadius: 10, marginBottom: 12,
-                      }}>
-                        <b>{picked.full_name || '(未命名)'}</b> · 最近学习记录 {sessions.length} 条 ·
-                        累计 {fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}
-                      </div>
-                      {sessions.length > 0 ? (
-                        <ReviewDashboard sessions={sessions} />
-                      ) : (
-                        <EmptyBlock text="该学生暂无学习记录。" />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
 
           <section className="glass-card" style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <h2 style={{ fontSize: 15, margin: 0 }}>学生列表</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {students.length} 位</span>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>学生列表</span>
+              <span style={{ marginLeft: 8, fontSize: 12, color: '#94a3b8' }}>{students.length} 位学生</span>
             </div>
-
-            {students.length === 0 ? (
-              <EmptyBlock text="暂无学生注册。" sub="让学生在你的学校注册，他们出现后你可以在这里发送邀请。" />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                {students.map((s) => {
-                  const c = connections[s.id];
-                  return (
-                    <StudentRow
-                      key={s.id}
-                      student={s}
-                      connection={c || null}
-                      onInvite={() => sendInvite(s.id)}
-                      onWithdraw={() => withdrawInvite(s.id)}
-                      onPick={() => { if (c?.status === 1) setPicked(s); }}
-                      onEditSchool={() => { setEditingSchoolId(s.id); setEditingSchoolValue(s.school_name || ''); }}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {editingSchoolId && (
-            <section className="glass-card" style={{ marginTop: 16, position: 'sticky', top: 16, zIndex: 100 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <h3 style={{ fontSize: 14, margin: 0 }}>修改学校名称</h3>
-                <button onClick={() => { setEditingSchoolId(null); setEditingSchoolValue(''); }} style={{
-                  fontSize: 16, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer'
-                }}>✕</button>
-              </div>
+            <div style={{ padding: 12 }}>
               <input
                 type="text"
-                value={editingSchoolValue}
-                onChange={(e) => setEditingSchoolValue(e.target.value)}
-                placeholder="请输入学校名称"
-                style={{ width: '100%', marginBottom: 8 }}
-                autoFocus
+                placeholder="搜索学生姓名…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: 10,
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  background: 'rgba(248,250,252,0.8)',
+                  fontSize: 14,
+                }}
               />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => { setEditingSchoolId(null); setEditingSchoolValue(''); }} style={{
-                  flex: 1, padding: '8px', borderRadius: 10, border: '1px solid rgba(15,23,42,0.15)',
-                  background: '#fff', color: '#0f172a', cursor: 'pointer'
-                }}>取消</button>
-                <button onClick={() => saveSchoolName(editingSchoolId, editingSchoolValue)} style={{
-                  flex: 1, padding: '8px', borderRadius: 10, background: '#6366f1',
-                  color: '#fff', border: 'none', cursor: 'pointer'
-                }}>保存</button>
+            </div>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
+              {filteredStudents.map((s) => {
+                const conn = connections[s.id];
+                const status = conn?.status ?? -1;
+                return (
+                  <div key={s.id} onClick={() => status === 1 && setPicked(s)} style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid rgba(0,0,0,0.04)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{s.full_name || '(未命名)'}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                        {s.school_name || '-'} · {String(s.created_at || '').slice(0, 10)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className={`mentor-status-pill mentor-status-${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
+                        {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
+                      </span>
+                      {status === 1 && (
+                        <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
+                          查看数据
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredStudents.length === 0 && (
+                <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                  暂无学生
+                </div>
+              )}
+            </div>
+          </section>
+
+          {picked && (
+            <section className="glass-card" style={{ marginTop: 16 }}>
+              <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{picked.full_name || '学生'} 的学习数据</span>
+                <button onClick={() => setPicked(null)} style={{ fontSize: 12, color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}>关闭</button>
+              </div>
+              <div style={{ padding: 16 }}>
+                {busy ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>加载中…</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>学习记录</div>
+                        <div style={{ fontSize: 20, fontWeight: 600, color: '#1e293b', marginTop: 4 }}>{sessions.length} 条</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>累计时长</div>
+                        <div style={{ fontSize: 20, fontWeight: 600, color: '#1e293b', marginTop: 4 }}>{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</div>
+                      </div>
+                    </div>
+                    {sessions.length > 0 && <ReviewDashboard sessions={sessions} />}
+                    {sessions.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>该学生暂无学习记录</div>}
+                  </>
+                )}
               </div>
             </section>
           )}
         </>
-      ) : (
-        <MentorAnalyticsPage 
-          user={user} 
-          students={students} 
+      ) : activeView === 'analytics' ? (
+        <MentorAnalyticsPage
+          user={user}
+          students={students}
           connections={Array.isArray(connections) ? connections : Object.values(connections)}
           onSelectStudent={(s) => { setPicked(s); setActiveView('students'); }}
         />
-      )}
-
-      <style>{`
-        .mentor-tab-btn {
-          padding: 6px 16px;
-          border-radius: 20px;
-          font-size: 13px;
-          background: rgba(255,255,255,0.5);
-          border: 1px solid rgba(15,23,42,0.08);
-          color: #64748b;
-          transition: all 0.2s;
-        }
-        .mentor-tab-btn:hover {
-          background: rgba(255,255,255,0.8);
-        }
-        .mentor-tab-btn-active {
-          background: #6366f1;
-          border-color: #6366f1;
-          color: white;
-        }
-        .glass-card {
-          background: rgba(255,255,255,0.4);
-          border: 1px solid rgba(255,255,255,0.4);
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
-          padding: 16px;
-          border-radius: 16px;
-        }
-        .mentor-page select, .mentor-page input {
-          background: rgba(255,255,255,0.7);
-          border: 1px solid rgba(15,23,42,0.1);
-          border-radius: 10px;
-          padding: 8px 10px;
-          font-size: 13px;
-          color: #0f172a;
-        }
-      `}</style>
+      ) : null}
     </div>
   );
 }
-
-function SmallStat({ label, value, color }) {
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.55)',
-      border: '1px solid rgba(15,23,42,0.06)',
-      borderRadius: 12, padding: '10px 12px', textAlign: 'center',
-    }}>
-      <div style={{ fontSize: 11, color: '#64748b' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: 'ui-monospace, Menlo, monospace', lineHeight: 1.1, marginTop: 4 }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function EmptyBlock({ text, sub }) {
-  return (
-    <div style={{
-      padding: 28, textAlign: 'center', fontSize: 13, color: '#64748b',
-      background: 'rgba(255,255,255,0.3)', borderRadius: 12,
-    }}>
-      <div style={{ marginBottom: 4 }}>{text}</div>
-      {sub && <div style={{ fontSize: 12, color: '#94a3b8' }}>{sub}</div>}
-    </div>
-  );
-}
-
-function StudentRow({ student, connection, onInvite, onWithdraw, onPick, onEditSchool }) {
-  const status = connection?.status ?? -1;
-  const name = student.full_name || '(未命名)';
-  const school = student.school_name || '-';
-
-  const statusPill = (() => {
-    switch (status) {
-      case 1: return <Pill color="#10b981">已连接</Pill>;
-      case 0: return <Pill color="#f59e0b">等待学生接受</Pill>;
-      case 2: return <Pill color="#ef4444">已拒绝</Pill>;
-      default: return <Pill color="#64748b">未邀请</Pill>;
-    }
-  })();
-
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: 12, padding: '10px 12px', borderRadius: 12,
-      background: 'rgba(255,255,255,0.55)',
-      border: '1px solid rgba(15,23,42,0.06)',
-    }}>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {name}
-        </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>注册时间：{String(student.created_at || '').slice(0, 10)}</span>
-          <button onClick={onEditSchool} style={{
-            fontSize: 10, padding: '2px 6px', borderRadius: 6,
-            background: 'rgba(99,102,241,0.1)', color: '#4338ca',
-            border: 'none', cursor: 'pointer'
-          }}>
-            修改学校
-          </button>
-        </div>
-        <div style={{ fontSize: 12, color: '#64748b', marginTop: 1 }}>
-          学校：{school}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-        {statusPill}
-        {status === -1 && (
-          <button className="btn btn-primary" onClick={onInvite} style={{ fontSize: 12, padding: '6px 12px' }}>
-            发送邀请
-          </button>
-        )}
-        {status === 0 && (
-          <button className="btn" onClick={onWithdraw} style={{ fontSize: 12, padding: '6px 10px' }}>
-            撤回
-          </button>
-        )}
-        {(status === 0 || status === 2) && (
-          <button className="btn" onClick={onInvite} style={{ fontSize: 12, padding: '6px 10px' }}>
-            {status === 2 ? '再次邀请' : '重发'}
-          </button>
-        )}
-        {status === 1 && (
-          <button className="btn btn-primary" onClick={onPick} style={{ fontSize: 12, padding: '6px 12px' }}>
-            查看 Review
-          </button>
-        )}
-      </div>
-
-      <style>{`
-        .btn { padding: 8px 14px; font-size: 13px; border-radius: 10px; border: 1px solid rgba(15,23,42,0.15); background: #fff; color: #0f172a; cursor: pointer; }
-        .btn-primary { background: #6366f1; color: #fff; border: 1px solid #6366f1; }
-        .btn-primary:hover { background: #4f46e5; }
-      `}</style>
-    </div>
-  );
-}
-
-function Pill({ children, color }) {
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
-      color, background: color + '22', border: `1px solid ${color}55`, whiteSpace: 'nowrap',
-    }}>
-      {children}
-    </span>
-  );
-}
-
-export { fmtMinutes };

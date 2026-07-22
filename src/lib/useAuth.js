@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { logger } from './logger';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -53,7 +54,7 @@ export function useAuth() {
         if (data) {
           let finalRole = data.role;
           if (metaRole && Number(metaRole) !== data.role) {
-            console.warn('Role mismatch detected:', { 
+            logger.warn('Role mismatch detected:', { 
               user_metadata_role: metaRole, 
               profiles_role: data.role 
             });
@@ -65,7 +66,7 @@ export function useAuth() {
         }
       }
     } catch (err) {
-      console.warn('loadProfile failed, using fallback:', err);
+      logger.warn('loadProfile failed, using fallback:', err);
     } finally {
       setLoading(false);
     }

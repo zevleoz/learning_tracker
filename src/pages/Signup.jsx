@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
 import logo from '../logo/logo_color.png';
 
 const COMMON_SCHOOLS = [
@@ -12,7 +13,7 @@ const COMMON_SCHOOLS = [
   '深圳市深圳中学',
 ];
 
-const TEACHER_KEY = 'APPARK2026';
+const TEACHER_KEY = import.meta.env.VITE_TEACHER_KEY || 'APPARK2026';
 
 export default function Signup() {
   const nav = useNavigate();
@@ -91,8 +92,7 @@ export default function Signup() {
           }, { onConflict: 'id' });
         }
       } catch (syncErr) {
-        console.warn('profile sync failed:', syncErr);
-        // 非致命，继续流程
+        logger.warn('profile sync failed:', syncErr);
       }
 
       toast(
@@ -103,7 +103,7 @@ export default function Signup() {
       );
       nav(role >= 2 ? '/mentor' : '/syllabus', { replace: true });
     } catch (err) {
-      console.error('signup error:', err);
+      logger.error('signup error:', err);
       toast(err.message || '注册失败，请稍后再试', { kind: 'error' });
     } finally {
       setBusy(false);

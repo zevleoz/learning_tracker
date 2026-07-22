@@ -1,9 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://rkmspodctprrwmeiteos.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV09hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y65p0ZM';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://rkmspodctprrwmeiteos.supabase.co';
+const serviceKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+if (!serviceKey) {
+  console.error('请设置 VITE_SUPABASE_SERVICE_ROLE_KEY 环境变量');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, serviceKey);
 
 async function main() {
     console.log('=== 插入假数据开始 ===');

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
 import logo from '../logo/logo_color.png';
 
 const MOBILE_BREAKPOINT = 767;
@@ -98,18 +99,18 @@ export default function Login() {
     if (!email || !pw) return toast('请填写邮箱和密码', { kind: 'error' });
     setBusy(true);
     try {
-      console.log('Login attempt:', { email });
+      logger.log('Login attempt:', { email });
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
-      console.log('Login result:', { data, error });
+      logger.log('Login result:', { data, error });
       if (error) throw error;
 
       const role = Number(data?.user?.user_metadata?.role) || 1;
-      console.log('User role:', role);
+      logger.log('User role:', role);
       toast('登录成功', { kind: 'success' });
       const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
       nav(role >= 2 ? '/mentor' : (isMobile ? '/learning' : '/syllabus'), { replace: true });
     } catch (err) {
-      console.error('Login error:', err);
+      logger.error('Login error:', err);
       toast(err.message || '登录失败', { kind: 'error' });
     } finally {
       setBusy(false);

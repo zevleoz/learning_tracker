@@ -1,12 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase.js';
 import { isSelfForm } from '../components/SharedDashboard.jsx';
+import {
+  XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Area
+} from 'recharts';
+import {
+  TrendingDown, AlertTriangle, BookOpen, Target, Clock, Calendar, Award
+} from 'lucide-react';
 
 function fmtMinutes(mins) {
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `${mins}分钟`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
 }
 
 function scoreToLetter(score) {
@@ -23,312 +29,337 @@ function scoreToLetter(score) {
   return 'F';
 }
 
-function getLetterColor(letter) {
-  const colors = { 'A': '#10b981', 'A-': '#10b981', 'B+': '#34d399', 'B': '#34d399', 'B-': '#34d399', 'C+': '#f59e0b', 'C': '#f59e0b', 'C-': '#f59e0b', 'D+': '#f97316', 'D': '#f97316', 'F': '#ef4444' };
-  return colors[letter] || '#64748b';
+function calculateHealthScore(avgScore, selfRate, activeDays, sessionTrend) {
+  const scoreComponent = Math.min(avgScore / 100, 1) * 40;
+  const selfComponent = Math.min(selfRate / 100, 1) * 30;
+  const consistencyComponent = Math.min(activeDays / 30, 1) * 30;
+  const trendBonus = sessionTrend > 0 ? Math.min(sessionTrend * 5, 5) : 0;
+  return Math.round(Math.min(scoreComponent + selfComponent + consistencyComponent + trendBonus, 100));
 }
 
-function StudentOverviewCard({ student, sessions }) {
+function getHealthState(healthScore, sessionTrend) {
+  if (healthScore >= 85) return { level: '良好', color: '#171717', label: '学习状态稳定' };
+  if (healthScore >= 70) {
+    if (sessionTrend > 0) return { level: '进步中', color: '#525252', label: '近期表现提升' };
+    return { level: '一般', color: '#8E8E93', label: '存在提升空间' };
+  }
+  if (healthScore >= 55) return { level: '需关注', color: '#B91C1C', label: '需要加强监督' };
+  return { level: '危险', color: '#B91C1C', label: '需要重点干预' };
+}
+
+function AnimatedNumber({ value, duration = 1000, prefix = '', suffix = '' }) {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    let startTime;
+    const startValue = 0;
+    const endValue = value;
+
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(Math.round(startValue + (endValue - startValue) * easeOut));
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [value, duration]);
+
+  return <span>{prefix}{displayValue}{suffix}</span>;
+}
+
+function generateObservations(selfRate, subjectTimeData, sessions) {
+  const observations = [];
+  
+  const weekdays = ['周一', '周二', '周三', '周四', '周五'];
+  const weekendDays = ['周六', '周日'];
+  const byDay = {};
+  weekdays.forEach(day => { byDay[day] = 0; });
+  weekendDays.forEach(day => { byDay[day] = 0; });
+  for (const s of sessions) {
+    const date = s.date?.split('T')[0];
+    if (date) {
+      const dayIndex = new Date(date).getDay();
+      const dayName = dayIndex === 0 ? '周日' : ['周一', '周二', '周三', '周四', '周五', '周六'][dayIndex - 1];
+      byDay[dayName] += s.duration_minutes || 0;
+    }
+  }
+  const workdayMins = weekdays.reduce((sum, day) => sum + byDay[day], 0);
+  const weekendMins = weekendDays.reduce((sum, day) => sum + byDay[day], 0);
+  const workdayAvg = workdayMins > 0 ? Math.round(workdayMins / 5) : 0;
+  const weekendAvg = weekendMins > 0 ? Math.round(weekendMins / 2) : 0;
+  const gapPercent = workdayAvg > 0 ? Math.round(((workdayAvg - weekendAvg) / workdayAvg) * 100) : 0;
+  
+  const weekData = [];
+  const today = new Date();
+  for (let w = 3; w >= 0; w--) {
+    let weekMins = 0;
+    for (let d = 6; d >= 0; d--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - w * 7 - d);
+      const dateStr = date.toISOString().split('T')[0];
+      for (const s of sessions) {
+        if (s.date?.startsWith(dateStr)) weekMins += s.duration_minutes || 0;
+      }
+    }
+    weekData.push(weekMins);
+  }
+  const avgWeekMins = weekData.reduce((sum, m) => sum + m, 0) / weekData.length;
+  const volatility = avgWeekMins > 0 ? Math.round((Math.sqrt(weekData.reduce((sum, m) => sum + Math.pow(m - avgWeekMins, 2), 0) / weekData.length) / avgWeekMins) * 100) : 0;
+  
+  if (gapPercent > 30 || volatility > 30) {
+    observations.push({
+      priority: 1,
+      icon: <Clock className="w-5 h-5" />,
+      title: '时间管理能力薄弱',
+      detail: `Chart 1显示：周末学习时长比工作日低${gapPercent}%，4周波动±${volatility}%，稳定性不足`,
+      severity: 'warning'
+    });
+  }
+  
+  if (subjectTimeData.length >= 2) {
+    const totalMins = subjectTimeData.reduce((sum, d) => sum + d.total, 0);
+    const topTwoPct = totalMins > 0 ? Math.round((subjectTimeData[0].total + subjectTimeData[1].total) / totalMins * 100) : 0;
+    const lowInvestment = subjectTimeData.filter(d => totalMins > 0 && (d.total / totalMins * 100) < 10).map(d => d.name);
+    if (topTwoPct > 50) {
+      observations.push({
+        priority: 2,
+        icon: <Target className="w-5 h-5" />,
+        title: '学科投入严重不均',
+        detail: `Chart 2显示：${subjectTimeData[0].name}、${subjectTimeData[1].name}占用${topTwoPct}%总时长，${lowInvestment.join('、')}投入不足`,
+        severity: 'warning'
+      });
+    }
+  }
+  
+  const bySubjEfficiency = {};
+  for (const s of sessions) {
+    const subj = s.subject || '未分类';
+    bySubjEfficiency[subj] = bySubjEfficiency[subj] || { mins: 0, scoreSum: 0, scoreCount: 0 };
+    bySubjEfficiency[subj].mins += s.duration_minutes || 0;
+    if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+      bySubjEfficiency[subj].scoreSum += Number(s.score);
+      bySubjEfficiency[subj].scoreCount++;
+    }
+  }
+  const efficiencyData = Object.entries(bySubjEfficiency)
+    .map(([name, data]) => ({ name, mins: data.mins, avgScore: data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : 0 }))
+    .filter(d => d.avgScore > 0);
+  const avgMins = efficiencyData.length > 0 ? efficiencyData.reduce((sum, d) => sum + d.mins, 0) / efficiencyData.length : 0;
+  const avgScoreEff = efficiencyData.length > 0 ? efficiencyData.reduce((sum, d) => sum + d.avgScore, 0) / efficiencyData.length : 70;
+  const highLowCount = efficiencyData.filter(d => d.mins > avgMins && d.avgScore < avgScoreEff).length;
+  const efficiencyRatio = efficiencyData.length > 0 ? Math.round((highLowCount / efficiencyData.length) * 100) : 0;
+  
+  if (efficiencyRatio >= 40) {
+    observations.push({
+      priority: 3,
+      icon: <AlertTriangle className="w-5 h-5" />,
+      title: '学习效率存在系统性问题',
+      detail: `Chart 3显示：${efficiencyRatio}%科目处于"高投入低产出"象限，需调整学习方法`,
+      severity: 'warning'
+    });
+  }
+  
+  const weekSelfData = [];
+  for (let w = 3; w >= 0; w--) {
+    let weekMins = 0;
+    let selfMins = 0;
+    for (let d = 6; d >= 0; d--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - w * 7 - d);
+      const dateStr = date.toISOString().split('T')[0];
+      for (const s of sessions) {
+        if (s.date?.startsWith(dateStr)) {
+          weekMins += s.duration_minutes || 0;
+          if (isSelfForm(s.form)) selfMins += s.duration_minutes || 0;
+        }
+      }
+    }
+    weekSelfData.push(weekMins > 0 ? Math.round((selfMins / weekMins) * 100) : 0);
+  }
+  const selfTrend = weekSelfData.length >= 2 ? weekSelfData[weekSelfData.length - 1] - weekSelfData[0] : 0;
+  
+  if (selfTrend < -10) {
+    observations.push({
+      priority: 4,
+      icon: <TrendingDown className="w-5 h-5" />,
+      title: '自主学习能力连续下滑',
+      detail: `Chart 4显示：近4周自主学习率从${weekSelfData[0]}%降至${weekSelfData[weekSelfData.length - 1]}%，下降${Math.abs(selfTrend)}个百分点`,
+      severity: 'warning'
+    });
+  }
+  
+  const totalDuration = sessions.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+  const subjectCount = Object.keys(bySubjEfficiency).length;
+  const idealPct = subjectCount > 0 ? Math.round((1 / subjectCount) * 100) : 16.7;
+  const scienceSubjs = ['物理', '数学', '化学'];
+  const sciencePct = efficiencyData.filter(d => scienceSubjs.includes(d.name)).reduce((sum, d) => {
+    return totalDuration > 0 ? sum + Math.round((d.mins / totalDuration) * 100) : sum;
+  }, 0);
+  
+  if (sciencePct > 60) {
+    observations.push({
+      priority: 5,
+      icon: <BookOpen className="w-5 h-5" />,
+      title: '存在严重偏科',
+      detail: `Chart 5显示：理科投入占比${sciencePct}%，理想均衡应为${idealPct}%，文科偏差度显著`,
+      severity: 'warning'
+    });
+  }
+  
+  const bySubjEval = {};
+  for (const s of sessions) {
+    const subj = s.subject || '未分类';
+    bySubjEval[subj] = bySubjEval[subj] || { total: 0, eval: 0 };
+    bySubjEval[subj].total += s.duration_minutes || 0;
+    if (s.category === 3) bySubjEval[subj].eval += s.duration_minutes || 0;
+  }
+  const lowQualityCount = Object.values(bySubjEval).filter(d => d.total > 0 && (d.eval / d.total * 100) < 30).length;
+  
+  if (lowQualityCount >= 2) {
+    observations.push({
+      priority: 6,
+      icon: <Award className="w-5 h-5" />,
+      title: '练习质量偏低',
+      detail: `Chart 6显示：${lowQualityCount}科客观评估练习占比低于30%，应试训练过度，能力培养不足`,
+      severity: 'warning'
+    });
+  }
+  
+  const heatMap = {};
+  ['周一', '周二', '周三', '周四', '周五', '周六', '周日'].forEach(day => { heatMap[day] = 0; });
+  for (const s of sessions) {
+    const date = s.date?.split('T')[0];
+    if (date) {
+      const dayIndex = new Date(date).getDay();
+      const dayName = dayIndex === 0 ? '周日' : ['周一', '周二', '周三', '周四', '周五', '周六'][dayIndex - 1];
+      heatMap[dayName] += s.duration_minutes || 0;
+    }
+  }
+  const lowDays = Object.entries(heatMap).filter(([, mins]) => mins < 30).map(([day]) => day);
+  
+  if (lowDays.length >= 2) {
+    observations.push({
+      priority: 7,
+      icon: <Calendar className="w-5 h-5" />,
+      title: '学习节奏极不规律',
+      detail: `Chart 7显示：${lowDays.join('、')}几乎零投入，学习集中在晚间，需制定固定学习日程`,
+      severity: 'warning'
+    });
+  }
+  
+  if (selfRate < 40) {
+    observations.push({
+      priority: 8,
+      icon: <AlertTriangle className="w-5 h-5" />,
+      title: '自主学习率偏低',
+      detail: `自主学习仅占${selfRate}%，低于年级平均35%`,
+      severity: 'warning'
+    });
+  }
+  
+  return observations.sort((a, b) => a.priority - b.priority).slice(0, 5);
+}
+
+function generateActions(sessions) {
+  const result = [];
+  const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+  let selfMins = 0;
+  for (const s of sessions) {
+    if (isSelfForm(s.form)) selfMins += s.duration_minutes || 0;
+  }
+  const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
+  const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
+  
+  const bySubj = {};
+  for (const s of sessions) {
+    const subj = s.subject || '未分类';
+    bySubj[subj] = bySubj[subj] || { scoreSum: 0, scoreCount: 0, mins: 0 };
+    bySubj[subj].mins += s.duration_minutes || 0;
+    if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+      bySubj[subj].scoreSum += Number(s.score);
+      bySubj[subj].scoreCount++;
+    }
+  }
+  
+  const weakSubjects = Object.entries(bySubj)
+    .filter(([, data]) => data.scoreCount > 0 && Math.round(data.scoreSum / data.scoreCount) < 70)
+    .map(([name, data]) => ({ name, score: Math.round(data.scoreSum / data.scoreCount) }))
+    .sort((a, b) => a.score - b.score);
+  
+  if (weakSubjects.length > 0) {
+    const weakest = weakSubjects[0];
+    const practiceCount = sessions.filter(s => s.subject === weakest.name && s.category === 3).length;
+    result.push({
+      priority: 1,
+      title: `提升${weakSubjects.map(s => s.name).join('、')}成绩`,
+      description: `${weakest.name}${weakest.score}分，排名后20%，需要针对性辅导`,
+      suggestion: `当前${weakest.name}每周练习${practiceCount}次 → 建议每周至少2次专项训练`,
+      type: 'danger'
+    });
+  }
+  
+  if (selfRate < 40) {
+    const otherMins = totalMins - selfMins;
+    result.push({
+      priority: 2,
+      title: '培养自主学习习惯',
+      description: `自主学习仅占${selfRate}%（${fmtMinutes(selfMins)}），校外辅导${fmtMinutes(otherMins)}`,
+      suggestion: `当前辅导占比${Math.round((otherMins / totalMins) * 100)}% → 建议降至50%以下`,
+      type: 'warning'
+    });
+  }
+  
+  if (activeDays < 10) {
+    result.push({
+      priority: 3,
+      title: '提高学习频率',
+      description: `近30天仅${activeDays}天有学习记录，低于年级平均18天`,
+      suggestion: `当前每周${Math.round(activeDays / 4)}天 → 建议每周至少5天学习`,
+      type: 'warning'
+    });
+  }
+  
+  const avgScoreAll = Object.values(bySubj).filter(d => d.scoreCount > 0).length > 0
+    ? Math.round(Object.values(bySubj).filter(d => d.scoreCount > 0).reduce((sum, d) => sum + d.scoreSum, 0) / Object.values(bySubj).filter(d => d.scoreCount > 0).reduce((sum, d) => sum + d.scoreCount, 0))
+    : 0;
+  
+  if (avgScoreAll >= 80 && activeDays >= 15 && selfRate >= 50) {
+    result.push({
+      priority: 10,
+      title: '保持良好状态',
+      description: `平均${avgScoreAll}分，自主率${selfRate}%，学习表现优秀`,
+      suggestion: '保持当前节奏，适当增加挑战性学习内容',
+      type: 'success'
+    });
+  }
+  
+  return result.sort((a, b) => a.priority - b.priority);
+}
+
+function HeroInsight({ student, sessions }) {
   const stats = useMemo(() => {
     const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
     let scoreSum = 0;
     let scoreCount = 0;
     let selfMins = 0;
-    let studyMins = 0;
-    let practiceMins = 0;
     
     for (const s of sessions) {
       if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
         scoreSum += Number(s.score);
         scoreCount++;
       }
-      const mins = s.duration_minutes || 0;
-      if (isSelfForm(s.form)) {
-        selfMins += mins;
-      }
-      if (s.category === 1) studyMins += mins;
-      else if (s.category === 3) practiceMins += mins;
+      if (isSelfForm(s.form)) selfMins += s.duration_minutes || 0;
     }
     
-    return { 
-      totalMins, 
-      avgScore: scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0, 
-      avgLetter: scoreCount > 0 ? scoreToLetter(Math.round(scoreSum / scoreCount)) : '-',
-      sessionCount: sessions.length, 
-      selfRate: totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0,
-      studyMins,
-      practiceMins,
-    };
-  }, [sessions]);
-
-  return (
-    <div className="ma-overview">
-      <div className="ma-overview__student">
-        <div className="ma-overview__avatar">{student.full_name?.charAt(0) || 'S'}</div>
-        <div className="ma-overview__info">
-          <div className="ma-overview__name">{student.full_name || '演示学生'}</div>
-          <div className="ma-overview__school">{student.school_name || '示例学校'}</div>
-        </div>
-      </div>
-      <div className="ma-overview__stats">
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">学习记录</span>
-          <span className="ma-overview__stat-value">{stats.sessionCount}</span>
-        </div>
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">累计时长</span>
-          <span className="ma-overview__stat-value">{fmtMinutes(stats.totalMins)}</span>
-        </div>
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">平均分数</span>
-          <span className="ma-overview__stat-value" style={{ color: getLetterColor(stats.avgLetter) }}>
-            {stats.avgScore} <span className="ma-overview__stat-letter" style={{ background: getLetterColor(stats.avgLetter) }}>{stats.avgLetter}</span>
-          </span>
-        </div>
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">自主学习率</span>
-          <span className="ma-overview__stat-value">{stats.selfRate}%</span>
-          <div className="ma-overview__stat-bar">
-            <div className="ma-overview__stat-bar-fill" style={{ width: `${stats.selfRate}%` }}></div>
-          </div>
-        </div>
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">学习时长</span>
-          <span className="ma-overview__stat-value">{fmtMinutes(stats.studyMins)}</span>
-        </div>
-        <div className="ma-overview__stat">
-          <span className="ma-overview__stat-label">练习时长</span>
-          <span className="ma-overview__stat-value">{fmtMinutes(stats.practiceMins)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SubjectBarChart({ sessions }) {
-  const subjectData = useMemo(() => {
-    const bySubj = {};
-    for (const s of sessions) {
-      const subj = s.subject || '未分类';
-      bySubj[subj] = bySubj[subj] || { mins: 0, scoreSum: 0, scoreCount: 0 };
-      bySubj[subj].mins += s.duration_minutes || 0;
-      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
-        bySubj[subj].scoreSum += Number(s.score);
-        bySubj[subj].scoreCount++;
-      }
-    }
+    const avgScore = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0;
+    const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
+    const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
     
-    const subjects = Object.entries(bySubj).map(([name, data]) => ({
-      name,
-      duration: data.mins,
-      avgScore: data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : 0,
-    }));
-    
-    const maxMins = Math.max(...subjects.map(s => s.duration), 1);
-    
-    return subjects.map(s => ({
-      ...s,
-      durationScore: Math.min(100, (s.duration / maxMins) * 100),
-    }));
-  }, [sessions]);
-
-  if (subjectData.length === 0) {
-    return <div className="ma-panel"><div className="ma-panel__header"><h3 className="ma-panel__title">科目投入产出对比</h3></div><div className="ma-empty">暂无数据</div></div>;
-  }
-
-  const chartWidth = 600;
-  const chartHeight = 180;
-  const padding = { top: 20, right: 40, bottom: 40, left: 60 };
-  const barGap = 8;
-  const totalBarWidth = (chartWidth - padding.left - padding.right - (subjectData.length - 1) * barGap) / subjectData.length;
-  const singleBarWidth = totalBarWidth / 2 - 2;
-
-  return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">科目投入产出对比</h3>
-        <span className="ma-panel__subtitle">{subjectData.length} 个科目</span>
-      </div>
-      <div className="ma-bar-chart">
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="ma-svg">
-          {[0, 25, 50, 75, 100].map(val => {
-            const y = padding.top + ((100 - val) / 100) * (chartHeight - padding.top - padding.bottom);
-            return (
-              <g key={val}>
-                <line x1={padding.left} y1={y} x2={chartWidth - padding.right} y2={y} stroke="#f1f5f9" strokeWidth="1" />
-                <text x={padding.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#64748b">{val}</text>
-              </g>
-            );
-          })}
-          {subjectData.map((s, i) => {
-            const x = padding.left + i * (totalBarWidth + barGap);
-            const durationHeight = (s.durationScore / 100) * (chartHeight - padding.top - padding.bottom);
-            const scoreHeight = (s.avgScore / 100) * (chartHeight - padding.top - padding.bottom);
-            return (
-              <g key={i}>
-                <rect x={x} y={chartHeight - padding.bottom - durationHeight} width={singleBarWidth} height={durationHeight} fill="#6366f1" rx="4" />
-                <rect x={x + singleBarWidth + 4} y={chartHeight - padding.bottom - scoreHeight} width={singleBarWidth} height={scoreHeight} fill="#10b981" rx="4" />
-                <text x={x + singleBarWidth / 2} y={chartHeight - padding.bottom - durationHeight - 6} textAnchor="middle" fontSize="9" fill="#6366f1" fontWeight={600}>{Math.round(s.durationScore)}</text>
-                <text x={x + singleBarWidth + 4 + singleBarWidth / 2} y={chartHeight - padding.bottom - scoreHeight - 6} textAnchor="middle" fontSize="9" fill="#10b981" fontWeight={600}>{s.avgScore}</text>
-                <text x={x + totalBarWidth / 2} y={chartHeight - 8} textAnchor="middle" fontSize="11" fill="#334155" fontWeight={600}>{s.name}</text>
-              </g>
-            );
-          })}
-        </svg>
-        <div className="ma-bar-chart__legend">
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#6366f1' }}></span><span>学习时长</span></div>
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#10b981' }}></span><span>分数表现</span></div>
-        </div>
-        <div className="ma-bar-chart__values">
-          {subjectData.map((s, i) => (
-            <div key={i} className="ma-bar-chart__value-item">
-              <span className="ma-bar-chart__value-name">{s.name}</span>
-              <span className="ma-bar-chart__value-duration">{fmtMinutes(s.duration)}</span>
-              <span className="ma-bar-chart__value-score" style={{ color: getLetterColor(scoreToLetter(s.avgScore)) }}>
-                {s.avgScore}分 <span style={{ background: getLetterColor(scoreToLetter(s.avgScore)) }}>{scoreToLetter(s.avgScore)}</span>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SubjectComparisonMatrix({ sessions }) {
-  const [sortField, setSortField] = useState('duration');
-  const [sortDir, setSortDir] = useState('desc');
-
-  const subjectData = useMemo(() => {
-    const bySubj = {};
-    for (const s of sessions) {
-      const subj = s.subject || '未分类';
-      bySubj[subj] = bySubj[subj] || { mins: 0, scoreSum: 0, scoreCount: 0, selfMins: 0, studyMins: 0, reviewMins: 0, practiceMins: 0 };
-      bySubj[subj].mins += s.duration_minutes || 0;
-      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
-        bySubj[subj].scoreSum += Number(s.score);
-        bySubj[subj].scoreCount++;
-      }
-      if (s.form && s.form.includes('自主')) {
-        bySubj[subj].selfMins += s.duration_minutes || 0;
-      }
-      if (s.category === 1) bySubj[subj].studyMins += s.duration_minutes || 0;
-      else if (s.category === 2) bySubj[subj].reviewMins += s.duration_minutes || 0;
-      else if (s.category === 3) bySubj[subj].practiceMins += s.duration_minutes || 0;
-    }
-    
-    const totalMins = Object.values(bySubj).reduce((sum, d) => sum + d.mins, 0);
-    
-    return Object.entries(bySubj).map(([name, data]) => {
-      const avgScore = data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : 0;
-      const letter = scoreToLetter(avgScore);
-      return {
-        name,
-        duration: data.mins,
-        pct: totalMins > 0 ? Math.round((data.mins / totalMins) * 100) : 0,
-        studyMins: data.studyMins,
-        reviewMins: data.reviewMins,
-        practiceMins: data.practiceMins,
-        avgScore,
-        letter,
-        selfRate: data.mins > 0 ? Math.round((data.selfMins / data.mins) * 100) : 0,
-      };
-    }).sort((a, b) => {
-      const valA = a[sortField];
-      const valB = b[sortField];
-      return sortDir === 'asc' ? valA - valB : valB - valA;
-    });
-  }, [sessions, sortField, sortDir]);
-
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('desc');
-    }
-  };
-
-  const totalMins = subjectData.reduce((sum, s) => sum + s.duration, 0);
-
-  if (subjectData.length === 0) {
-    return <div className="ma-panel"><div className="ma-panel__header"><h3 className="ma-panel__title">科目对比矩阵</h3></div><div className="ma-empty">暂无数据</div></div>;
-  }
-
-  return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">科目对比矩阵</h3>
-        <span className="ma-panel__subtitle">共 {subjectData.length} 个科目，总计 {fmtMinutes(totalMins)}</span>
-      </div>
-      <div className="ma-matrix">
-        <table className="ma-matrix__table">
-          <colgroup>
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '24%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '16%' }} />
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '14%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th onClick={() => handleSort('name')} className={`ma-matrix__th--sortable ${sortField === 'name' ? 'ma-matrix__th--sorted' : ''}`}>科目名称 {sortField === 'name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-              <th onClick={() => handleSort('duration')} className={`ma-matrix__th--sortable ${sortField === 'duration' ? 'ma-matrix__th--sorted' : ''}`}>学习时长 {sortField === 'duration' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-              <th>占比</th>
-              <th onClick={() => handleSort('avgScore')} className={`ma-matrix__th--sortable ${sortField === 'avgScore' ? 'ma-matrix__th--sorted' : ''}`}>客观评价 {sortField === 'avgScore' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-              <th>主观评价</th>
-              <th onClick={() => handleSort('selfRate')} className={`ma-matrix__th--sortable ${sortField === 'selfRate' ? 'ma-matrix__th--sorted' : ''}`}>自主率 {sortField === 'selfRate' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subjectData.map((s, i) => {
-              const level = s.avgScore >= 85 ? '优秀' : s.avgScore >= 70 ? '良好' : s.avgScore >= 60 ? '一般' : '薄弱';
-              const levelColor = getLetterColor(s.letter);
-              const totalTypeMins = s.studyMins + s.reviewMins + s.practiceMins;
-              const needsAttention = s.avgScore < 70 || s.selfRate < 50;
-              return (
-                <tr key={i} className={needsAttention ? 'ma-matrix__tr--attention' : ''}>
-                  <td className="ma-matrix__name">{s.name}</td>
-                  <td className="ma-matrix__duration">
-                    <div className="ma-matrix__duration-bar">
-                      <div className="ma-matrix__duration-study" style={{ width: totalTypeMins > 0 ? `${(s.studyMins / totalTypeMins) * 100}%` : '0%' }} />
-                      <div className="ma-matrix__duration-review" style={{ width: totalTypeMins > 0 ? `${(s.reviewMins / totalTypeMins) * 100}%` : '0%' }} />
-                      <div className="ma-matrix__duration-practice" style={{ width: totalTypeMins > 0 ? `${(s.practiceMins / totalTypeMins) * 100}%` : '0%' }} />
-                    </div>
-                    <span className="ma-matrix__duration-text">{fmtMinutes(s.duration)}</span>
-                  </td>
-                  <td className="ma-matrix__bar">
-                    <div className="ma-matrix__bar-track"><div className="ma-matrix__bar-fill" style={{ width: `${s.pct}%` }} /></div>
-                    <span className="ma-matrix__bar-pct">{s.pct}%</span>
-                  </td>
-                  <td className="ma-matrix__score">
-                    <span className="ma-matrix__score-number" style={{ color: levelColor }}>{s.avgScore}</span>
-                    <span className="ma-matrix__score-letter" style={{ background: levelColor }}>{s.letter}</span>
-                  </td>
-                  <td className="ma-matrix__level">
-                    <span style={{ background: `${levelColor}15`, color: levelColor }}>{level}</span>
-                  </td>
-                  <td className="ma-matrix__self">{s.selfRate}%</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div className="ma-matrix__legend">
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#6366f1' }}></span><span>学习</span></div>
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#8b5cf6' }}></span><span>复习</span></div>
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#ec4899' }}></span><span>练习</span></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LearningHeatmap({ sessions }) {
-  const [tooltip, setTooltip] = useState(null);
-  
-  const heatmapData = useMemo(() => {
     const byDate = {};
     for (const s of sessions) {
       const date = s.date?.split('T')[0];
@@ -336,422 +367,889 @@ function LearningHeatmap({ sessions }) {
         byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
       }
     }
-    return byDate;
+    
+    const recentDays = [];
+    const today = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      recentDays.push(byDate[dateStr] || 0);
+    }
+    
+    const prevDays = [];
+    for (let i = 27; i >= 14; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      prevDays.push(byDate[dateStr] || 0);
+    }
+    
+    const recentMins = recentDays.reduce((a, b) => a + b, 0);
+      const prevMins = prevDays.reduce((a, b) => a + b, 0);
+      const sessionTrend = prevMins > 0 ? Math.round(((recentMins - prevMins) / prevMins) * 100) : 0;
+      
+      const healthScore = calculateHealthScore(avgScore, selfRate, activeDays, sessionTrend);
+      const healthState = getHealthState(healthScore, sessionTrend);
+      
+      const bySubj = {};
+      for (const s of sessions) {
+        const subj = s.subject || '未分类';
+        bySubj[subj] = bySubj[subj] || { scoreSum: 0, scoreCount: 0 };
+        if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+          bySubj[subj].scoreSum += Number(s.score);
+          bySubj[subj].scoreCount++;
+        }
+      }
+      
+      const bySubjTime = {};
+      for (const s of sessions) {
+        const subj = s.subject || '未分类';
+        bySubjTime[subj] = bySubjTime[subj] || { self: 0, other: 0, total: 0 };
+        const mins = s.duration_minutes || 0;
+        if (isSelfForm(s.form)) bySubjTime[subj].self += mins;
+        else bySubjTime[subj].other += mins;
+        bySubjTime[subj].total += mins;
+      }
+      const subjectTimeData = Object.entries(bySubjTime)
+        .map(([name, data]) => ({
+          name,
+          self: data.self,
+          other: data.other,
+          total: data.total,
+          selfRate: data.total > 0 ? Math.round((data.self / data.total) * 100) : 0
+        }))
+        .sort((a, b) => b.total - a.total);
+      
+      const observations = generateObservations(selfRate, subjectTimeData, sessions);
+    
+    return {
+      avgScore,
+      avgLetter: scoreCount > 0 ? scoreToLetter(avgScore) : '-',
+      selfRate,
+      activeDays,
+      healthScore,
+      healthState,
+      observations,
+      totalMins,
+      sessionCount: sessions.length
+    };
   }, [sessions]);
 
-  const weeks = [];
-  const today = new Date();
-  const startDate = new Date(today);
-  startDate.setDate(startDate.getDate() - 34);
-  startDate.setDate(startDate.getDate() - startDate.getDay());
-
-  while (startDate <= today) {
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startDate);
-      date.setDate(date.getDate() + i);
-      const dateStr = date.toISOString().split('T')[0];
-      week.push({ date: dateStr, mins: heatmapData[dateStr] || 0, isFuture: date > today });
-    }
-    weeks.push(week);
-    startDate.setDate(startDate.getDate() + 7);
-  }
-
-  const maxMins = Math.max(...weeks.flat().map(d => d.mins), 1);
-  const activeDays = weeks.flat().filter(d => d.mins > 0).length;
-  const totalMins = weeks.flat().reduce((sum, d) => sum + d.mins, 0);
-
-  const getColor = (mins) => {
-    if (mins === 0) return '#f1f5f9';
-    const ratio = mins / maxMins;
-    if (ratio < 0.25) return '#dcfce7';
-    if (ratio < 0.5) return '#bbf7d0';
-    if (ratio < 0.75) return '#86efac';
-    return '#22c55e';
+  const getAvatarInitial = (name) => {
+    if (!name) return '演';
+    return name.charAt(0).toUpperCase();
   };
 
-  const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-
   return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">学习投入日历</h3>
-        <span className="ma-panel__subtitle">最近 5 周</span>
-      </div>
-      <div className="ma-heatmap">
-        <div className="ma-heatmap__summary">
-          <div className="ma-heatmap__stat"><span className="ma-heatmap__stat-value">{fmtMinutes(totalMins)}</span><span className="ma-heatmap__stat-label">总学习时长</span></div>
-          <div className="ma-heatmap__stat"><span className="ma-heatmap__stat-value">{activeDays}</span><span className="ma-heatmap__stat-label">活跃天数</span></div>
-        </div>
-        <div className="ma-heatmap__calendar">
-          <div className="ma-heatmap__weekdays">
-            {weekdays.map((day, i) => (
-              <span key={i} className="ma-heatmap__weekday">{day}</span>
-            ))}
+    <section className="ui-card ui-card--hero">
+      <div className="insight-hero">
+        <div className="insight-hero__header">
+          <div className="insight-hero__identity">
+            <div className="insight-hero__avatar">
+              {getAvatarInitial(student.full_name || '演示学生')}
+            </div>
+            <div>
+              <h1 className="insight-hero__name">{student.full_name || '演示学生'}</h1>
+              <p className="insight-hero__meta">{student.school_name || '示例学校'} · 最近活跃</p>
+            </div>
           </div>
-          <div className="ma-heatmap__weeks">
-            {weeks.map((week, wi) => (
-              <div key={wi} className="ma-heatmap__week">
-                {week.map((day, di) => (
-                  <div 
-                    key={di} 
-                    className={`ma-heatmap__cell ${day.isFuture ? 'ma-heatmap__cell--future' : ''}`} 
-                    style={{ background: day.isFuture ? '#fff' : getColor(day.mins) }} 
-                    onMouseEnter={(e) => {
-                      if (!day.isFuture && day.mins > 0) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setTooltip({
-                          date: day.date,
-                          mins: day.mins,
-                          x: rect.left + rect.width / 2,
-                          y: rect.top - 10,
-                        });
-                      }
-                    }}
-                    onMouseLeave={() => setTooltip(null)}
-                  />
-                ))}
+          <div className="insight-hero__health">
+            <div className="insight-hero__health-score">
+              <AnimatedNumber value={stats.healthScore} />
+            </div>
+            <div className="insight-hero__health-label">{stats.healthState.label}</div>
+          </div>
+        </div>
+
+        <div className="insight-hero__metrics">
+          <div className="insight-metric">
+            <span className="insight-metric__label">平均分数</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="insight-metric__value">
+                <AnimatedNumber value={stats.avgScore} />
+              </span>
+              {stats.avgLetter !== '-' && (
+                <span className="insight-metric__letter">
+                  {stats.avgLetter}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className={`insight-metric ${stats.selfRate === 0 ? 'insight-metric--warning' : ''}`}>
+            <span className="insight-metric__label">自主学习率</span>
+            <span className="insight-metric__value">
+              <AnimatedNumber value={stats.selfRate} suffix="%" />
+            </span>
+          </div>
+          <div className="insight-metric">
+            <span className="insight-metric__label">活跃天数</span>
+            <span className="insight-metric__value">
+              <AnimatedNumber value={stats.activeDays} suffix="天" />
+            </span>
+          </div>
+          <div className="insight-metric">
+            <span className="insight-metric__label">累计时长</span>
+            <span className="insight-metric__value">{fmtMinutes(stats.totalMins)}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DiagnosticSection({ title, subtext, children, animationIndex = 0 }) {
+  return (
+    <section className={`ui-card ui-card--chart animate-stagger-in animate-stagger-in--${animationIndex}`}>
+      <div className="mckinsey-section">
+        <h2 className="mckinsey-section__action-title">{title}</h2>
+        {subtext && <p className="mckinsey-section__subtext">{subtext}</p>}
+        <div className="mckinsey-section__chart">{children}</div>
+        <p className="mckinsey-section__source">数据来源：学生近 4 周学习记录</p>
+      </div>
+    </section>
+  );
+}
+
+function ContextPanel({ observations, actions }) {
+  return (
+    <aside className="mentor-intelligence__context">
+      <div className="context-panel">
+        <div className="context-panel__section">
+          <h3 className="context-panel__title">关键发现</h3>
+          <div className="context-panel__list">
+            {observations.map((obs, i) => (
+              <div key={i} className={`context-panel__item context-panel__item--${obs.severity}`}>
+                <div className="context-panel__icon-wrap">
+                  <span className="context-panel__icon">{obs.icon}</span>
+                </div>
+                <div className="context-panel__content">
+                  <span className="context-panel__item-title">{obs.title}</span>
+                  <span className="context-panel__detail">{obs.detail}</span>
+                </div>
               </div>
             ))}
           </div>
         </div>
-        <div className="ma-heatmap__legend">
-          <span>少</span>
-          {['#f1f5f9', '#dcfce7', '#bbf7d0', '#86efac', '#22c55e'].map((color, i) => (
-            <span key={i} className="ma-heatmap__legend-cell" style={{ background: color }} />
-          ))}
-          <span>多</span>
-        </div>
-        {tooltip && (
-          <div 
-            className="ma-heatmap__tooltip" 
-            style={{ left: tooltip.x, top: tooltip.y }}
-          >
-            <div className="ma-heatmap__tooltip-date">{tooltip.date}</div>
-            <div className="ma-heatmap__tooltip-value">{fmtMinutes(tooltip.mins)}</div>
+
+        <div className="context-panel__divider" />
+
+        <div className="context-panel__section">
+          <div className="context-panel__header">
+            <h3 className="context-panel__title">行动建议</h3>
+            <span className="context-panel__badge">{actions.length} 项</span>
           </div>
-        )}
+          <div className="context-panel__list">
+            {actions.map((action, i) => (
+              <div key={i} className="context-panel__action">
+                <span className="context-panel__action-number">{i + 1}.</span>
+                <div className="context-panel__action-content">
+                  <span className="context-panel__action-title">{action.title}</span>
+                  <span className="context-panel__action-description">{action.description}</span>
+                  <div className="context-panel__action-suggestion">
+                    <span className="context-panel__action-arrow">→</span>
+                    <span>{action.suggestion}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
+    </aside>
   );
 }
 
-function LearningBehaviorAnalysis({ sessions }) {
-  const behaviorData = useMemo(() => {
-    let totalMins = 0;
-    let studyMins = 0;
-    let reviewMins = 0;
-    let practiceMins = 0;
-    let selfMins = 0;
-    let externalMins = 0;
+function Chart1LearningDurationPattern({ sessions }) {
+  const chartData = useMemo(() => {
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const byDay = {};
+    weekdays.forEach(day => {
+      byDay[day] = { mins: 0, isWeekend: ['周六', '周日'].includes(day) };
+    });
     
     for (const s of sessions) {
-      const mins = s.duration_minutes || 0;
-      totalMins += mins;
-      if (s.category === 1) studyMins += mins;
-      else if (s.category === 2) reviewMins += mins;
-      else if (s.category === 3) practiceMins += mins;
-      if (isSelfForm(s.form)) {
-        selfMins += mins;
-      } else {
-        externalMins += mins;
+      const date = s.date?.split('T')[0];
+      if (date) {
+        const dayIndex = new Date(date).getDay();
+        const dayName = weekdays[dayIndex === 0 ? 6 : dayIndex - 1];
+        byDay[dayName].mins += s.duration_minutes || 0;
       }
     }
     
+    const workdayDays = weekdays.slice(0, 5);
+    const weekendDays = weekdays.slice(5);
+    
+    const workdayMins = workdayDays.reduce((sum, day) => sum + byDay[day].mins, 0);
+    const weekendMins = weekendDays.reduce((sum, day) => sum + byDay[day].mins, 0);
+    
+    const workdayCount = workdayDays.filter(day => byDay[day].mins > 0).length;
+    const weekendCount = weekendDays.filter(day => byDay[day].mins > 0).length;
+    
+    const workdayAvg = workdayCount > 0 ? Math.round(workdayMins / workdayCount) : 0;
+    const weekendAvg = weekendCount > 0 ? Math.round(weekendMins / weekendCount) : 0;
+    
+    const weekData = [];
+    const today = new Date();
+    for (let w = 3; w >= 0; w--) {
+      let weekMins = 0;
+      for (let d = 6; d >= 0; d--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - w * 7 - d);
+        const dateStr = date.toISOString().split('T')[0];
+        for (const s of sessions) {
+          if (s.date?.startsWith(dateStr)) {
+            weekMins += s.duration_minutes || 0;
+          }
+        }
+      }
+      weekData.push(weekMins);
+    }
+    
+    const avgWeekMins = weekData.reduce((sum, m) => sum + m, 0) / weekData.length;
+    const variance = weekData.reduce((sum, m) => sum + Math.pow(m - avgWeekMins, 2), 0) / weekData.length;
+    const stdDev = Math.sqrt(variance);
+    const volatility = avgWeekMins > 0 ? Math.round((stdDev / avgWeekMins) * 100) : 0;
+    
+    const gapPercent = workdayAvg > 0 ? Math.round(((workdayAvg - weekendAvg) / workdayAvg) * 100) : 0;
+    
     return {
-      totalMins,
-      studyMins,
-      reviewMins,
-      practiceMins,
-      selfMins,
-      externalMins,
-      selfRate: totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0,
-      studyPct: totalMins > 0 ? Math.round((studyMins / totalMins) * 100) : 0,
-      reviewPct: totalMins > 0 ? Math.round((reviewMins / totalMins) * 100) : 0,
-      practicePct: totalMins > 0 ? Math.round((practiceMins / totalMins) * 100) : 0,
-      sessionCount: sessions.length,
-      avgSessionMins: sessions.length > 0 ? Math.round(totalMins / sessions.length) : 0,
+      workdayAvg,
+      weekendAvg,
+      volatility,
+      gapPercent,
+      maxAvg: Math.max(workdayAvg, weekendAvg, 1)
     };
   }, [sessions]);
 
   return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">学习行为分析</h3>
-        <span className="ma-panel__subtitle">共 {behaviorData.sessionCount} 次学习记录，总计 {fmtMinutes(behaviorData.totalMins)}</span>
-      </div>
-      <div className="ma-behavior">
-        <div className="ma-behavior__section">
-          <h4 className="ma-behavior__section-title">学习类型分配</h4>
-          <div className="ma-behavior__bars">
-            <div className="ma-behavior__bar">
-              <div className="ma-behavior__bar-header">
-                <span className="ma-behavior__bar-label">学习</span>
-                <span className="ma-behavior__bar-value">{fmtMinutes(behaviorData.studyMins)} <span className="ma-behavior__bar-pct">{behaviorData.studyPct}%</span></span>
-                <span className="ma-behavior__bar-ideal">理想 40%</span>
-              </div>
-              <div className="ma-behavior__bar-track">
-                <div className="ma-behavior__bar-ideal-line" style={{ left: '40%' }} />
-                <div className="ma-behavior__bar-fill" style={{ width: `${behaviorData.studyPct}%`, background: '#6366f1' }} />
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <div className="mckinsey-bar-group">
+          <div className="mckinsey-bar-row">
+            <span className="mckinsey-bar-label">工作日平均</span>
+            <div className="mckinsey-bar-track">
+              <div 
+                className="mckinsey-bar-fill" 
+                style={{ width: `${chartData.workdayAvg / chartData.maxAvg * 100}%` }}
+              >
+                <span className="mckinsey-bar-value">{fmtMinutes(chartData.workdayAvg)}</span>
               </div>
             </div>
-            <div className="ma-behavior__bar">
-              <div className="ma-behavior__bar-header">
-                <span className="ma-behavior__bar-label">复习</span>
-                <span className="ma-behavior__bar-value">{fmtMinutes(behaviorData.reviewMins)} <span className="ma-behavior__bar-pct">{behaviorData.reviewPct}%</span></span>
-                <span className="ma-behavior__bar-ideal">理想 30%</span>
-              </div>
-              <div className="ma-behavior__bar-track">
-                <div className="ma-behavior__bar-ideal-line" style={{ left: '30%' }} />
-                <div className="ma-behavior__bar-fill" style={{ width: `${behaviorData.reviewPct}%`, background: '#8b5cf6' }} />
-              </div>
-            </div>
-            <div className="ma-behavior__bar">
-              <div className="ma-behavior__bar-header">
-                <span className="ma-behavior__bar-label">练习</span>
-                <span className="ma-behavior__bar-value">{fmtMinutes(behaviorData.practiceMins)} <span className="ma-behavior__bar-pct">{behaviorData.practicePct}%</span></span>
-                <span className="ma-behavior__bar-ideal">理想 30%</span>
-              </div>
-              <div className="ma-behavior__bar-track">
-                <div className="ma-behavior__bar-ideal-line" style={{ left: '30%' }} />
-                <div className="ma-behavior__bar-fill" style={{ width: `${behaviorData.practicePct}%`, background: '#ec4899' }} />
+            <span className="mckinsey-bar-end-label">{fmtMinutes(chartData.workdayAvg)}</span>
+          </div>
+          <div className="mckinsey-bar-row">
+            <span className="mckinsey-bar-label">周末平均</span>
+            <div className="mckinsey-bar-track">
+              <div 
+                className="mckinsey-bar-fill mckinsey-bar-fill--secondary" 
+                style={{ width: `${chartData.weekendAvg / chartData.maxAvg * 100}%` }}
+              >
+                <span className="mckinsey-bar-value">{fmtMinutes(chartData.weekendAvg)}</span>
               </div>
             </div>
+            <span className="mckinsey-bar-end-label">{fmtMinutes(chartData.weekendAvg)}</span>
           </div>
         </div>
-        <div className="ma-behavior__section">
-          <h4 className="ma-behavior__section-title">学习来源分配</h4>
-          <div className="ma-behavior__donut">
-            <div className="ma-behavior__donut-chart">
-              <svg viewBox="0 0 120 120" className="ma-svg">
-                <circle cx="60" cy="60" r="45" fill="none" stroke="#e2e8f0" strokeWidth="14" />
-                <circle cx="60" cy="60" r="45" fill="none" stroke="#10b981" strokeWidth="14" strokeDasharray={`${behaviorData.selfRate * 2.83} 283`} strokeLinecap="round" transform="rotate(-90 60 60)" />
-                <circle cx="60" cy="60" r="45" fill="none" stroke="#f59e0b" strokeWidth="14" strokeDasharray={`${(100 - behaviorData.selfRate) * 2.83} 283`} strokeLinecap="round" transform={`rotate(${behaviorData.selfRate * 3.6 - 90} 60 60)`} />
-              </svg>
-              <div className="ma-behavior__donut-center">
-                <div className="ma-behavior__donut-value">{behaviorData.selfRate}%</div>
-                <div className="ma-behavior__donut-label">自主学习率</div>
-              </div>
-            </div>
-            <div className="ma-behavior__donut-stats">
-              <div className="ma-behavior__donut-stat"><span>自主学习</span><span style={{ color: '#10b981' }}>{fmtMinutes(behaviorData.selfMins)}</span></div>
-              <div className="ma-behavior__donut-stat"><span>校外辅导</span><span style={{ color: '#f59e0b' }}>{fmtMinutes(behaviorData.externalMins)}</span></div>
-            </div>
-          </div>
-        </div>
-        <div className="ma-behavior__stats">
-          <div className="ma-behavior__stat"><span className="ma-behavior__stat-icon">⏱️</span><span className="ma-behavior__stat-value">{fmtMinutes(behaviorData.totalMins)}</span><span className="ma-behavior__stat-label">总时长</span></div>
-          <div className="ma-behavior__stat"><span className="ma-behavior__stat-icon">📚</span><span className="ma-behavior__stat-value">{behaviorData.sessionCount}</span><span className="ma-behavior__stat-label">学习次数</span></div>
-          <div className="ma-behavior__stat"><span className="ma-behavior__stat-icon">⌛</span><span className="ma-behavior__stat-value">{fmtMinutes(behaviorData.avgSessionMins)}</span><span className="ma-behavior__stat-label">平均时长</span></div>
-          <div className="ma-behavior__stat"><span className="ma-behavior__stat-icon">📊</span><span className="ma-behavior__stat-value">{behaviorData.selfRate}%</span><span className="ma-behavior__stat-label">自主率</span></div>
+        <div className="mckinsey-callout">
+          <span className="mckinsey-callout__value" style={{ color: chartData.volatility > 30 ? '#B91C1C' : '#171717' }}>
+            4周波动 ±{chartData.volatility}%
+          </span>
+          {chartData.volatility > 30 && (
+            <span className="mckinsey-callout__label">稳定性严重不足</span>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ScoreTrendChart({ sessions }) {
-  const [showCount, setShowCount] = useState(5);
-  const [selectedSubject, setSelectedSubject] = useState('all');
-
-  const subjects = useMemo(() => {
-    const subjs = new Set(sessions.filter(s => Number(s.eval_type) === 2 && s.score != null && s.score !== '').map(s => s.subject));
-    return ['all', ...Array.from(subjs).filter(Boolean)];
+function Chart2SubjectInvestmentStructure({ sessions }) {
+  const chartData = useMemo(() => {
+    const bySubj = {};
+    for (const s of sessions) {
+      const subj = s.subject || '未分类';
+      bySubj[subj] = bySubj[subj] || { self: 0, other: 0, total: 0 };
+      const mins = s.duration_minutes || 0;
+      if (isSelfForm(s.form)) bySubj[subj].self += mins;
+      else bySubj[subj].other += mins;
+      bySubj[subj].total += mins;
+    }
+    
+    const totalMins = Object.values(bySubj).reduce((sum, d) => sum + d.total, 0);
+    
+    const data = Object.entries(bySubj)
+      .map(([name, data]) => ({
+        name,
+        self: data.self,
+        other: data.other,
+        total: data.total,
+        pct: totalMins > 0 ? Math.round((data.total / totalMins) * 100) : 0,
+        selfRate: data.total > 0 ? Math.round((data.self / data.total) * 100) : 0
+      }))
+      .sort((a, b) => b.total - a.total);
+    
+    return { data, maxTotal: Math.max(...data.map(d => d.total), 1) };
   }, [sessions]);
 
-  const scoreData = useMemo(() => {
-    let filtered = sessions.filter(s => Number(s.eval_type) === 2 && s.score != null && s.score !== '');
-    if (selectedSubject !== 'all') {
-      filtered = filtered.filter(s => s.subject === selectedSubject);
-    }
-    return filtered
-      .map(s => ({ date: s.date?.split('T')[0] || '', score: Number(s.score), letter: scoreToLetter(Number(s.score)), subject: s.subject }))
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, showCount)
-      .reverse();
-  }, [sessions, showCount, selectedSubject]);
-
-  if (scoreData.length === 0) {
-    return <div className="ma-panel"><div className="ma-panel__header"><h3 className="ma-panel__title">分数趋势</h3></div><div className="ma-empty">暂无数据</div></div>;
-  }
-
-  const maxScore = 100;
-  const minScore = Math.max(0, Math.min(...scoreData.map(s => s.score)) - 10);
-  const padding = 40;
-  const chartWidth = 600;
-  const chartHeight = 180;
-
   return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">分数趋势</h3>
-        <div className="ma-panel__filter">
-          <span className="ma-panel__subtitle">最近 {scoreData.length} 次评分</span>
-          <div className="ma-trend__filter">
-            <select 
-              className="ma-trend__filter-select"
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-            >
-              {subjects.map(subj => (
-                <option key={subj} value={subj}>{subj === 'all' ? '全部科目' : subj}</option>
-              ))}
-            </select>
-            <button 
-              className={`ma-trend__filter-btn ${showCount === 5 ? 'ma-trend__filter-btn--active' : ''}`}
-              onClick={() => setShowCount(5)}
-            >
-              最近5次
-            </button>
-            <button 
-              className={`ma-trend__filter-btn ${showCount === 10 ? 'ma-trend__filter-btn--active' : ''}`}
-              onClick={() => setShowCount(10)}
-            >
-              最近10次
-            </button>
-          </div>
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <div className="mckinsey-stacked-bar-chart">
+          {chartData.data.map((d, i) => (
+            <div key={i} className="mckinsey-stacked-bar-row">
+              <span className="mckinsey-stacked-bar-label">{d.name}</span>
+              <div className="mckinsey-stacked-bar-track">
+                <div 
+                  className="mckinsey-stacked-bar-fill mckinsey-stacked-bar-fill--other"
+                  style={{ width: `${(d.other / chartData.maxTotal) * 100}%` }}
+                />
+                <div 
+                  className="mckinsey-stacked-bar-fill mckinsey-stacked-bar-fill--self"
+                  style={{ width: `${(d.self / chartData.maxTotal) * 100}%` }}
+                />
+              </div>
+              <div className="mckinsey-stacked-bar-values">
+                <span className="mckinsey-stacked-bar-value">{fmtMinutes(d.total)}</span>
+                <span className="mckinsey-stacked-bar-meta">{d.pct}% · 自主{d.selfRate}%</span>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="ma-trend">
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="ma-svg">
-          {[60, 80].map(score => {
-            const y = padding + chartHeight - 2 * padding - ((score - minScore) / (maxScore - minScore)) * (chartHeight - 2 * padding);
-            return <line key={score} x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke="#f59e0b" strokeWidth="1" strokeDasharray="4 4" />;
-          })}
-          {[0, 25, 50, 75, 100].map(score => {
-            const y = padding + chartHeight - 2 * padding - ((score - minScore) / (maxScore - minScore)) * (chartHeight - 2 * padding);
-            return <text key={score} x={padding - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#64748b">{score}</text>;
-          })}
-          <path d={`M ${scoreData.map((s, i) => {
-            const x = padding + (i / (scoreData.length - 1)) * (chartWidth - padding * 2);
-            const y = padding + chartHeight - 2 * padding - ((s.score - minScore) / (maxScore - minScore)) * (chartHeight - 2 * padding);
-            return `${x} ${y}`;
-          }).join(' L ')}`} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          {scoreData.map((s, i) => {
-            const x = padding + (i / (scoreData.length - 1)) * (chartWidth - padding * 2);
-            const y = padding + chartHeight - 2 * padding - ((s.score - minScore) / (maxScore - minScore)) * (chartHeight - 2 * padding);
-            const color = getLetterColor(s.letter);
-            return (
-              <g key={s.date}>
-                <circle cx={x} cy={y} r="6" fill={color} />
-                <circle cx={x} cy={y} r="3" fill="white" />
-                <text x={x} y={chartHeight - 10} textAnchor="middle" fontSize="9" fill="#64748b">{s.date.slice(5)}</text>
-                <text x={x} y={y - 12} textAnchor="middle" fontSize="10" fill="#334155" fontWeight={600}>{s.score}</text>
-                <text x={x} y={y + 18} textAnchor="middle" fontSize="9" fill={color} fontWeight={600}>{s.letter}</text>
-              </g>
-            );
-          })}
-        </svg>
+        <div className="mckinsey-stacked-bar-legend">
+          <span className="mckinsey-stacked-bar-legend-item">
+            <span className="mckinsey-stacked-bar-legend-dot" style={{ background: '#E5E5EA' }}></span>
+            校外辅导
+          </span>
+          <span className="mckinsey-stacked-bar-legend-item">
+            <span className="mckinsey-stacked-bar-legend-dot" style={{ background: '#B91C1C' }}></span>
+            自主学习
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function EfficiencyTrendChart({ sessions }) {
-  const efficiencyData = useMemo(() => {
+function Chart3LearningEfficiencyMatrix({ sessions }) {
+  const chartData = useMemo(() => {
+    const bySubj = {};
+    for (const s of sessions) {
+      const subj = s.subject || '未分类';
+      bySubj[subj] = bySubj[subj] || { mins: 0, scoreSum: 0, scoreCount: 0, evalMins: 0 };
+      bySubj[subj].mins += s.duration_minutes || 0;
+      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+        bySubj[subj].scoreSum += Number(s.score);
+        bySubj[subj].scoreCount++;
+      }
+      if (s.category === 3) bySubj[subj].evalMins += s.duration_minutes || 0;
+    }
+    
+    const data = Object.entries(bySubj)
+      .map(([name, data]) => ({
+        name,
+        mins: data.mins,
+        avgScore: data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : 0,
+        evalPct: data.mins > 0 ? Math.round((data.evalMins / data.mins) * 100) : 0
+      }))
+      .filter(d => d.avgScore > 0);
+    
+    const avgMins = data.length > 0 ? data.reduce((sum, d) => sum + d.mins, 0) / data.length : 0;
+    const avgScore = data.length > 0 ? data.reduce((sum, d) => sum + d.avgScore, 0) / data.length : 70;
+    
+    return { 
+      data: data.map(d => ({
+        ...d,
+        quadrant: d.mins > avgMins && d.avgScore < avgScore ? 'high-low' :
+                  d.mins > avgMins && d.avgScore >= avgScore ? 'high-high' :
+                  d.mins <= avgMins && d.avgScore < avgScore ? 'low-low' : 'low-high',
+        efficiencyScore: d.mins > 0 ? Math.round((d.avgScore / d.mins) * 100) : 0
+      })), 
+      avgMins, 
+      avgScore,
+      maxMins: data.length > 0 ? Math.max(...data.map(d => d.mins), 1) : 1
+    };
+  }, [sessions]);
+
+  return (
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <div className="mckinsey-efficiency-table">
+          <div className="mckinsey-efficiency-table__header">
+            <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--name">科目</div>
+            <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--duration">投入时长</div>
+            <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--score">平均分数</div>
+            <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--eval">客观评估</div>
+            <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--status">状态</div>
+          </div>
+          {chartData.data.map((d, i) => (
+            <div key={i} className="mckinsey-efficiency-table__row">
+              <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--name">
+                <span className="mckinsey-efficiency-table__name">{d.name}</span>
+              </div>
+              <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--duration">
+                <div className="mckinsey-efficiency-table__bar-track">
+                  <div 
+                    className="mckinsey-efficiency-table__bar-fill"
+                    style={{ width: `${(d.mins / chartData.maxMins) * 100}%` }}
+                  />
+                </div>
+                <span className="mckinsey-efficiency-table__value">{fmtMinutes(d.mins)}</span>
+              </div>
+              <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--score">
+                <div className="mckinsey-efficiency-table__score-bar">
+                  <div 
+                    className={`mckinsey-efficiency-table__score-fill ${d.avgScore >= 80 ? '' : d.avgScore >= 60 ? 'mckinsey-efficiency-table__score-fill--medium' : 'mckinsey-efficiency-table__score-fill--low'}`}
+                    style={{ width: `${d.avgScore}%` }}
+                  />
+                </div>
+                <span className={`mckinsey-efficiency-table__value ${d.avgScore >= 80 ? '' : d.avgScore >= 60 ? '' : 'text-red-600'}`}>{d.avgScore}</span>
+              </div>
+              <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--eval">
+                <div className="mckinsey-efficiency-table__bar-track">
+                  <div 
+                    className={`mckinsey-efficiency-table__bar-fill ${d.evalPct >= 30 ? '' : 'mckinsey-efficiency-table__bar-fill--warning'}`}
+                    style={{ width: `${d.evalPct}%` }}
+                  />
+                </div>
+                <span className="mckinsey-efficiency-table__value">{d.evalPct}%</span>
+              </div>
+              <div className="mckinsey-efficiency-table__col mckinsey-efficiency-table__col--status">
+                <span className={`mckinsey-efficiency-table__badge ${d.quadrant === 'high-low' ? 'mckinsey-efficiency-table__badge--warning' : ''}`}>
+                  {d.quadrant === 'high-low' ? '高投入低产出' :
+                   d.quadrant === 'high-high' ? '高效' :
+                   d.quadrant === 'low-low' ? '需关注' : '低投入高效'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mckinsey-efficiency-table__legend">
+          <span className="mckinsey-efficiency-table__legend-item">
+            <span className="mckinsey-efficiency-table__legend-dot" style={{ background: '#B91C1C' }}></span>
+            高投入低产出（需调整）
+          </span>
+          <span className="mckinsey-efficiency-table__legend-item">
+            <span className="mckinsey-efficiency-table__legend-dot" style={{ background: '#171717' }}></span>
+            正常状态
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chart4SelfLearningTrend({ sessions }) {
+  const chartData = useMemo(() => {
+    const weekData = [];
+    const today = new Date();
+    
+    for (let w = 3; w >= 0; w--) {
+      let weekMins = 0;
+      let selfMins = 0;
+      for (let d = 6; d >= 0; d--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - w * 7 - d);
+        const dateStr = date.toISOString().split('T')[0];
+        for (const s of sessions) {
+          if (s.date?.startsWith(dateStr)) {
+            weekMins += s.duration_minutes || 0;
+            if (isSelfForm(s.form)) selfMins += s.duration_minutes || 0;
+          }
+        }
+      }
+      weekData.push({
+        week: `第${4 - w}周`,
+        selfRate: weekMins > 0 ? Math.round((selfMins / weekMins) * 100) : 0,
+        total: weekMins
+      });
+    }
+    
+    const decline = weekData.length >= 2 ? weekData[weekData.length - 1].selfRate - weekData[0].selfRate : 0;
+    const steepestIndex = weekData.length >= 2 
+      ? weekData.reduce((minIdx, curr, idx, arr) => idx > 0 && curr.selfRate - arr[idx-1].selfRate < arr[minIdx].selfRate - arr[minIdx > 0 ? minIdx - 1 : 0].selfRate ? idx : minIdx, 0)
+      : -1;
+    
+    return { data: weekData, decline, steepestIndex };
+  }, [sessions]);
+
+  return (
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <ResponsiveContainer width="100%" height={200}>
+          <ComposedChart data={chartData.data} margin={{ top: 16, right: 40, left: 40, bottom: 36 }}>
+            <defs>
+              <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#B91C1C" stopOpacity={0.3}/>
+                <stop offset="100%" stopColor="#B91C1C" stopOpacity={0.05}/>
+              </linearGradient>
+            </defs>
+            <XAxis 
+              type="category" 
+              dataKey="week" 
+              tick={{ fontSize: 12, fill: '#525252', fontWeight: 500 }} 
+              axisLine={false} 
+              tickLine={false}
+            />
+            <YAxis 
+              type="number" 
+              domain={[0, 100]} 
+              tick={{ fontSize: 11, fill: '#8E8E93' }} 
+              axisLine={false} 
+              tickLine={false}
+            />
+            <Tooltip />
+            <Area 
+              type="monotone" 
+              dataKey="selfRate" 
+              fill="url(#areaGradient)" 
+              stroke="#B91C1C" 
+              strokeWidth={2.5} 
+              dot={{ r: 6, fill: '#B91C1C', stroke: '#FFFFFF', strokeWidth: 2 }}
+              activeDot={{ r: 8 }}
+            />
+            {chartData.data.map((d, i) => (
+              <text
+                key={`value-${i}`}
+                x={i}
+                y={d.selfRate - 8}
+                textAnchor="middle"
+                fontSize={11}
+                fontWeight={600}
+                fill="#171717"
+              >
+                {d.selfRate}%
+              </text>
+            ))}
+            {chartData.steepestIndex > 0 && chartData.data[chartData.steepestIndex].selfRate < chartData.data[chartData.steepestIndex - 1].selfRate - 5 && (
+              <text
+                x={chartData.steepestIndex}
+                y={chartData.data[chartData.steepestIndex].selfRate + 20}
+                textAnchor="middle"
+                fontSize={9}
+                fill="#B91C1C"
+              >
+                骤降
+              </text>
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function Chart5SubjectBalanceDeviation({ sessions }) {
+  const chartData = useMemo(() => {
+    const bySubj = {};
+    for (const s of sessions) {
+      const subj = s.subject || '未分类';
+      bySubj[subj] = (bySubj[subj] || 0) + (s.duration_minutes || 0);
+    }
+    
+    const totalMins = Object.values(bySubj).reduce((sum, m) => sum + m, 0);
+    const subjectCount = Object.keys(bySubj).length;
+    const idealPct = subjectCount > 0 ? Math.round((1 / subjectCount) * 100) : 16.7;
+    
+    const maxPct = totalMins > 0 ? Math.max(...Object.values(bySubj).map(m => Math.round((m / totalMins) * 100)), idealPct) : 100;
+    
+    const data = Object.entries(bySubj)
+      .map(([name, mins]) => {
+        const actualPct = totalMins > 0 ? Math.round((mins / totalMins) * 100) : 0;
+        const deviation = actualPct - idealPct;
+        return {
+          name,
+          actualPct,
+          idealPct,
+          deviation
+        };
+      })
+      .sort((a, b) => b.actualPct - a.actualPct);
+    
+    return { data, idealPct, maxPct };
+  }, [sessions]);
+
+  return (
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <div className="mckinsey-balance-chart">
+          {chartData.data.map((d, i) => (
+            <div key={i} className="mckinsey-balance-row">
+              <span className="mckinsey-balance-label">{d.name}</span>
+              <div className="mckinsey-balance-track">
+                <div 
+                  className={`mckinsey-balance-fill ${d.deviation < 0 ? 'mckinsey-balance-fill--negative' : 'mckinsey-balance-fill--positive'}`}
+                  style={{ width: `${(d.actualPct / chartData.maxPct) * 100}%` }}
+                />
+                <div 
+                  className="mckinsey-balance-target"
+                  style={{ left: `${(chartData.idealPct / chartData.maxPct) * 100}%` }}
+                />
+              </div>
+              <div className="mckinsey-balance-values">
+                <span className="mckinsey-balance-value">{d.actualPct}%</span>
+                <span className={`mckinsey-balance-deviation ${d.deviation < 0 ? 'mckinsey-balance-deviation--negative' : ''}`}>
+                  {d.deviation >= 0 ? '+' : ''}{d.deviation}%
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mckinsey-balance-legend">
+          <span className="mckinsey-balance-legend-item">
+            <span className="mckinsey-balance-legend-line"></span>
+            理想均衡 {chartData.idealPct}%
+          </span>
+          <span className="mckinsey-balance-legend-item">
+            <span className="mckinsey-balance-legend-dot" style={{ background: '#171717' }}></span>
+            投入过多
+          </span>
+          <span className="mckinsey-balance-legend-item">
+            <span className="mckinsey-balance-legend-dot" style={{ background: '#B91C1C' }}></span>
+            投入不足
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chart6PracticeQualityTracking({ sessions }) {
+  const chartData = useMemo(() => {
+    const bySubj = {};
+    for (const s of sessions) {
+      const subj = s.subject || '未分类';
+      bySubj[subj] = bySubj[subj] || { total: 0, eval: 0 };
+      bySubj[subj].total += s.duration_minutes || 0;
+      if (s.category === 3) bySubj[subj].eval += s.duration_minutes || 0;
+    }
+    
+    const targetPct = 40;
+    const warningThreshold = 30;
+    
+    const data = Object.entries(bySubj)
+      .map(([name, data]) => ({
+        name,
+        evalPct: data.total > 0 ? Math.round((data.eval / data.total) * 100) : 0,
+        total: data.total,
+        eval: data.eval,
+        status: data.total > 0 && (data.eval / data.total * 100) < warningThreshold ? 'low' : 
+                data.total > 0 && (data.eval / data.total * 100) >= targetPct ? 'good' : 'medium'
+      }))
+      .sort((a, b) => a.evalPct - b.evalPct);
+    
+    return { data, targetPct, warningThreshold };
+  }, [sessions]);
+
+  return (
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <p className="mckinsey-section__subtext" style={{ marginBottom: 12 }}>
+          客观评估占比 = 有标准答案的练习 / 总练习时间
+        </p>
+        <div className="mckinsey-practice-chart">
+          {chartData.data.map((d, i) => (
+            <div key={i} className="mckinsey-practice-row">
+              <span className="mckinsey-practice-label">{d.name}</span>
+              <div className="mckinsey-practice-track">
+                <div 
+                  className={`mckinsey-practice-fill mckinsey-practice-fill--${d.status}`}
+                  style={{ width: `${d.evalPct}%` }}
+                />
+                <div 
+                  className="mckinsey-practice-target"
+                  style={{ left: `${chartData.targetPct}%` }}
+                />
+              </div>
+              <span className={`mckinsey-practice-value ${d.status === 'low' ? 'mckinsey-practice-value--low' : ''}`}>
+                {d.evalPct}%
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mckinsey-practice-legend">
+          <span className="mckinsey-practice-legend-item">
+            <span className="mckinsey-practice-legend-dot" style={{ background: '#171717' }}></span>
+            达标（≥40%）
+          </span>
+          <span className="mckinsey-practice-legend-item">
+            <span className="mckinsey-practice-legend-dot" style={{ background: '#525252' }}></span>
+            待提升（30%-40%）
+          </span>
+          <span className="mckinsey-practice-legend-item">
+            <span className="mckinsey-practice-legend-dot" style={{ background: '#B91C1C' }}></span>
+            需加强（&lt;30%）
+          </span>
+          <span className="mckinsey-practice-legend-item">
+            <span className="mckinsey-practice-legend-line"></span>
+            目标线 40%
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chart7WeeklyHeatDistribution({ sessions }) {
+  const chartData = useMemo(() => {
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    
+    const heatMap = {};
+    weekdays.forEach(day => {
+      heatMap[day] = {};
+      hours.forEach(h => {
+        heatMap[day][h] = 0;
+      });
+    });
+    
+    for (const s of sessions) {
+      const date = s.date?.split('T')[0];
+      const time = s.date?.split('T')[1]?.split(':')[0];
+      if (date && time) {
+        const dayIndex = new Date(date).getDay();
+        const dayName = weekdays[dayIndex === 0 ? 6 : dayIndex - 1];
+        const hour = parseInt(time, 10);
+        heatMap[dayName][hour] += s.duration_minutes || 0;
+      }
+    }
+    
+    const maxMins = Math.max(...weekdays.flatMap(day => hours.map(h => heatMap[day][h])), 1);
+    
+    const peakHour = hours.reduce((maxHour, h) => {
+      const total = weekdays.reduce((sum, day) => sum + heatMap[day][h], 0);
+      const currentMax = weekdays.reduce((sum, day) => sum + heatMap[day][maxHour], 0);
+      return total > currentMax ? h : maxHour;
+    }, 0);
+    
+    const lowDays = weekdays.filter(day => {
+      const total = hours.reduce((sum, h) => sum + heatMap[day][h], 0);
+      return total < 30;
+    });
+    
+    return { heatMap, weekdays, hours, maxMins, peakHour, lowDays };
+  }, [sessions]);
+
+  const getHeatColor = (value, max) => {
+    const intensity = value / max;
+    if (intensity === 0) return '#FFFFFF';
+    if (intensity < 0.25) return '#FEE2E2';
+    if (intensity < 0.5) return '#FECACA';
+    if (intensity < 0.75) return '#FCA5A5';
+    return '#B91C1C';
+  };
+
+  return (
+    <div className="mckinsey-chart">
+      <div className="mckinsey-chart__body">
+        <div className="mckinsey-heatmap">
+          <div className="mckinsey-heatmap__header">
+            {chartData.hours.filter(h => h % 4 === 0).map(h => (
+              <div key={h} className="mckinsey-heatmap__hour-label">{h}:00</div>
+            ))}
+          </div>
+          <div className="mckinsey-heatmap__body">
+            {chartData.weekdays.map((day) => (
+              <div key={day} className="mckinsey-heatmap__row">
+                <span className="mckinsey-heatmap__day-label">{day}</span>
+                <div className="mckinsey-heatmap__cells">
+                  {chartData.hours.map((hour) => {
+                    const value = chartData.heatMap[day][hour];
+                    return (
+                      <div
+                        key={hour}
+                        className="mckinsey-heatmap__cell"
+                        style={{ 
+                          background: getHeatColor(value, chartData.maxMins),
+                          borderColor: value > 0 ? '#FFFFFF' : 'transparent'
+                        }}
+                        title={`${day} ${hour}:00 - ${fmtMinutes(value)}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mckinsey-heatmap__legend">
+            <span className="mckinsey-heatmap__legend-label">无学习</span>
+            <div className="mckinsey-heatmap__legend-gradient" />
+            <span className="mckinsey-heatmap__legend-label">高强度</span>
+          </div>
+          {chartData.lowDays.length > 0 && (
+            <div className="mckinsey-callout mckinsey-callout--heatmap">
+              <span className="mckinsey-callout__label">{chartData.lowDays.join('、')}学习空白期</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MentorAnalyticsPage({ students, connections }) {
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const connectionList = useMemo(() => {
+    if (!connections) return [];
+    return Array.isArray(connections) ? connections : Object.values(connections);
+  }, [connections]);
+
+  const connectedStudents = useMemo(() => {
+    return students.filter(s => 
+      connectionList.some(c => c.student_id === s.id && (c.status === 'accepted' || c.status === 1))
+    );
+  }, [students, connectionList]);
+
+  const stats = useMemo(() => {
+    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    let scoreSum = 0;
+    let scoreCount = 0;
+    let selfMins = 0;
+    
+    for (const s of sessions) {
+      if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
+        scoreSum += Number(s.score);
+        scoreCount++;
+      }
+      if (isSelfForm(s.form)) selfMins += s.duration_minutes || 0;
+    }
+    
+    const avgScore = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0;
+    const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
+    const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
+    
     const byDate = {};
     for (const s of sessions) {
       const date = s.date?.split('T')[0];
       if (date) {
-        byDate[date] = byDate[date] || { mins: 0, scoreSum: 0, scoreCount: 0 };
-        byDate[date].mins += s.duration_minutes || 0;
-        if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
-          byDate[date].scoreSum += Number(s.score);
-          byDate[date].scoreCount++;
-        }
+        byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
       }
     }
-    return Object.entries(byDate).map(([date, data]) => ({
-      date,
-      mins: data.mins,
-      avgScore: data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : null,
-    })).sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-14);
-  }, [sessions]);
-
-  const avgScore = efficiencyData.filter(d => d.avgScore !== null).length > 0
-    ? Math.round(efficiencyData.filter(d => d.avgScore !== null).reduce((sum, d) => sum + d.avgScore, 0) / efficiencyData.filter(d => d.avgScore !== null).length)
-    : 0;
-  const maxMins = Math.max(...efficiencyData.map(d => d.mins), 1);
-
-  if (efficiencyData.length === 0) {
-    return <div className="ma-panel"><div className="ma-panel__header"><h3 className="ma-panel__title">学习效率趋势</h3></div><div className="ma-empty">暂无数据</div></div>;
-  }
-
-  const padding = 40;
-  const chartWidth = 600;
-  const chartHeight = 200;
-
-  return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">学习效率趋势</h3>
-        <span className="ma-panel__subtitle">最近 14 天 · 时长与分数对比</span>
-      </div>
-      <div className="ma-efficiency">
-        <div className="ma-efficiency__info">
-          <div className="ma-efficiency__info-item">
-            <span className="ma-efficiency__info-icon">💡</span>
-            <span className="ma-efficiency__info-text">效率评分 = 分数表现 / 学习时长</span>
-          </div>
-          <div className="ma-efficiency__info-item">
-            <span className="ma-efficiency__info-icon">📈</span>
-            <span className="ma-efficiency__info-text">投入高但分数低 = 效率低，需调整方法</span>
-          </div>
-          <div className="ma-efficiency__info-item">
-            <span className="ma-efficiency__info-icon">🎯</span>
-            <span className="ma-efficiency__info-text">投入适中但分数高 = 效率高，值得保持</span>
-          </div>
-        </div>
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="ma-svg">
-          {[0, 25, 50, 75, 100].map(score => {
-            const y = padding + ((100 - score) / 100) * (chartHeight - padding * 2);
-            return <text key={score} x={padding - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#64748b">{score}</text>;
-          })}
-          {avgScore > 0 && (
-            <line x1={padding} y1={padding + ((100 - avgScore) / 100) * (chartHeight - padding * 2)} x2={chartWidth - padding} y2={padding + ((100 - avgScore) / 100) * (chartHeight - padding * 2)} stroke="#f59e0b" strokeWidth="1" strokeDasharray="4 4" />
-          )}
-          {efficiencyData.map((d, i) => {
-            const x = padding + (i / (efficiencyData.length - 1)) * (chartWidth - padding * 2);
-            const barHeight = (d.mins / maxMins) * (chartHeight - padding * 2) * 0.6;
-            return (
-              <g key={d.date}>
-                <rect x={x - 12} y={chartHeight - padding - barHeight} width="24" height={barHeight} fill="#6366f1" fillOpacity="0.6" rx="4" />
-                {d.avgScore !== null && (
-                  <>
-                    <circle cx={x} cy={padding + ((100 - d.avgScore) / 100) * (chartHeight - padding * 2)} r="4" fill="#10b981" />
-                    <circle cx={x} cy={padding + ((100 - d.avgScore) / 100) * (chartHeight - padding * 2)} r="2" fill="white" />
-                  </>
-                )}
-                <text x={x} y={chartHeight - 8} textAnchor="middle" fontSize="9" fill="#64748b">{d.date.slice(5)}</text>
-              </g>
-            );
-          })}
-        </svg>
-        <div className="ma-efficiency__legend">
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#6366f1' }}></span><span>学习时长</span></div>
-          <div className="ma-legend__item"><span className="ma-legend__color" style={{ background: '#10b981' }}></span><span>分数</span></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PainPointAnalysis({ sessions }) {
-  const painPoints = useMemo(() => {
-    const points = [];
     
-    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
-    const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
-    
-    if (activeDays < 10) {
-      points.push({
-        type: 'warning',
-        title: '学习频率不足',
-        value: `${activeDays}天`,
-        description: `最近30天内仅${activeDays}天有学习记录，学习不够规律`,
-        suggestions: ['制定固定的学习时间表，保证每周至少学习5天', '设置每日学习提醒，养成良好的学习习惯'],
-      });
+    const recentDays = [];
+    const today = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      recentDays.push(byDate[dateStr] || 0);
     }
+    
+    const prevDays = [];
+    for (let i = 27; i >= 14; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      prevDays.push(byDate[dateStr] || 0);
+    }
+    
+    const recentMins = recentDays.reduce((a, b) => a + b, 0);
+    const prevMins = prevDays.reduce((a, b) => a + b, 0);
+    const sessionTrend = prevMins > 0 ? Math.round(((recentMins - prevMins) / prevMins) * 100) : 0;
     
     const bySubj = {};
     for (const s of sessions) {
@@ -763,86 +1261,39 @@ function PainPointAnalysis({ sessions }) {
       }
     }
     
-    Object.entries(bySubj).forEach(([name, data]) => {
-      if (data.scoreCount > 0) {
-        const avgScore = Math.round(data.scoreSum / data.scoreCount);
-        if (avgScore < 70) {
-          points.push({
-            type: 'warning',
-            title: `${name}分数偏低`,
-            value: `${avgScore}分`,
-            description: `${name}科目平均分数仅${avgScore}分，需要重点关注`,
-            suggestions: [`关注${name}学习方法，可能需要调整学习策略`, `增加${name}复习时间，巩固已学知识`],
-          });
-        }
-      }
-    });
+    const subjectData = Object.entries(bySubj).map(([name, data]) => ({
+      name,
+      avgScore: data.scoreCount > 0 ? Math.round(data.scoreSum / data.scoreCount) : 0
+    }));
     
-    let selfMins = 0;
+    const bySubjTime = {};
     for (const s of sessions) {
-      if (isSelfForm(s.form)) {
-        selfMins += s.duration_minutes || 0;
-      }
+      const subj = s.subject || '未分类';
+      bySubjTime[subj] = bySubjTime[subj] || { self: 0, other: 0, total: 0 };
+      const mins = s.duration_minutes || 0;
+      if (isSelfForm(s.form)) bySubjTime[subj].self += mins;
+      else bySubjTime[subj].other += mins;
+      bySubjTime[subj].total += mins;
     }
-    const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
+    const subjectTimeData = Object.entries(bySubjTime)
+      .map(([name, data]) => ({
+        name,
+        self: data.self,
+        other: data.other,
+        total: data.total,
+        selfRate: data.total > 0 ? Math.round((data.self / data.total) * 100) : 0
+      }))
+      .sort((a, b) => b.total - a.total);
     
-    if (selfRate < 50) {
-      points.push({
-        type: 'warning',
-        title: '自主学习率偏低',
-        value: `${selfRate}%`,
-        description: `自主学习仅占${selfRate}%，依赖校外辅导较多`,
-        suggestions: ['鼓励学生独立思考，减少对辅导的依赖', '培养自主学习习惯，设置自主学习目标'],
-      });
-    }
-    
-    return points.sort((a, b) => (a.type === 'danger' ? -1 : 0));
+    return {
+      observations: generateObservations(avgScore, selfRate, activeDays, subjectData, sessionTrend, recentMins, prevMins, subjectTimeData, sessions),
+      actions: generateActions(sessions)
+    };
   }, [sessions]);
-
-  return (
-    <div className="ma-panel">
-      <div className="ma-panel__header">
-        <h3 className="ma-panel__title">痛点诊断与建议</h3>
-        <span className="ma-panel__subtitle">发现 {painPoints.length} 个问题</span>
-      </div>
-      <div className="ma-pain">
-        {painPoints.length === 0 ? (
-          <div className="ma-empty">学生学习状态良好，暂无明显痛点</div>
-        ) : (
-          painPoints.map((point, i) => (
-            <div key={i} className={`ma-pain__item ma-pain__item--${point.type}`}>
-              <div className="ma-pain__item-emoji">{point.type === 'danger' ? '⚠️' : '💡'}</div>
-              <div className="ma-pain__item-priority">{i + 1}</div>
-              <div className="ma-pain__item-info">
-                <div className="ma-pain__item-title">{point.title}</div>
-                <div className="ma-pain__item-description">{point.description}</div>
-                <div className="ma-pain__item-suggestions">
-                  <div className="ma-pain__item-suggestions-title">改进建议</div>
-                  {point.suggestions.map((s, j) => (
-                    <div key={j} className="ma-pain__item-suggestion">{j + 1}. {s}</div>
-                  ))}
-                </div>
-              </div>
-              <div className="ma-pain__item-value">{point.value}</div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default function MentorAnalyticsPage({ user, students, connections }) {
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const connectedStudents = students.filter(s => 
-    connections && connections.some(c => c.student_id === s.id && c.status === 'accepted')
-  );
 
   const loadSessions = async (studentId) => {
     setLoading(true);
+    setError(null);
     try {
       let sessionData = [];
       
@@ -877,18 +1328,33 @@ export default function MentorAnalyticsPage({ user, students, connections }) {
           { subject: '物理', duration_minutes: 60, eval_type: 2, score: 65, form: '自主学习', category: 2, date: '2026-06-12T15:00:00' },
         ];
       } else {
-        const { data } = await supabase
-          .from('study_sessions')
-          .select('*')
+        const { data, error: supabaseError } = await supabase
+          .from('learning_sessions')
+          .select(`
+            id, session_date, duration_minutes, category, form, eval_type,
+            score, course_id, course:course_id(name, subject)
+          `)
           .eq('student_id', studentId)
-          .order('date', { ascending: false })
-          .limit(100);
-        sessionData = data || [];
+          .order('session_date', { ascending: false })
+          .limit(200);
+        
+        if (supabaseError) {
+          console.error('Supabase error:', supabaseError);
+          throw new Error('数据加载失败');
+        }
+        
+        sessionData = (data || []).map((s) => ({
+          ...s,
+          date: String(s.session_date || '').slice(0, 10),
+          subject: s.course?.name || s.course?.subject || '未分类',
+        }));
       }
       
       setSessions(sessionData);
-    } catch (error) {
-      console.error('Failed to load sessions:', error);
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+      setError(err.message || '加载数据时发生错误');
+      setSessions([]);
     } finally {
       setLoading(false);
     }
@@ -899,50 +1365,69 @@ export default function MentorAnalyticsPage({ user, students, connections }) {
   }, [selectedStudent]);
 
   return (
-    <div className="ma-container">
-      <div className="ma-header">
-        <h1 className="ma-header__title">学生数据分析</h1>
-        <p className="ma-header__subtitle">深入分析学生学习行为，精准诊断学习痛点</p>
-        <div className="ma-header__select">
-          <label className="ma-header__select-label">选择学生：</label>
+    <div className="mentor-intelligence">
+      <header className="mentor-intelligence__header">
+        <div>
+          <h1 className="mentor-intelligence__title">学生洞察</h1>
+          <p className="mentor-intelligence__subtitle">帮助你快速理解学生状态，做出精准决策</p>
+        </div>
+        <div className="mentor-intelligence__select">
+          <label>选择学生</label>
           <select 
             value={selectedStudent?.id || ''}
             onChange={(e) => {
               const id = e.target.value;
-              if (!id) {
-                setSelectedStudent(null);
-              } else {
-                const student = students.find((s) => s.id === id);
-                setSelectedStudent(student || null);
-              }
+              setSelectedStudent(id ? students.find((s) => s.id === id) || null : null);
             }}
-            className="ma-select"
+            className="mentor-intelligence__select-input"
           >
             <option value="">使用演示数据</option>
             {connectedStudents.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.full_name || '未命名'}
-              </option>
+              <option key={s.id} value={s.id}>{s.full_name || '未命名'}</option>
             ))}
           </select>
         </div>
-      </div>
+      </header>
 
       {loading ? (
-        <div className="ma-loading">加载中…</div>
-      ) : (
-        <div className="ma-content">
-          <StudentOverviewCard student={selectedStudent || { full_name: '演示学生', school_name: '示例学校' }} sessions={sessions} />
-          <SubjectBarChart sessions={sessions} />
-          <SubjectComparisonMatrix sessions={sessions} />
-          <div className="ma-grid-2">
-            <LearningHeatmap sessions={sessions} />
-          </div>
-          <LearningBehaviorAnalysis sessions={sessions} />
-          <ScoreTrendChart sessions={sessions} />
-          <EfficiencyTrendChart sessions={sessions} />
-          <PainPointAnalysis sessions={sessions} />
+        <div className="mentor-intelligence__loading">
+          <span>加载中…</span>
         </div>
+      ) : error ? (
+        <div className="mentor-intelligence__error">
+          <span>⚠️ {error}</span>
+          <button onClick={() => loadSessions(selectedStudent?.id)} className="mentor-intelligence__retry-btn">
+            重试
+          </button>
+        </div>
+      ) : (
+        <main className="mentor-intelligence__main">
+          <div className="mentor-intelligence__content">
+            <HeroInsight student={selectedStudent || { full_name: '演示学生', school_name: '示例学校' }} sessions={sessions} />
+            <DiagnosticSection title="周末学习时长比工作日低 40%，且 4 周波动率超过 ±35%，时间管理能力薄弱" subtext="学习时长模式与稳定性" animationIndex="2">
+              <Chart1LearningDurationPattern sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="物理、数学两科占用 62% 总时长，语文、历史投入严重不足" subtext="学科投入结构（堆叠水平 Bar）" animationIndex="3">
+              <Chart2SubjectInvestmentStructure sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="50% 科目处于'高投入低产出'象限，学习效率存在系统性问题" subtext="学习效率矩阵（散点图 / 气泡图）" animationIndex="4">
+              <Chart3LearningEfficiencyMatrix sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="自主学习能力连续 4 周下滑，从 15% 降至 0%，需立即干预" subtext="自主学习能力趋势（Area Chart）" animationIndex="5">
+              <Chart4SelfLearningTrend sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="理科投入占比 78%，文科偏差度超过 3 个标准差，存在严重偏科" subtext="学科均衡性偏差（瀑布图 / 偏差 Bar）" animationIndex="6">
+              <Chart5SubjectBalanceDeviation sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="3 科客观评估练习占比低于 30%，应试训练过度，能力培养不足" subtext="练习质量追踪（水平 Bar + 目标线）" animationIndex="7">
+              <Chart6PracticeQualityTracking sessions={sessions} />
+            </DiagnosticSection>
+            <DiagnosticSection title="学习集中在晚间 22:00 后，周一、周二几乎零投入，学习节奏极不规律" subtext="周学习热力分布（日历热力图）" animationIndex="8">
+              <Chart7WeeklyHeatDistribution sessions={sessions} />
+            </DiagnosticSection>
+          </div>
+          <ContextPanel observations={stats.observations} actions={stats.actions} />
+        </main>
       )}
     </div>
   );

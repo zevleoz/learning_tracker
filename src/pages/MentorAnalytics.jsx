@@ -1286,7 +1286,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
       .sort((a, b) => b.total - a.total);
     
     return {
-      observations: generateObservations(avgScore, selfRate, activeDays, subjectData, sessionTrend, recentMins, prevMins, subjectTimeData, sessions),
+      observations: generateObservations(selfRate, subjectTimeData, sessions),
       actions: generateActions(sessions)
     };
   }, [sessions]);

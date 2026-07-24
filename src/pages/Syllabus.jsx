@@ -364,13 +364,48 @@ function AddCourseCard({ onSubmit }) {
         </div>
         <div className="field">
           <label>课程类型</label>
-          <select
-            value={courseType}
-            onChange={(e) => setCourseType(Number(e.target.value))}
-          >
-            <option value={1}>校内课程</option>
-            <option value={2}>校外课程</option>
-          </select>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => setCourseType(1)}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                fontSize: '14px',
+                borderRadius: '10px',
+                border: '2px solid',
+                borderColor: courseType === 1 ? '#10b981' : 'rgba(0,0,0,0.12)',
+                background: courseType === 1 ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.7)',
+                color: courseType === 1 ? '#059669' : '#475569',
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'all 150ms ease',
+              }}
+            >
+              🏫 校内
+            </button>
+            <button
+              type="button"
+              onClick={() => setCourseType(2)}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                fontSize: '14px',
+                borderRadius: '10px',
+                border: '2px solid',
+                borderColor: courseType === 2 ? '#f59e0b' : 'rgba(0,0,0,0.12)',
+                background: courseType === 2 ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.7)',
+                color: courseType === 2 ? '#d97706' : '#475569',
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'all 150ms ease',
+              }}
+            >
+              🎓 校外
+            </button>
+          </div>
         </div>
         <button type="submit" className="btn btn-primary">创建课程</button>
       </form>
@@ -807,22 +842,24 @@ function DesktopTree({
                   if (e.key === 'Escape') setAddingCourse(false);
                 }}
               />
-              <select
-                value={newCourseType}
-                onChange={(e) => setNewCourseType(Number(e.target.value))}
+              <button
+                onClick={() => setNewCourseType(newCourseType === 1 ? 2 : 1)}
                 style={{
-                  padding: '10px 12px',
-                  fontSize: '14px',
-                  border: '1px solid rgba(0,0,0,0.12)',
-                  borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.8)',
-                  outline: 'none',
+                  padding: '6px 14px',
+                  fontSize: '13px',
+                  borderRadius: '999px',
+                  border: '2px solid',
+                  borderColor: newCourseType === 1 ? '#10b981' : '#f59e0b',
+                  background: newCourseType === 1 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+                  color: newCourseType === 1 ? '#059669' : '#d97706',
+                  fontWeight: 600,
+                  cursor: 'pointer',
                   fontFamily: 'inherit',
+                  transition: 'all 150ms ease',
                 }}
               >
-                <option value={1}>校内课程</option>
-                <option value={2}>校外课程</option>
-              </select>
+                {newCourseType === 1 ? '🏫 校内' : '🎓 校外'}
+              </button>
               <button
                 onClick={handleAddCourse}
                 className="btn btn-primary"

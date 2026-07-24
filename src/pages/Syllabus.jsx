@@ -374,16 +374,33 @@ function AddCourseCard({ onSubmit }) {
                 fontSize: '14px',
                 borderRadius: '10px',
                 border: '2px solid',
-                borderColor: courseType === 1 ? '#10b981' : 'rgba(0,0,0,0.12)',
-                background: courseType === 1 ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.7)',
-                color: courseType === 1 ? '#059669' : '#475569',
+                borderColor: courseType === 1 ? '#10b981' : '#e2e8f0',
+                background: courseType === 1 ? '#ecfdf5' : '#ffffff',
+                color: courseType === 1 ? '#059669' : '#64748b',
                 fontWeight: 600,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 transition: 'all 150ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
               }}
             >
-              🏫 校内
+              <span style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '6px',
+                border: '2px solid',
+                borderColor: courseType === 1 ? '#10b981' : '#cbd5e1',
+                background: courseType === 1 ? '#10b981' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                {courseType === 1 && <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>✓</span>}
+              </span>
+              校内课程
             </button>
             <button
               type="button"
@@ -394,16 +411,33 @@ function AddCourseCard({ onSubmit }) {
                 fontSize: '14px',
                 borderRadius: '10px',
                 border: '2px solid',
-                borderColor: courseType === 2 ? '#f59e0b' : 'rgba(0,0,0,0.12)',
-                background: courseType === 2 ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.7)',
-                color: courseType === 2 ? '#d97706' : '#475569',
+                borderColor: courseType === 2 ? '#f59e0b' : '#e2e8f0',
+                background: courseType === 2 ? '#fffbeb' : '#ffffff',
+                color: courseType === 2 ? '#d97706' : '#64748b',
                 fontWeight: 600,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 transition: 'all 150ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
               }}
             >
-              🎓 校外
+              <span style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '6px',
+                border: '2px solid',
+                borderColor: courseType === 2 ? '#f59e0b' : '#cbd5e1',
+                background: courseType === 2 ? '#f59e0b' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                {courseType === 2 && <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>✓</span>}
+              </span>
+              校外课程
             </button>
           </div>
         </div>
@@ -845,20 +879,36 @@ function DesktopTree({
               <button
                 onClick={() => setNewCourseType(newCourseType === 1 ? 2 : 1)}
                 style={{
-                  padding: '6px 14px',
+                  padding: '8px 14px',
                   fontSize: '13px',
-                  borderRadius: '999px',
+                  borderRadius: '10px',
                   border: '2px solid',
                   borderColor: newCourseType === 1 ? '#10b981' : '#f59e0b',
-                  background: newCourseType === 1 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+                  background: newCourseType === 1 ? '#ecfdf5' : '#fffbeb',
                   color: newCourseType === 1 ? '#059669' : '#d97706',
                   fontWeight: 600,
                   cursor: 'pointer',
                   fontFamily: 'inherit',
                   transition: 'all 150ms ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
               >
-                {newCourseType === 1 ? '🏫 校内' : '🎓 校外'}
+                <span style={{
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '5px',
+                  border: '2px solid',
+                  borderColor: newCourseType === 1 ? '#10b981' : '#f59e0b',
+                  background: newCourseType === 1 ? '#10b981' : '#f59e0b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <span style={{ color: 'white', fontSize: '10px', fontWeight: 'bold' }}>✓</span>
+                </span>
+                {newCourseType === 1 ? '校内课程' : '校外课程'}
               </button>
               <button
                 onClick={handleAddCourse}

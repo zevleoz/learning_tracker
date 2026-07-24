@@ -759,6 +759,18 @@ function DesktopTree({
   onUpdateChapter, onDeleteChapter,
   onUpdateUnit, onDeleteUnit,
 }) {
+  const [addingCourse, setAddingCourse] = useState(false);
+  const [newCourseName, setNewCourseName] = useState('');
+  const [newCourseType, setNewCourseType] = useState(1);
+
+  function handleAddCourse() {
+    if (!newCourseName.trim()) return;
+    onAddCourse({ name: newCourseName, courseType: newCourseType });
+    setNewCourseName('');
+    setNewCourseType(1);
+    setAddingCourse(false);
+  }
+
   return (
     <div className="desktop-course-page">
       <div className="animate-fade-in">
@@ -771,13 +783,63 @@ function DesktopTree({
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-          <button
-            onClick={() => onAddCourse({ name: '', subject: '' })}
-            className="btn btn-primary"
-          >
-            + 添加新课程
-          </button>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', alignItems: 'center' }}>
+          {addingCourse ? (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={newCourseName}
+                onChange={(e) => setNewCourseName(e.target.value)}
+                placeholder="课程名称"
+                autoFocus
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '14px',
+                  border: '1px solid rgba(0,0,0,0.12)',
+                  borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.8)',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  width: '200px',
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddCourse();
+                  if (e.key === 'Escape') setAddingCourse(false);
+                }}
+              />
+              <select
+                value={newCourseType}
+                onChange={(e) => setNewCourseType(Number(e.target.value))}
+                style={{
+                  padding: '10px 12px',
+                  fontSize: '14px',
+                  border: '1px solid rgba(0,0,0,0.12)',
+                  borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.8)',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <option value={1}>校内课程</option>
+                <option value={2}>校外课程</option>
+              </select>
+              <button
+                onClick={handleAddCourse}
+                className="btn btn-primary"
+              >确认</button>
+              <button
+                onClick={() => { setAddingCourse(false); setNewCourseName(''); }}
+                className="btn btn-ghost"
+              >取消</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingCourse(true)}
+              className="btn btn-primary"
+            >
+              + 添加新课程
+            </button>
+          )}
         </div>
 
         {loading ? (

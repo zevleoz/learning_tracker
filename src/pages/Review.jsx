@@ -25,7 +25,7 @@ export default function Review() {
       const { data, error } = await supabase
         .from('learning_sessions')
         .select(`
-          id, session_date, duration_minutes, category, form, eval_type,
+          id, session_date, start_time, duration_minutes, category, form, eval_type,
           score, course_id,
           course:course_id(name, subject)
         `)
@@ -38,11 +38,21 @@ export default function Review() {
         console.error('Review fetch error', error);
       }
 
-      const list = (data || []).map((s) => ({
-        ...s,
-        date: String(s.session_date || '').slice(0, 10),
-        subject: s.course?.subject || s.course?.name || '未分类',
-      }));
+      const list = (data || []).map((s) => {
+        const courseName = Array.isArray(s.course)
+          ? (s.course[0]?.name)
+          : s.course?.name;
+        const courseSubject = Array.isArray(s.course)
+          ? (s.course[0]?.subject)
+          : s.course?.subject;
+        return {
+          ...s,
+          date: String(s.session_date || '').slice(0, 10),
+          time: s.start_time ? String(s.start_time).slice(0, 5) : null,
+          subject: courseName || (s.course_id ? `课程-${String(s.course_id).slice(0, 8)}` : '未分类'),
+          subjectCategory: courseSubject || null,
+        };
+      });
       setSessions(list);
     } finally {
       setLoading(false);
@@ -139,7 +149,8 @@ export default function Review() {
       <StreakBlock sessions={filteredSessions} />
       <EfficiencyBlock sessions={filteredSessions} />
       <MonthlyBarsBlock sessions={filteredSessions} />
-      <SubjectSummaryBlock sessions={filteredSessions} />
+      <SubjectSummaryBlock sessions={sessions} />
+      <SuggestionsBlock sessions={filteredSessions} />
     </div>
   );
 }

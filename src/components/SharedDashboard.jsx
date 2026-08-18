@@ -120,7 +120,7 @@ function isSelfForm(form) {
   return SELF_FORMS.includes(s);
 }
 
-function HeroBlock({ sessions }) {
+function HeroBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
       return { total: 0, avg: 0, weekdayAvg: 0, weekendAvg: 0, wk4Avg: 0, we4Avg: 0, days: 0 };
@@ -158,14 +158,24 @@ function HeroBlock({ sessions }) {
 
     const total = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
 
+    // Calculate actual date span from sessions for accurate daily average
+    const allDates = sessions.map(s => s.date?.split('T')[0]).filter(Boolean).sort();
+    const uniqueDateCount = new Set(allDates).size;
+    let spanDays = 7;
+    if (allDates.length > 0) {
+      const earliest = new Date(allDates[0]);
+      const latest = new Date(allDates[allDates.length - 1]);
+      spanDays = Math.max(1, Math.round((latest - earliest) / (24 * 3600 * 1000)) + 1);
+    }
+
     return {
       total,
-      avg: Math.round(total / Math.max(7, 1)),
+      avg: Math.round(total / Math.max(spanDays, 1)),
       weekdayAvg: wk7Days > 0 ? Math.round(wk7 / wk7Days) : 0,
       weekendAvg: we7Days > 0 ? Math.round(we7 / we7Days) : 0,
       wk4Avg: wk28Days > 0 ? Math.round(wk28 / wk28Days) : 0,
       we4Avg: we28Days > 0 ? Math.round(we28 / we28Days) : 0,
-      days: 7,
+      days: spanDays,
     };
   }, [sessions]);
 
@@ -189,7 +199,7 @@ function HeroBlock({ sessions }) {
           <TimeAmount minutes={stats.total} scale={2} />
         </div>
         <div style={{ color: '#9ca3af', fontSize: '13px', marginTop: '8px' }}>
-          日均 <TimeAmount minutes={stats.avg} scale={0.55} /> · 近 {stats.days} 天
+          日均 <TimeAmount minutes={stats.avg} scale={0.55} /> · 近 {stats.days} 天 · {stats.total > 0 ? '有记录' : '暂无'}
         </div>
       </div>
 
@@ -256,7 +266,7 @@ function HeroBlock({ sessions }) {
   );
 }
 
-function StreakBlock({ sessions }) {
+function StreakBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
       return { current: 0, longest: 0, weekDays: 0, weekTotal: 7 };
@@ -422,7 +432,7 @@ function StreakBlock({ sessions }) {
   );
 }
 
-function EfficiencyBlock({ sessions }) {
+function EfficiencyBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
       return { scorePerHour: 0, avgSession: 0, efficiencyGrade: null };
@@ -530,7 +540,7 @@ function EfficiencyBlock({ sessions }) {
   );
 }
 
-function MonthlyBarsBlock({ sessions }) {
+function MonthlyBarsBlock({ sessions = [] }) {
   const data = useMemo(() => {
     const today = new Date();
     const months = [];
@@ -727,7 +737,7 @@ function MonthlyBarsBlock({ sessions }) {
   );
 }
 
-function SubjectSummaryBlock({ sessions }) {
+function SubjectSummaryBlock({ sessions = [] }) {
   const courses = useMemo(() => {
     const today = new Date();
     const weekSet = new Set();
@@ -738,7 +748,9 @@ function SubjectSummaryBlock({ sessions }) {
 
     const byCourse = {};
     for (const s of sessions) {
-      const courseName = s.course?.name || s.course_name || '未分类';
+      const courseName = s.subject
+        || (Array.isArray(s.course) ? s.course[0]?.name : s.course?.name)
+        || (s.course_id ? `课程-${String(s.course_id).slice(0, 8)}` : '未分类');
       const mins = s.duration_minutes || 0;
       const self = isSelfForm(s.form);
 
@@ -928,7 +940,7 @@ function SubjectSummaryBlock({ sessions }) {
   );
 }
 
-function SuggestionsBlock({ sessions }) {
+function SuggestionsBlock({ sessions = [] }) {
   const suggestions = useMemo(() => {
     if (!sessions || sessions.length === 0) return [];
 
@@ -973,7 +985,8 @@ function SuggestionsBlock({ sessions }) {
       });
     }
 
-    const selfRatio = sessions.filter(s => isSelfForm(s.form)).reduce((a, s) => a + (s.duration_minutes || 0), 0) / (totalMins || 1);
+    const selfMins = sessions.filter(s => isSelfForm(s.form)).reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const selfRatio = totalMins > 0 ? selfMins / totalMins : 0;
     if (selfRatio < 0.3) {
       list.push({
         type: 'info',

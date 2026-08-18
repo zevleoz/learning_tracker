@@ -74,24 +74,28 @@ function AnimatedNumber({ value, duration = 1000, prefix = '', suffix = '' }) {
 
 function generateObservations(selfRate, subjectTimeData, sessions) {
   const observations = [];
-  
-  const weekdays = ['周一', '周二', '周三', '周四', '周五'];
-  const weekendDays = ['周六', '周日'];
-  const byDay = {};
-  weekdays.forEach(day => { byDay[day] = 0; });
-  weekendDays.forEach(day => { byDay[day] = 0; });
+
+  // Calculate daily averages based on actual calendar dates
+  const byDate = {};
   for (const s of sessions) {
     const date = s.date?.split('T')[0];
     if (date) {
-      const dayIndex = new Date(date).getDay();
-      const dayName = dayIndex === 0 ? '周日' : ['周一', '周二', '周三', '周四', '周五', '周六'][dayIndex - 1];
-      byDay[dayName] += s.duration_minutes || 0;
+      byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
     }
   }
-  const workdayMins = weekdays.reduce((sum, day) => sum + byDay[day], 0);
-  const weekendMins = weekendDays.reduce((sum, day) => sum + byDay[day], 0);
-  const workdayAvg = workdayMins > 0 ? Math.round(workdayMins / 5) : 0;
-  const weekendAvg = weekendMins > 0 ? Math.round(weekendMins / 2) : 0;
+  let workdayMins = 0, weekendMins = 0, workdayDateCount = 0, weekendDateCount = 0;
+  for (const [date, mins] of Object.entries(byDate)) {
+    const dayIndex = new Date(date).getDay();
+    if (dayIndex === 0 || dayIndex === 6) {
+      weekendMins += mins;
+      weekendDateCount++;
+    } else {
+      workdayMins += mins;
+      workdayDateCount++;
+    }
+  }
+  const workdayAvg = workdayDateCount > 0 ? Math.round(workdayMins / workdayDateCount) : 0;
+  const weekendAvg = weekendDateCount > 0 ? Math.round(weekendMins / weekendDateCount) : 0;
   const gapPercent = workdayAvg > 0 ? Math.round(((workdayAvg - weekendAvg) / workdayAvg) * 100) : 0;
   
   const weekData = [];
@@ -196,8 +200,18 @@ function generateObservations(selfRate, subjectTimeData, sessions) {
   const totalDuration = sessions.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
   const subjectCount = Object.keys(bySubjEfficiency).length;
   const idealPct = subjectCount > 0 ? Math.round((1 / subjectCount) * 100) : 16.7;
-  const scienceSubjs = ['物理', '数学', '化学'];
-  const sciencePct = efficiencyData.filter(d => scienceSubjs.includes(d.name)).reduce((sum, d) => {
+  // Use subjectCategory for science/arts classification, not the course name
+  const SCIENCE_CATEGORIES = ['物理', '数学', '化学', '生物', '计算机', 'science', 'math', 'physics', 'chemistry', 'biology', 'cs'];
+  const subjToCategory = {};
+  for (const s of sessions) {
+    if (s.subject && !subjToCategory[s.subject]) {
+      subjToCategory[s.subject] = s.subjectCategory || null;
+    }
+  }
+  const sciencePct = efficiencyData.filter(d => {
+    const cat = subjToCategory[d.name];
+    return cat && SCIENCE_CATEGORIES.includes(cat);
+  }).reduce((sum, d) => {
     return totalDuration > 0 ? sum + Math.round((d.mins / totalDuration) * 100) : sum;
   }, 0);
   
@@ -247,7 +261,7 @@ function generateObservations(selfRate, subjectTimeData, sessions) {
       priority: 7,
       icon: <Calendar className="w-5 h-5" />,
       title: '学习节奏极不规律',
-      detail: `Chart 7显示：${lowDays.join('、')}几乎零投入，学习集中在晚间，需制定固定学习日程`,
+      detail: `Chart 7显示：${lowDays.join('、')}学习时间不足30分钟，需制定固定学习日程`,
       severity: 'warning'
     });
   }
@@ -257,7 +271,7 @@ function generateObservations(selfRate, subjectTimeData, sessions) {
       priority: 8,
       icon: <AlertTriangle className="w-5 h-5" />,
       title: '自主学习率偏低',
-      detail: `自主学习仅占${selfRate}%，低于年级平均35%`,
+      detail: `自主学习仅占${selfRate}%，建议提升至40%以上以培养独立学习能力`,
       severity: 'warning'
     });
   }
@@ -267,6 +281,8 @@ function generateObservations(selfRate, subjectTimeData, sessions) {
 
 function generateActions(sessions) {
   const result = [];
+  if (!sessions || sessions.length === 0) return result;
+
   const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
   let selfMins = 0;
   for (const s of sessions) {
@@ -293,23 +309,32 @@ function generateActions(sessions) {
   
   if (weakSubjects.length > 0) {
     const weakest = weakSubjects[0];
-    const practiceCount = sessions.filter(s => s.subject === weakest.name && s.category === 3).length;
+    const practiceSessions = sessions.filter(s => s.subject === weakest.name && s.category === 3);
+    const practiceCount = practiceSessions.length;
+    // Calculate weekly average based on date span
+    const practiceDates = practiceSessions.map(s => s.date?.split('T')[0]).filter(Boolean);
+    const uniqueDates = new Set(practiceDates);
+    const dateSpan = uniqueDates.size > 0
+      ? Math.max(1, Math.ceil((Date.now() - new Date(Math.min(...practiceDates.map(d => new Date(d))))).getTime() / (7 * 24 * 3600 * 1000)))
+      : 0;
+    const weeklyAvg = dateSpan > 0 ? (practiceCount / dateSpan).toFixed(1) : '0';
     result.push({
       priority: 1,
       title: `提升${weakSubjects.map(s => s.name).join('、')}成绩`,
-      description: `${weakest.name}${weakest.score}分，排名后20%，需要针对性辅导`,
-      suggestion: `当前${weakest.name}每周练习${practiceCount}次 → 建议每周至少2次专项训练`,
+      description: `${weakest.name}平均${weakest.score}分，低于70分达标线，需要针对性辅导`,
+      suggestion: `当前${weakest.name}每周练习约${weeklyAvg}次 → 建议每周至少2次专项训练`,
       type: 'danger'
     });
   }
   
   if (selfRate < 40) {
     const otherMins = totalMins - selfMins;
+    const otherPct = totalMins > 0 ? Math.round((otherMins / totalMins) * 100) : 0;
     result.push({
       priority: 2,
       title: '培养自主学习习惯',
       description: `自主学习仅占${selfRate}%（${fmtMinutes(selfMins)}），校外辅导${fmtMinutes(otherMins)}`,
-      suggestion: `当前辅导占比${Math.round((otherMins / totalMins) * 100)}% → 建议降至50%以下`,
+      suggestion: `当前辅导占比${otherPct}% → 建议降至50%以下`,
       type: 'warning'
     });
   }
@@ -318,7 +343,7 @@ function generateActions(sessions) {
     result.push({
       priority: 3,
       title: '提高学习频率',
-      description: `近30天仅${activeDays}天有学习记录，低于年级平均18天`,
+      description: `近30天仅${activeDays}天有学习记录，建议增加学习频率`,
       suggestion: `当前每周${Math.round(activeDays / 4)}天 → 建议每周至少5天学习`,
       type: 'warning'
     });
@@ -341,14 +366,15 @@ function generateActions(sessions) {
   return result.sort((a, b) => a.priority - b.priority);
 }
 
-function HeroInsight({ student, sessions }) {
+function HeroInsight({ student, sessions = [] }) {
   const stats = useMemo(() => {
-    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const safeSessions = sessions || [];
+    const totalMins = safeSessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
     let scoreSum = 0;
     let scoreCount = 0;
     let selfMins = 0;
     
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
         scoreSum += Number(s.score);
         scoreCount++;
@@ -357,11 +383,11 @@ function HeroInsight({ student, sessions }) {
     }
     
     const avgScore = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0;
-    const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
+    const activeDays = new Set(safeSessions.map(s => s.date?.split('T')[0])).size;
     const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
     
     const byDate = {};
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       const date = s.date?.split('T')[0];
       if (date) {
         byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
@@ -393,7 +419,7 @@ function HeroInsight({ student, sessions }) {
       const healthState = getHealthState(healthScore, sessionTrend);
       
       const bySubj = {};
-      for (const s of sessions) {
+      for (const s of safeSessions) {
         const subj = s.subject || '未分类';
         bySubj[subj] = bySubj[subj] || { scoreSum: 0, scoreCount: 0 };
         if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
@@ -401,9 +427,9 @@ function HeroInsight({ student, sessions }) {
           bySubj[subj].scoreCount++;
         }
       }
-      
+
       const bySubjTime = {};
-      for (const s of sessions) {
+      for (const s of safeSessions) {
         const subj = s.subject || '未分类';
         bySubjTime[subj] = bySubjTime[subj] || { self: 0, other: 0, total: 0 };
         const mins = s.duration_minutes || 0;
@@ -420,8 +446,8 @@ function HeroInsight({ student, sessions }) {
           selfRate: data.total > 0 ? Math.round((data.self / data.total) * 100) : 0
         }))
         .sort((a, b) => b.total - a.total);
-      
-      const observations = generateObservations(selfRate, subjectTimeData, sessions);
+
+      const observations = generateObservations(selfRate, subjectTimeData, safeSessions);
     
     return {
       avgScore,
@@ -432,7 +458,7 @@ function HeroInsight({ student, sessions }) {
       healthState,
       observations,
       totalMins,
-      sessionCount: sessions.length
+      sessionCount: safeSessions.length
     };
   }, [sessions]);
 
@@ -560,34 +586,34 @@ function ContextPanel({ observations, actions }) {
   );
 }
 
-function Chart1LearningDurationPattern({ sessions }) {
+function Chart1LearningDurationPattern({ sessions = [] }) {
   const chartData = useMemo(() => {
-    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    const byDay = {};
-    weekdays.forEach(day => {
-      byDay[day] = { mins: 0, isWeekend: ['周六', '周日'].includes(day) };
-    });
-    
+    // Group by actual calendar date, not day-of-week name
+    const byDate = {};
     for (const s of sessions) {
       const date = s.date?.split('T')[0];
       if (date) {
-        const dayIndex = new Date(date).getDay();
-        const dayName = weekdays[dayIndex === 0 ? 6 : dayIndex - 1];
-        byDay[dayName].mins += s.duration_minutes || 0;
+        byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
       }
     }
-    
-    const workdayDays = weekdays.slice(0, 5);
-    const weekendDays = weekdays.slice(5);
-    
-    const workdayMins = workdayDays.reduce((sum, day) => sum + byDay[day].mins, 0);
-    const weekendMins = weekendDays.reduce((sum, day) => sum + byDay[day].mins, 0);
-    
-    const workdayCount = workdayDays.filter(day => byDay[day].mins > 0).length;
-    const weekendCount = weekendDays.filter(day => byDay[day].mins > 0).length;
-    
-    const workdayAvg = workdayCount > 0 ? Math.round(workdayMins / workdayCount) : 0;
-    const weekendAvg = weekendCount > 0 ? Math.round(weekendMins / weekendCount) : 0;
+
+    const workdayDates = [];
+    const weekendDates = [];
+    for (const [date, mins] of Object.entries(byDate)) {
+      const dayIndex = new Date(date).getDay();
+      if (dayIndex === 0 || dayIndex === 6) {
+        weekendDates.push({ date, mins });
+      } else {
+        workdayDates.push({ date, mins });
+      }
+    }
+
+    const workdayMins = workdayDates.reduce((sum, d) => sum + d.mins, 0);
+    const weekendMins = weekendDates.reduce((sum, d) => sum + d.mins, 0);
+
+    // Daily average = total minutes / number of unique dates
+    const workdayAvg = workdayDates.length > 0 ? Math.round(workdayMins / workdayDates.length) : 0;
+    const weekendAvg = weekendDates.length > 0 ? Math.round(weekendMins / weekendDates.length) : 0;
     
     const weekData = [];
     const today = new Date();
@@ -627,7 +653,7 @@ function Chart1LearningDurationPattern({ sessions }) {
       <div className="mckinsey-chart__body">
         <div className="mckinsey-bar-group">
           <div className="mckinsey-bar-row">
-            <span className="mckinsey-bar-label">工作日平均</span>
+            <span className="mckinsey-bar-label">工作日日均</span>
             <div className="mckinsey-bar-track">
               <div 
                 className="mckinsey-bar-fill" 
@@ -639,7 +665,7 @@ function Chart1LearningDurationPattern({ sessions }) {
             <span className="mckinsey-bar-end-label">{fmtMinutes(chartData.workdayAvg)}</span>
           </div>
           <div className="mckinsey-bar-row">
-            <span className="mckinsey-bar-label">周末平均</span>
+            <span className="mckinsey-bar-label">周末日均</span>
             <div className="mckinsey-bar-track">
               <div 
                 className="mckinsey-bar-fill mckinsey-bar-fill--secondary" 
@@ -664,7 +690,7 @@ function Chart1LearningDurationPattern({ sessions }) {
   );
 }
 
-function Chart2SubjectInvestmentStructure({ sessions }) {
+function Chart2SubjectInvestmentStructure({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
     for (const s of sessions) {
@@ -731,7 +757,7 @@ function Chart2SubjectInvestmentStructure({ sessions }) {
   );
 }
 
-function Chart3LearningEfficiencyMatrix({ sessions }) {
+function Chart3LearningEfficiencyMatrix({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
     for (const s of sessions) {
@@ -839,7 +865,7 @@ function Chart3LearningEfficiencyMatrix({ sessions }) {
   );
 }
 
-function Chart4SelfLearningTrend({ sessions }) {
+function Chart4SelfLearningTrend({ sessions = [] }) {
   const chartData = useMemo(() => {
     const weekData = [];
     const today = new Date();
@@ -939,7 +965,7 @@ function Chart4SelfLearningTrend({ sessions }) {
   );
 }
 
-function Chart5SubjectBalanceDeviation({ sessions }) {
+function Chart5SubjectBalanceDeviation({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
     for (const s of sessions) {
@@ -1014,7 +1040,7 @@ function Chart5SubjectBalanceDeviation({ sessions }) {
   );
 }
 
-function Chart6PracticeQualityTracking({ sessions }) {
+function Chart6PracticeQualityTracking({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
     for (const s of sessions) {
@@ -1090,7 +1116,7 @@ function Chart6PracticeQualityTracking({ sessions }) {
   );
 }
 
-function Chart7WeeklyHeatDistribution({ sessions }) {
+function Chart7WeeklyHeatDistribution({ sessions = [] }) {
   const chartData = useMemo(() => {
     const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -1105,12 +1131,14 @@ function Chart7WeeklyHeatDistribution({ sessions }) {
     
     for (const s of sessions) {
       const date = s.date?.split('T')[0];
-      const time = s.date?.split('T')[1]?.split(':')[0];
-      if (date && time) {
+      const timeStr = s.time || (s.date?.includes('T') ? s.date.split('T')[1]?.split(':')[0] : null);
+      if (date && timeStr) {
         const dayIndex = new Date(date).getDay();
         const dayName = weekdays[dayIndex === 0 ? 6 : dayIndex - 1];
-        const hour = parseInt(time, 10);
-        heatMap[dayName][hour] += s.duration_minutes || 0;
+        const hour = parseInt(timeStr, 10);
+        if (hour >= 0 && hour < 24) {
+          heatMap[dayName][hour] += s.duration_minutes || 0;
+        }
       }
     }
     
@@ -1205,12 +1233,13 @@ export default function MentorAnalyticsPage({ students, connections }) {
   }, [students, connectionList]);
 
   const stats = useMemo(() => {
-    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const safeSessions = sessions || [];
+    const totalMins = safeSessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
     let scoreSum = 0;
     let scoreCount = 0;
     let selfMins = 0;
     
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
         scoreSum += Number(s.score);
         scoreCount++;
@@ -1219,11 +1248,11 @@ export default function MentorAnalyticsPage({ students, connections }) {
     }
     
     const avgScore = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0;
-    const activeDays = new Set(sessions.map(s => s.date?.split('T')[0])).size;
+    const activeDays = new Set(safeSessions.map(s => s.date?.split('T')[0])).size;
     const selfRate = totalMins > 0 ? Math.round((selfMins / totalMins) * 100) : 0;
     
     const byDate = {};
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       const date = s.date?.split('T')[0];
       if (date) {
         byDate[date] = (byDate[date] || 0) + (s.duration_minutes || 0);
@@ -1252,7 +1281,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
     const sessionTrend = prevMins > 0 ? Math.round(((recentMins - prevMins) / prevMins) * 100) : 0;
     
     const bySubj = {};
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       const subj = s.subject || '未分类';
       bySubj[subj] = bySubj[subj] || { scoreSum: 0, scoreCount: 0 };
       if (Number(s.eval_type) === 2 && s.score != null && s.score !== '') {
@@ -1267,7 +1296,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
     }));
     
     const bySubjTime = {};
-    for (const s of sessions) {
+    for (const s of safeSessions) {
       const subj = s.subject || '未分类';
       bySubjTime[subj] = bySubjTime[subj] || { self: 0, other: 0, total: 0 };
       const mins = s.duration_minutes || 0;
@@ -1286,8 +1315,8 @@ export default function MentorAnalyticsPage({ students, connections }) {
       .sort((a, b) => b.total - a.total);
     
     return {
-      observations: generateObservations(selfRate, subjectTimeData, sessions),
-      actions: generateActions(sessions)
+      observations: generateObservations(selfRate, subjectTimeData, safeSessions),
+      actions: generateActions(safeSessions)
     };
   }, [sessions]);
 
@@ -1299,55 +1328,64 @@ export default function MentorAnalyticsPage({ students, connections }) {
       
       if (!studentId) {
         sessionData = [
-          { subject: '数学', duration_minutes: 210, eval_type: 2, score: 86, form: '自主学习', category: 1, date: '2026-07-08T10:00:00' },
-          { subject: '数学', duration_minutes: 90, eval_type: 2, score: 88, form: '自主学习', category: 3, date: '2026-07-07T14:00:00' },
-          { subject: '英语', duration_minutes: 220, eval_type: 2, score: 73, form: '校外辅导', category: 1, date: '2026-07-06T09:00:00' },
-          { subject: '英语', duration_minutes: 80, eval_type: 2, score: 75, form: '自主学习', category: 3, date: '2026-07-05T15:00:00' },
-          { subject: '物理', duration_minutes: 235, eval_type: 2, score: 64, form: '校外辅导', category: 1, date: '2026-07-04T10:00:00' },
-          { subject: '物理', duration_minutes: 120, eval_type: 2, score: 62, form: '自主学习', category: 2, date: '2026-07-03T16:00:00' },
-          { subject: '化学', duration_minutes: 160, eval_type: 2, score: 79, form: '自主学习', category: 1, date: '2026-07-02T11:00:00' },
-          { subject: '化学', duration_minutes: 80, eval_type: 2, score: 81, form: '自主学习', category: 3, date: '2026-07-01T14:00:00' },
-          { subject: '历史', duration_minutes: 140, eval_type: 2, score: 87, form: '自主学习', category: 1, date: '2026-06-30T09:00:00' },
-          { subject: '历史', duration_minutes: 60, eval_type: 2, score: 85, form: '自主学习', category: 2, date: '2026-06-29T15:00:00' },
-          { subject: '语文', duration_minutes: 130, eval_type: 2, score: 80, form: '自主学习', category: 1, date: '2026-06-28T10:00:00' },
-          { subject: '语文', duration_minutes: 70, eval_type: 2, score: 78, form: '自主学习', category: 3, date: '2026-06-27T16:00:00' },
-          { subject: '数学', duration_minutes: 120, eval_type: 2, score: 84, form: '自主学习', category: 2, date: '2026-06-26T14:00:00' },
-          { subject: '英语', duration_minutes: 150, eval_type: 2, score: 71, form: '校外辅导', category: 1, date: '2026-06-25T09:00:00' },
-          { subject: '物理', duration_minutes: 180, eval_type: 2, score: 66, form: '校外辅导', category: 1, date: '2026-06-24T11:00:00' },
-          { subject: '化学', duration_minutes: 100, eval_type: 2, score: 77, form: '自主学习', category: 2, date: '2026-06-23T15:00:00' },
-          { subject: '历史', duration_minutes: 90, eval_type: 2, score: 86, form: '自主学习', category: 3, date: '2026-06-22T10:00:00' },
-          { subject: '语文', duration_minutes: 110, eval_type: 2, score: 79, form: '自主学习', category: 1, date: '2026-06-21T16:00:00' },
-          { subject: '数学', duration_minutes: 180, eval_type: 2, score: 82, form: '自主学习', category: 1, date: '2026-06-20T09:00:00' },
-          { subject: '英语', duration_minutes: 100, eval_type: 2, score: 74, form: '自主学习', category: 3, date: '2026-06-19T14:00:00' },
-          { subject: '物理', duration_minutes: 150, eval_type: 2, score: 63, form: '校外辅导', category: 1, date: '2026-06-18T11:00:00' },
-          { subject: '化学', duration_minutes: 120, eval_type: 2, score: 78, form: '自主学习', category: 1, date: '2026-06-17T15:00:00' },
-          { subject: '历史', duration_minutes: 80, eval_type: 2, score: 88, form: '自主学习', category: 2, date: '2026-06-16T10:00:00' },
-          { subject: '语文', duration_minutes: 90, eval_type: 2, score: 81, form: '自主学习', category: 3, date: '2026-06-15T16:00:00' },
-          { subject: '数学', duration_minutes: 60, eval_type: 2, score: 85, form: '自主学习', category: 3, date: '2026-06-14T14:00:00' },
-          { subject: '英语', duration_minutes: 180, eval_type: 2, score: 72, form: '校外辅导', category: 1, date: '2026-06-13T09:00:00' },
-          { subject: '物理', duration_minutes: 60, eval_type: 2, score: 65, form: '自主学习', category: 2, date: '2026-06-12T15:00:00' },
+          { subject: 'AP微积分AB', subjectCategory: '数学', duration_minutes: 210, eval_type: 2, score: 86, form: '自主学习', category: 1, date: '2026-07-08', time: '10:00' },
+          { subject: 'AP微积分AB', subjectCategory: '数学', duration_minutes: 90, eval_type: 2, score: 88, form: '自主学习', category: 3, date: '2026-07-07', time: '14:00' },
+          { subject: 'AP英语文学', subjectCategory: '英语', duration_minutes: 220, eval_type: 2, score: 73, form: '校外辅导', category: 1, date: '2026-07-06', time: '09:00' },
+          { subject: 'AP英语文学', subjectCategory: '英语', duration_minutes: 80, eval_type: 2, score: 75, form: '自主学习', category: 3, date: '2026-07-05', time: '15:00' },
+          { subject: 'AP物理C', subjectCategory: '物理', duration_minutes: 235, eval_type: 2, score: 64, form: '校外辅导', category: 1, date: '2026-07-04', time: '10:00' },
+          { subject: 'AP物理C', subjectCategory: '物理', duration_minutes: 120, eval_type: 2, score: 62, form: '自主学习', category: 2, date: '2026-07-03', time: '16:00' },
+          { subject: 'AP化学', subjectCategory: '化学', duration_minutes: 160, eval_type: 2, score: 79, form: '自主学习', category: 1, date: '2026-07-02', time: '11:00' },
+          { subject: 'AP化学', subjectCategory: '化学', duration_minutes: 80, eval_type: 2, score: 81, form: '自主学习', category: 3, date: '2026-07-01', time: '14:00' },
+          { subject: '世界史', subjectCategory: '历史', duration_minutes: 140, eval_type: 2, score: 87, form: '自主学习', category: 1, date: '2026-06-30', time: '09:00' },
+          { subject: '世界史', subjectCategory: '历史', duration_minutes: 60, eval_type: 2, score: 85, form: '自主学习', category: 2, date: '2026-06-29', time: '15:00' },
+          { subject: 'AP语文', subjectCategory: '语文', duration_minutes: 130, eval_type: 2, score: 80, form: '自主学习', category: 1, date: '2026-06-28', time: '10:00' },
+          { subject: 'AP语文', subjectCategory: '语文', duration_minutes: 70, eval_type: 2, score: 78, form: '自主学习', category: 3, date: '2026-06-27', time: '16:00' },
+          { subject: 'AP微积分AB', subjectCategory: '数学', duration_minutes: 120, eval_type: 2, score: 84, form: '自主学习', category: 2, date: '2026-06-26', time: '14:00' },
+          { subject: 'AP英语文学', subjectCategory: '英语', duration_minutes: 150, eval_type: 2, score: 71, form: '校外辅导', category: 1, date: '2026-06-25', time: '09:00' },
+          { subject: 'AP物理C', subjectCategory: '物理', duration_minutes: 180, eval_type: 2, score: 66, form: '校外辅导', category: 1, date: '2026-06-24', time: '11:00' },
+          { subject: 'AP化学', subjectCategory: '化学', duration_minutes: 100, eval_type: 2, score: 77, form: '自主学习', category: 2, date: '2026-06-23', time: '15:00' },
+          { subject: '世界史', subjectCategory: '历史', duration_minutes: 90, eval_type: 2, score: 86, form: '自主学习', category: 3, date: '2026-06-22', time: '10:00' },
+          { subject: 'AP语文', subjectCategory: '语文', duration_minutes: 110, eval_type: 2, score: 79, form: '自主学习', category: 1, date: '2026-06-21', time: '16:00' },
+          { subject: 'AP微积分AB', subjectCategory: '数学', duration_minutes: 180, eval_type: 2, score: 82, form: '自主学习', category: 1, date: '2026-06-20', time: '09:00' },
+          { subject: 'AP英语文学', subjectCategory: '英语', duration_minutes: 100, eval_type: 2, score: 74, form: '自主学习', category: 3, date: '2026-06-19', time: '14:00' },
+          { subject: 'AP物理C', subjectCategory: '物理', duration_minutes: 150, eval_type: 2, score: 63, form: '校外辅导', category: 1, date: '2026-06-18', time: '11:00' },
+          { subject: 'AP化学', subjectCategory: '化学', duration_minutes: 120, eval_type: 2, score: 78, form: '自主学习', category: 1, date: '2026-06-17', time: '15:00' },
+          { subject: '世界史', subjectCategory: '历史', duration_minutes: 80, eval_type: 2, score: 88, form: '自主学习', category: 2, date: '2026-06-16', time: '10:00' },
+          { subject: 'AP语文', subjectCategory: '语文', duration_minutes: 90, eval_type: 2, score: 81, form: '自主学习', category: 3, date: '2026-06-15', time: '16:00' },
+          { subject: 'AP微积分AB', subjectCategory: '数学', duration_minutes: 60, eval_type: 2, score: 85, form: '自主学习', category: 3, date: '2026-06-14', time: '14:00' },
+          { subject: 'AP英语文学', subjectCategory: '英语', duration_minutes: 180, eval_type: 2, score: 72, form: '校外辅导', category: 1, date: '2026-06-13', time: '09:00' },
+          { subject: 'AP物理C', subjectCategory: '物理', duration_minutes: 60, eval_type: 2, score: 65, form: '自主学习', category: 2, date: '2026-06-12', time: '15:00' },
         ];
       } else {
         const { data, error: supabaseError } = await supabase
           .from('learning_sessions')
           .select(`
-            id, session_date, duration_minutes, category, form, eval_type,
+            id, session_date, start_time, duration_minutes, category, form, eval_type,
             score, course_id, course:course_id(name, subject)
           `)
           .eq('student_id', studentId)
           .order('session_date', { ascending: false })
           .limit(200);
-        
+
         if (supabaseError) {
           console.error('Supabase error:', supabaseError);
           throw new Error('数据加载失败');
         }
-        
-        sessionData = (data || []).map((s) => ({
-          ...s,
-          date: String(s.session_date || '').slice(0, 10),
-          subject: s.course?.name || s.course?.subject || '未分类',
-        }));
+
+        sessionData = (data || []).map((s) => {
+          const courseName = Array.isArray(s.course)
+            ? (s.course[0]?.name)
+            : s.course?.name;
+          return {
+            ...s,
+            date: String(s.session_date || '').slice(0, 10),
+            time: s.start_time ? String(s.start_time).slice(0, 5) : null,
+            subject: courseName || (s.course_id ? `课程-${String(s.course_id).slice(0, 8)}` : '未分类'),
+            subjectCategory: Array.isArray(s.course)
+              ? (s.course[0]?.subject)
+              : s.course?.subject || null,
+          };
+        });
       }
       
       setSessions(sessionData);
@@ -1404,25 +1442,25 @@ export default function MentorAnalyticsPage({ students, connections }) {
         <main className="mentor-intelligence__main">
           <div className="mentor-intelligence__content">
             <HeroInsight student={selectedStudent || { full_name: '演示学生', school_name: '示例学校' }} sessions={sessions} />
-            <DiagnosticSection title="周末学习时长比工作日低 40%，且 4 周波动率超过 ±35%，时间管理能力薄弱" subtext="学习时长模式与稳定性" animationIndex="2">
+            <DiagnosticSection title="工作日与周末学习时长对比及4周波动分析" subtext="学习时长模式与稳定性" animationIndex="2">
               <Chart1LearningDurationPattern sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="物理、数学两科占用 62% 总时长，语文、历史投入严重不足" subtext="学科投入结构（堆叠水平 Bar）" animationIndex="3">
+            <DiagnosticSection title="各课程学习时长投入结构分析" subtext="课程投入结构（堆叠水平 Bar）" animationIndex="3">
               <Chart2SubjectInvestmentStructure sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="50% 科目处于'高投入低产出'象限，学习效率存在系统性问题" subtext="学习效率矩阵（散点图 / 气泡图）" animationIndex="4">
+            <DiagnosticSection title="各课程学习效率矩阵：投入时长与产出对比" subtext="学习效率矩阵" animationIndex="4">
               <Chart3LearningEfficiencyMatrix sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="自主学习能力连续 4 周下滑，从 15% 降至 0%，需立即干预" subtext="自主学习能力趋势（Area Chart）" animationIndex="5">
+            <DiagnosticSection title="自主学习能力近4周趋势变化" subtext="自主学习能力趋势（Area Chart）" animationIndex="5">
               <Chart4SelfLearningTrend sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="理科投入占比 78%，文科偏差度超过 3 个标准差，存在严重偏科" subtext="学科均衡性偏差（瀑布图 / 偏差 Bar）" animationIndex="6">
+            <DiagnosticSection title="各课程投入均衡性偏差分析" subtext="课程均衡性偏差（偏差 Bar）" animationIndex="6">
               <Chart5SubjectBalanceDeviation sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="3 科客观评估练习占比低于 30%，应试训练过度，能力培养不足" subtext="练习质量追踪（水平 Bar + 目标线）" animationIndex="7">
+            <DiagnosticSection title="各课程客观评估练习占比追踪" subtext="练习质量追踪（水平 Bar + 目标线）" animationIndex="7">
               <Chart6PracticeQualityTracking sessions={sessions} />
             </DiagnosticSection>
-            <DiagnosticSection title="学习集中在晚间 22:00 后，周一、周二几乎零投入，学习节奏极不规律" subtext="周学习热力分布（日历热力图）" animationIndex="8">
+            <DiagnosticSection title="学习时间在周各天、各时段的分布热力图" subtext="周学习热力分布（日历热力图）" animationIndex="8">
               <Chart7WeeklyHeatDistribution sessions={sessions} />
             </DiagnosticSection>
           </div>

@@ -105,6 +105,15 @@ export default function Mentor() {
   const [editingSchoolId, setEditingSchoolId] = useState(null);
   const [editingSchoolValue, setEditingSchoolValue] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e) => setIsMobile(e.matches);
+    handler(mq);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -405,9 +414,7 @@ export default function Mentor() {
     );
   }
 
-  const isDesktop = window.innerWidth > 768;
-
-  if (isDesktop) {
+  if (!isMobile) {
     return (
       <MentorLayout activeView={activeView} onViewChange={setActiveView}>
         <div className="mentor-desktop-content">
@@ -818,145 +825,370 @@ export default function Mentor() {
   }
 
   return (
-    <div className="mentor-page" style={{ padding: '16px 16px 120px', maxWidth: 900, margin: '0 auto' }}>
-      <header>
-        <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>导师视图</h1>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+    <div className="mentor-mobile">
+      <header className="m-mentor-header">
+        <div className="m-mentor-header__top">
+          <h1 className="m-mentor-title">导师视图</h1>
+        </div>
+        <nav className="m-mentor-tabs">
           <button
             onClick={() => setActiveView('students')}
-            className={`mentor-tab-btn ${activeView === 'students' ? 'mentor-tab-btn-active' : ''}`}
+            className={`m-mentor-tab ${activeView === 'students' ? 'm-mentor-tab-active' : ''}`}
           >
             学生管理
           </button>
           <button
             onClick={() => setActiveView('analytics')}
-            className={`mentor-tab-btn ${activeView === 'analytics' ? 'mentor-tab-btn-active' : ''}`}
+            className={`m-mentor-tab ${activeView === 'analytics' ? 'm-mentor-tab-active' : ''}`}
           >
             数据分析
           </button>
-        </div>
+          <button
+            onClick={() => setActiveView('settings')}
+            className={`m-mentor-tab ${activeView === 'settings' ? 'm-mentor-tab-active' : ''}`}
+          >
+            设置
+          </button>
+        </nav>
       </header>
 
       {activeView === 'students' ? (
-        <>
+        <div className="m-mentor-content">
           {!deployCheck.ok && (
-            <section style={{
-              marginTop: 16, padding: '14px 16px', borderRadius: 12,
-              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
-              color: '#7f1d1d', fontSize: 13, lineHeight: 1.55,
-            }}>
-              <b style={{ fontSize: 14 }}>⚠️ 邀请系统未就绪</b>
-              <div style={{ marginTop: 4 }}>{deployCheck.message}</div>
-              <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b' }}>
-                请打开项目根目录下的 <code>supabase/schema.patch-invites.sql</code>，
-                复制全部内容到 Supabase Console → SQL Editor → 执行。完成后刷新本页。
+            <motion.div
+              className="glass m-deploy-alert"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#7f1d1d' }}>⚠️ 邀请系统未就绪</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: '#991b1b' }}>{deployCheck.message}</div>
+            </motion.div>
+          )}
+
+          <section className="glass m-mentor-stats-grid">
+            <div className="m-mentor-stat-card">
+              <div className="m-mentor-stat-value" style={{ color: '#64748b' }}>{stats.total}</div>
+              <div className="m-mentor-stat-label">学生总数</div>
+            </div>
+            <div className="m-mentor-stat-card">
+              <div className="m-mentor-stat-value" style={{ color: '#171717' }}>{stats.connected}</div>
+              <div className="m-mentor-stat-label">已连接</div>
+            </div>
+            <div className="m-mentor-stat-card">
+              <div className="m-mentor-stat-value" style={{ color: '#8E8E93' }}>{stats.invited}</div>
+              <div className="m-mentor-stat-label">邀请中</div>
+            </div>
+            <div className="m-mentor-stat-card">
+              <div className="m-mentor-stat-value" style={{ color: '#B91C1C' }}>{stats.rejected}</div>
+              <div className="m-mentor-stat-label">被拒绝</div>
+            </div>
+          </section>
+
+          {classStats.totalStudents > 0 && (
+            <section className="glass m-mentor-class-stats">
+              <div className="m-class-stat-item">
+                <span className="m-class-stat-value">{classStats.totalStudents}</span>
+                <span className="m-class-stat-label">已连接学生</span>
+              </div>
+              <div className="m-class-stat-divider" />
+              <div className="m-class-stat-item">
+                <span className="m-class-stat-value">{classStats.activeStudents || 0}</span>
+                <span className="m-class-stat-label">本周活跃</span>
+              </div>
+              <div className="m-class-stat-divider" />
+              <div className="m-class-stat-item">
+                <span className="m-class-stat-value">{fmtMinutes(classStats.avgDailyMinutes || 0)}</span>
+                <span className="m-class-stat-label">日均时长</span>
               </div>
             </section>
           )}
 
-          <section className="glass-card" style={{ marginTop: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <StatCard label="学生总数" value={stats.total} color="#64748b" />
-              <StatCard label="已连接" value={stats.connected} color="#171717" />
-              <StatCard label="邀请中" value={stats.invited} color="#8E8E93" />
-              <StatCard label="被拒绝" value={stats.rejected} color="#B91C1C" />
-            </div>
-          </section>
-
-          <section className="glass-card" style={{ marginTop: 16 }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>学生列表</span>
-              <span style={{ marginLeft: 8, fontSize: 12, color: '#94a3b8' }}>{students.length} 位学生</span>
-            </div>
-            <div style={{ padding: 12 }}>
+          <section className="m-filter-bar">
+            <div className="m-search-wrap">
               <input
                 type="text"
-                placeholder="搜索学生姓名…"
+                placeholder="搜索学生…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 10,
-                  border: '1px solid rgba(0,0,0,0.1)',
-                  background: 'rgba(248,250,252,0.8)',
-                  fontSize: 14,
-                }}
+                className="m-search-input"
               />
             </div>
-            <div style={{ maxHeight: '60vh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
-              {filteredStudents.map((s) => {
-                const conn = connections[s.id];
-                const status = conn?.status ?? -1;
-                return (
-                  <div key={s.id} onClick={() => status === 1 && setPicked(s)} style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid rgba(0,0,0,0.04)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 500 }}>{s.full_name || '(未命名)'}</div>
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                        {s.school_name || '-'} · {String(s.created_at || '').slice(0, 10)}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className={`mentor-status-pill mentor-status-${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
-                        {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
-                      </span>
-                      {status === 1 && (
-                        <button className="mentor-btn mentor-btn-primary" onClick={(e) => { e.stopPropagation(); setPicked(s); }}>
-                          查看数据
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredStudents.length === 0 && (
-                <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
-                  暂无学生
-                </div>
-              )}
+            <div className="m-filter-chips">
+              {[
+                { k: 'all', label: '全部' },
+                { k: 'connected', label: '已连接' },
+                { k: 'invited', label: '邀请中' },
+                { k: 'rejected', label: '已拒绝' },
+                { k: 'uninvited', label: '未邀请' },
+              ].map((f) => (
+                <button
+                  key={f.k}
+                  onClick={() => setFilterStatus(f.k)}
+                  className={`m-filter-chip ${filterStatus === f.k ? 'm-filter-chip-active' : ''}`}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
+            {schools.length > 0 && (
+              <div className="m-filter-chips">
+                <span className="m-filter-label">学校：</span>
+                <button
+                  onClick={() => setFilterSchool('all')}
+                  className={`m-filter-chip ${filterSchool === 'all' ? 'm-filter-chip-active' : ''}`}
+                >
+                  全部学校
+                </button>
+                {schools.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setFilterSchool(s)}
+                    className={`m-filter-chip ${filterSchool === s ? 'm-filter-chip-active' : ''}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
 
-          {picked && (
-            <section className="glass-card" style={{ marginTop: 16 }}>
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{picked.full_name || '学生'} 的学习数据</span>
-                <button onClick={() => setPicked(null)} style={{ fontSize: 12, color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}>关闭</button>
-              </div>
-              <div style={{ padding: 16 }}>
-                {busy ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>加载中…</div>
-                ) : (
-                  <>
-                    <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-                      <div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>学习记录</div>
-                        <div style={{ fontSize: 20, fontWeight: 600, color: '#1e293b', marginTop: 4 }}>{sessions.length} 条</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>累计时长</div>
-                        <div style={{ fontSize: 20, fontWeight: 600, color: '#1e293b', marginTop: 4 }}>{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</div>
+          <div className="m-student-list">
+            {filteredStudents.map((s) => {
+              const conn = connections[s.id];
+              const status = conn?.status ?? -1;
+              return (
+                <motion.div
+                  key={s.id}
+                  className="glass m-student-card"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <div className="m-student-card__header">
+                    <div className="m-student-card__avatar">
+                      {(s.full_name || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="m-student-card__info">
+                      <div className="m-student-card__name">{s.full_name || '(未命名)'}</div>
+                      <div className="m-student-card__meta">
+                        {s.school_name || '未设置学校'} · {String(s.created_at || '').slice(0, 10)}
                       </div>
                     </div>
-                    {sessions.length > 0 && <ReviewDashboard sessions={sessions} />}
-                    {sessions.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>该学生暂无学习记录</div>}
-                  </>
-                )}
+                    <span className={`m-status-pill m-status-pill--${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
+                      {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
+                    </span>
+                  </div>
+
+                  <div className="m-student-card__actions">
+                    {status === 1 && (
+                      <>
+                        <button
+                          className="m-action-btn m-action-btn--primary"
+                          onClick={() => setPicked(s)}
+                        >
+                          查看数据
+                        </button>
+                        <button
+                          className="m-action-btn m-action-btn--danger"
+                          onClick={() => disconnectStudent(s.id)}
+                        >
+                          断开
+                        </button>
+                      </>
+                    )}
+                    {status === 0 && (
+                      <>
+                        <button className="m-action-btn" onClick={() => withdrawInvite(s.id)}>
+                          撤回邀请
+                        </button>
+                        <button
+                          className="m-action-btn m-action-btn--primary"
+                          onClick={() => sendInvite(s.id)}
+                        >
+                          重发
+                        </button>
+                      </>
+                    )}
+                    {status === 2 && (
+                      <button
+                        className="m-action-btn m-action-btn--primary"
+                        onClick={() => sendInvite(s.id)}
+                      >
+                        再次邀请
+                      </button>
+                    )}
+                    {status === -1 && (
+                      <button
+                        className="m-action-btn m-action-btn--primary"
+                        onClick={() => sendInvite(s.id)}
+                      >
+                        发送邀请
+                      </button>
+                    )}
+                    <button
+                      className="m-action-btn m-action-btn--ghost"
+                      onClick={() => {
+                        setEditingSchoolId(s.id);
+                        setEditingSchoolValue(s.school_name || '');
+                      }}
+                    >
+                      编辑学校
+                    </button>
+                  </div>
+
+                  {editingSchoolId === s.id && (
+                    <motion.div
+                      className="m-school-edit"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                    >
+                      <input
+                        type="text"
+                        placeholder="输入学校名称"
+                        value={editingSchoolValue}
+                        onChange={(e) => setEditingSchoolValue(e.target.value)}
+                        className="m-school-input"
+                      />
+                      <div className="m-school-edit__actions">
+                        <button
+                          className="m-action-btn"
+                          onClick={() => { setEditingSchoolId(null); setEditingSchoolValue(''); }}
+                        >
+                          取消
+                        </button>
+                        <button
+                          className="m-action-btn m-action-btn--primary"
+                          onClick={() => { saveSchoolName(s.id, editingSchoolValue); setEditingSchoolId(null); }}
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {status === -1 && editingSchoolId !== s.id && (
+                    <div className="m-invite-form">
+                      <textarea
+                        placeholder="邀请备注（选填）"
+                        value={inviteNotes[s.id] || ''}
+                        onChange={(e) => setInviteNotes({ ...inviteNotes, [s.id]: e.target.value })}
+                        className="m-invite-note"
+                        rows={2}
+                      />
+                      <button
+                        className="m-action-btn m-action-btn--primary"
+                        onClick={() => sendInvite(s.id)}
+                      >
+                        发送邀请
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+            {filteredStudents.length === 0 && (
+              <div className="m-empty-state">
+                <div className="m-empty-state__icon">📋</div>
+                <div className="m-empty-state__text">暂无学生</div>
               </div>
-            </section>
-          )}
-        </>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {picked && (
+              <motion.div
+                className="m-detail-overlay"
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 40 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              >
+                <div className="m-detail-header">
+                  <button
+                    className="m-detail-close"
+                    onClick={() => setPicked(null)}
+                  >
+                    ✕
+                  </button>
+                  <div className="m-detail-title">{picked.full_name || '学生'} 的学习数据</div>
+                  <div className="m-detail-spacer" />
+                </div>
+                <div className="m-detail-body">
+                  <section className="glass m-detail-stats">
+                    <div className="m-detail-stat">
+                      <div className="m-detail-stat__value">{sessions.length}</div>
+                      <div className="m-detail-stat__label">学习记录</div>
+                    </div>
+                    <div className="m-detail-stat-divider" />
+                    <div className="m-detail-stat">
+                      <div className="m-detail-stat__value">{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</div>
+                      <div className="m-detail-stat__label">累计时长</div>
+                    </div>
+                  </section>
+                  {busy ? (
+                    <div className="m-loading">加载中…</div>
+                  ) : sessions.length > 0 ? (
+                    <div className="m-detail-dashboard">
+                      <ReviewDashboard sessions={sessions} />
+                    </div>
+                  ) : (
+                    <div className="m-empty-state">
+                      <div className="m-empty-state__text">该学生暂无学习记录</div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       ) : activeView === 'analytics' ? (
-        <MentorAnalyticsPage
-          user={user}
-          students={students}
-          connections={Array.isArray(connections) ? connections : Object.values(connections)}
-          onSelectStudent={(s) => { setPicked(s); setActiveView('students'); }}
-        />
+        <div className="m-mentor-content">
+          <section className="glass m-analytics-summary">
+            <div className="m-analytics-summary__title">班级数据分析</div>
+            <div className="m-analytics-summary__sub">全体学生的学习表现概览</div>
+          </section>
+          <div className="m-analytics-container">
+            <MentorAnalyticsPage
+              user={user}
+              students={students}
+              connections={Array.isArray(connections) ? connections : Object.values(connections)}
+              onSelectStudent={(s) => { setPicked(s); }}
+            />
+          </div>
+        </div>
+      ) : activeView === 'settings' ? (
+        <div className="m-mentor-content">
+          <section className="glass m-settings-card">
+            <div className="m-settings-header">
+              <div className="m-settings-avatar">
+                {(user?.user_metadata?.full_name || user?.email || 'M').charAt(0).toUpperCase()}
+              </div>
+              <div className="m-settings-info">
+                <div className="m-settings-name">{user?.user_metadata?.full_name || user?.email || '导师'}</div>
+                <div className="m-settings-role">导师账户</div>
+              </div>
+            </div>
+            <div className="m-settings-list">
+              <button className="m-settings-item">
+                <span>通知设置</span>
+                <span className="m-settings-item__arrow">›</span>
+              </button>
+              <button className="m-settings-item">
+                <span>隐私与安全</span>
+                <span className="m-settings-item__arrow">›</span>
+              </button>
+              <button className="m-settings-item">
+                <span>帮助与反馈</span>
+                <span className="m-settings-item__arrow">›</span>
+              </button>
+            </div>
+            <button className="m-signout-btn" onClick={() => supabase.auth.signOut()}>
+              退出登录
+            </button>
+          </section>
+        </div>
       ) : null}
     </div>
   );

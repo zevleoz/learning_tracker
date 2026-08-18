@@ -13,8 +13,6 @@ const COMMON_SCHOOLS = [
   '深圳市深圳中学',
 ];
 
-const TEACHER_KEY = import.meta.env.VITE_TEACHER_KEY || 'APPARK2026';
-
 export default function Signup() {
   const nav = useNavigate();
   const toasts = useToasts();
@@ -61,10 +59,19 @@ export default function Signup() {
     if (form.password.length < 6) return toast('密码至少 6 位', { kind: 'error' });
     const role = Number(form.role) || 1;
     if (role === 1 && !form.school.trim()) return toast('请填写学校名称', { kind: 'error' });
-    if (role === 2 && form.teacherKey !== TEACHER_KEY) return toast('老师注册密钥错误', { kind: 'error' });
 
     setBusy(true);
     try {
+      // 老师注册密钥：调用后端 RPC 校验哈希，避免明文密钥暴露在前端
+      if (role === 2) {
+        const { data: ok, error: keyErr } = await supabase.rpc('verify_teacher_key', {
+          key_text: form.teacherKey,
+        });
+        if (keyErr || !ok) {
+          toast('老师注册密钥错误', { kind: 'error' });
+          return;
+        }
+      }
       const { error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,

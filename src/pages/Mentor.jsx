@@ -6,6 +6,7 @@ import { logger } from '../lib/logger.js';
 import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
 import MentorAnalyticsPage from './MentorAnalytics.jsx';
+import ProfileEditor from '../components/ProfileEditor.jsx';
 import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
 
 function fmtMinutes(mins) {
@@ -363,14 +364,16 @@ export default function Mentor() {
       return;
     }
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ school_name: newSchool.trim(), updated_at: new Date().toISOString() })
-        .eq('id', studentId);
+      // Use SECURITY DEFINER RPC to bypass RLS safely (mentor is not the
+      // student owner, so direct profiles.update would fail RLS).
+      const { error } = await supabase.rpc('update_student_school', {
+        p_student_id: studentId,
+        p_school_name: newSchool.trim(),
+      });
       if (error) throw error;
       setStudents((prev) => prev.map((s) => s.id === studentId ? { ...s, school_name: newSchool.trim() } : s));
       setSchools((prev) => {
-        const updated = [...prev.filter((s) => s !== studentId), newSchool.trim()];
+        const updated = [...prev, newSchool.trim()];
         return [...new Set(updated)].sort();
       });
       setEditingSchoolId(null);
@@ -803,20 +806,21 @@ export default function Mentor() {
           )}
 
           {activeView === 'settings' && (
-            <motion.div 
+            <motion.div
               className="mentor-settings-page"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
               <div className="mentor-page-header">
-                <h1 className="mentor-page-title">系统设置</h1>
-                <p className="mentor-page-subtitle">管理你的导师账号和系统配置</p>
+                <h1 className="mentor-page-title">账号设置</h1>
+                <p className="mentor-page-subtitle">管理你的导师账号资料</p>
               </div>
-              <div className="mentor-empty-state">
-                <div>系统设置功能即将上线</div>
-                <div className="mentor-empty-sub">敬请期待更多设置选项</div>
-              </div>
+              <ProfileEditor
+                mode="inline"
+                forceSchool={false}
+                onSaved={() => loadData(user.id)}
+              />
             </motion.div>
           )}
         </div>
@@ -1160,33 +1164,12 @@ export default function Mentor() {
         </div>
       ) : activeView === 'settings' ? (
         <div className="m-mentor-content">
-          <section className="glass m-settings-card">
-            <div className="m-settings-header">
-              <div className="m-settings-avatar">
-                {(user?.user_metadata?.full_name || user?.email || 'M').charAt(0).toUpperCase()}
-              </div>
-              <div className="m-settings-info">
-                <div className="m-settings-name">{user?.user_metadata?.full_name || user?.email || '导师'}</div>
-                <div className="m-settings-role">导师账户</div>
-              </div>
-            </div>
-            <div className="m-settings-list">
-              <button className="m-settings-item">
-                <span>通知设置</span>
-                <span className="m-settings-item__arrow">›</span>
-              </button>
-              <button className="m-settings-item">
-                <span>隐私与安全</span>
-                <span className="m-settings-item__arrow">›</span>
-              </button>
-              <button className="m-settings-item">
-                <span>帮助与反馈</span>
-                <span className="m-settings-item__arrow">›</span>
-              </button>
-            </div>
-            <button className="m-signout-btn" onClick={() => supabase.auth.signOut()}>
-              退出登录
-            </button>
+          <section className="glass" style={{ padding: 20 }}>
+            <ProfileEditor
+              mode="inline"
+              forceSchool={false}
+              onSaved={() => loadData(user.id)}
+            />
           </section>
         </div>
       ) : null}

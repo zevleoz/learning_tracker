@@ -72,7 +72,7 @@ export default function Signup() {
           return;
         }
       }
-      const { error } = await supabase.auth.signUp({
+      const { data: signUpData, error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
         options: {
@@ -85,10 +85,10 @@ export default function Signup() {
       });
       if (error) throw error;
 
-      // 显式同步到 public.profiles（防止 auth trigger 漏同步 role/school_name）
+      // Use signUpData.user.id (always the new user's ID) instead of getSession()
+      // getSession() may return a previous mentor's session if email confirmation is enabled
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const uid = sessionData?.session?.user?.id;
+        const uid = signUpData?.user?.id;
         if (uid) {
           await supabase.from('profiles').upsert({
             id: uid,

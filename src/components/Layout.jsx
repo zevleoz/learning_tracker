@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { supabase } from '../lib/supabase.js';
+import ProfileEditor from './ProfileEditor.jsx';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_red.png';
 
@@ -67,6 +68,7 @@ export default function Layout() {
   const [isMobile, setIsMobile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
   const isTeacher = Number(profile?.role) >= 2;
 
@@ -252,7 +254,11 @@ export default function Layout() {
         <header className="m-topbar">
           <img src={logoSmall} className="topbar-logo" alt="logo" />
           {profile?.full_name && (
-            <button className="signout-btn" onClick={handleSignOut}>
+            <button
+              className="signout-btn"
+              onClick={() => setProfileEditorOpen(true)}
+              title="点击编辑资料"
+            >
               {profile.full_name}
             </button>
           )}
@@ -284,6 +290,13 @@ export default function Layout() {
             ))}
           </div>
         </nav>
+
+        {profileEditorOpen && (
+          <ProfileEditor
+            mode="modal"
+            onClose={() => setProfileEditorOpen(false)}
+          />
+        )}
       </div>
     );
   }
@@ -315,7 +328,19 @@ export default function Layout() {
           </nav>
 
           <div className="d-right">
-            {profile?.full_name && <span className="d-user">{profile.full_name}</span>}
+            {profile?.full_name && (
+              <button
+                className="d-user"
+                onClick={() => setProfileEditorOpen(true)}
+                title="点击编辑资料"
+                style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  font: 'inherit', padding: 0, color: 'inherit',
+                }}
+              >
+                {profile.full_name}
+              </button>
+            )}
             {isTeacher && (
               <span style={{
                 fontSize: '11px', padding: '3px 8px', borderRadius: '999px',
@@ -331,6 +356,13 @@ export default function Layout() {
       <main key={location.pathname} className="main page-enter">
         <Outlet />
       </main>
+
+      {profileEditorOpen && (
+        <ProfileEditor
+          mode="modal"
+          onClose={() => setProfileEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }

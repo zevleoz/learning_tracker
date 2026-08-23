@@ -315,7 +315,7 @@ function generateActions(sessions) {
     const practiceDates = practiceSessions.map(s => s.date?.split('T')[0]).filter(Boolean);
     const uniqueDates = new Set(practiceDates);
     const dateSpan = uniqueDates.size > 0
-      ? Math.max(1, Math.ceil((Date.now() - new Date(Math.min(...practiceDates.map(d => new Date(d))))).getTime() / (7 * 24 * 3600 * 1000)))
+      ? Math.max(1, Math.ceil((Date.now() - new Date(Math.min(...practiceDates.map(d => new Date(d)))).getTime()) / (7 * 24 * 3600 * 1000)))
       : 0;
     const weeklyAvg = dateSpan > 0 ? (practiceCount / dateSpan).toFixed(1) : '0';
     result.push({

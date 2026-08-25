@@ -1,24 +1,48 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
 
 export default function Notifications() {
   const [user, setUser] = useState(null);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [sub, setSub] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  // 用 ref 保存 subscription，确保卸载时能正确清理（不能用 state，否则 cleanup 闭包里读到的是 null）
+  const subRef = useRef(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const { data: { user: u } } = await supabase.auth.getUser();
-      if (!u) return;
+      if (!u || cancelled) return;
       setUser(u);
       await loadInvites(u.id);
-      startRealtime(u.id);
+
+      // 在 effect 内创建 subscription，cleanup 时通过同一引用卸载
+      const subscription = supabase
+        .channel('public:teacher_student_connections')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'teacher_student_connections',
+          filter: `student_id=eq.${u.id}`,
+        }, (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new?.status === 0) {
+            toast('收到新的老师邀请！', { kind: 'success' });
+          }
+          loadInvites(u.id);
+        })
+        .subscribe();
+      subRef.current = subscription;
     })();
 
     return () => {
-      if (sub) sub.unsubscribe();
+      cancelled = true;
+      if (subRef.current) {
+        subRef.current.unsubscribe();
+        subRef.current = null;
+      }
     };
   }, []);
 
@@ -31,18 +55,14 @@ export default function Notifications() {
         .from('teacher_student_connections')
         .select('id, teacher_id, status, note, created_at, updated_at')
         .eq('student_id', id);
-      
+
       if (connError) {
-        console.error('Connection query error:', connError);
+        logger.error('Connection query error:', connError);
         toast(`加载邀请失败：${connError.message}`, { kind: 'error' });
-        setLoading(false);
         return;
       }
 
-      console.log('Connection data:', connData);
-
       const teacherIds = Array.from(new Set((connData || []).map((c) => c.teacher_id)));
-      console.log('Teacher IDs:', teacherIds);
 
       let names = {};
       if (teacherIds.length > 0) {
@@ -50,9 +70,9 @@ export default function Notifications() {
           .from('profiles')
           .select('id, full_name')
           .in('id', teacherIds);
-        
+
         if (profError) {
-          console.error('Profiles query error:', profError);
+          logger.error('Profiles query error:', profError);
           toast('无法获取老师信息', { kind: 'warning' });
         } else {
           names = Object.fromEntries((profData || []).map((p) => [p.id, p.full_name]));
@@ -65,59 +85,57 @@ export default function Notifications() {
       }));
       setInvites(decorated);
     } catch (err) {
-      console.error('loadInvites error:', err);
+      logger.error('loadInvites error:', err);
       toast(err.message || '加载邀请失败', { kind: 'error' });
     } finally {
       setLoading(false);
     }
   }
 
-  function startRealtime(studentId) {
-    const subscription = supabase
-      .channel('public:teacher_student_connections')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'teacher_student_connections',
-        filter: `student_id=eq.${studentId}`,
-      }, (payload) => {
-        console.log('Invite realtime event:', payload);
-        if (payload.eventType === 'INSERT' && payload.new.status === 0) {
-          toast('收到新的老师邀请！', { kind: 'success' });
-        }
-        loadInvites();
-      })
-      .subscribe();
-    setSub(subscription);
-  }
-
   async function updateStatus(id, status) {
     if (!user) return;
-    const { error } = await supabase
-      .from('teacher_student_connections')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('student_id', user.id);
-    if (error) {
-      console.error('updateStatus error:', error);
-      return toast(`操作失败：${error.message}`, { kind: 'error' });
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      const { error } = await supabase
+        .from('teacher_student_connections')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('student_id', user.id);
+      if (error) {
+        logger.error('updateStatus error:', error);
+        toast(`操作失败：${error.message}`, { kind: 'error' });
+        return;
+      }
+      // 乐观更新本地状态，避免完全依赖 realtime 回流
+      setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status } : c));
+      toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据 🎉' : '已拒绝邀请', { kind: 'success' });
+    } finally {
+      setBusyId(null);
     }
-    toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据 🎉' : '已拒绝邀请', { kind: 'success' });
   }
 
   async function disconnect(id) {
     if (!user) return;
     if (!confirm('确定要断开与这位老师的连接吗？断开后老师将无法继续查看你的学习数据。')) return;
-    const { error } = await supabase
-      .from('teacher_student_connections')
-      .update({ status: 2, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('student_id', user.id);
-    if (error) {
-      console.error('disconnect error:', error);
-      return toast(`操作失败：${error.message}`, { kind: 'error' });
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      const { error } = await supabase
+        .from('teacher_student_connections')
+        .update({ status: 2, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('student_id', user.id);
+      if (error) {
+        logger.error('disconnect error:', error);
+        toast(`操作失败：${error.message}`, { kind: 'error' });
+        return;
+      }
+      setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status: 2 } : c));
+      toast('已断开连接', { kind: 'success' });
+    } finally {
+      setBusyId(null);
     }
-    toast('已断开连接', { kind: 'success' });
   }
 
   const pending = invites.filter((i) => i.status === 0);
@@ -147,6 +165,7 @@ export default function Notifications() {
             <InviteRow
               key={c.id}
               invite={c}
+              busy={busyId === c.id}
               onAccept={() => updateStatus(c.id, 1)}
               onReject={() => updateStatus(c.id, 2)}
             />
@@ -172,11 +191,16 @@ export default function Notifications() {
                   fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
                   color: '#059669', background: '#a7f3d0',
                 }}>已连接</span>
-                <button onClick={() => disconnect(c.id)} style={{
-                  fontSize: 11, padding: '4px 10px', borderRadius: 8,
-                  border: '1px solid rgba(239,68,68,0.3)', color: '#b91c1c',
-                  background: 'rgba(255,255,255,0.8)', cursor: 'pointer',
-                }}>断开</button>
+                <button
+                  onClick={() => disconnect(c.id)}
+                  disabled={busyId === c.id}
+                  style={{
+                    fontSize: 11, padding: '4px 10px', borderRadius: 8,
+                    border: '1px solid rgba(239,68,68,0.3)', color: '#b91c1c',
+                    background: 'rgba(255,255,255,0.8)', cursor: busyId === c.id ? 'not-allowed' : 'pointer',
+                    opacity: busyId === c.id ? 0.6 : 1,
+                  }}
+                >断开</button>
               </div>
             </div>
           ))}
@@ -210,7 +234,7 @@ function Section({ title, count, hint, children }) {
   );
 }
 
-function InviteRow({ invite, onAccept, onReject }) {
+function InviteRow({ invite, onAccept, onReject, busy }) {
   return (
     <div style={{
       background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)',
@@ -230,12 +254,22 @@ function InviteRow({ invite, onAccept, onReject }) {
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={onAccept} style={{
-            fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid #10b981', color: '#065f46', background: '#d1fae5', cursor: 'pointer', fontWeight: 600,
-          }}>接受</button>
-          <button onClick={onReject} style={{
-            fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', color: '#b91c1c', background: 'rgba(255,255,255,0.9)', cursor: 'pointer', fontWeight: 500,
-          }}>拒绝</button>
+          <button
+            onClick={onAccept}
+            disabled={busy}
+            style={{
+              fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid #10b981', color: '#065f46', background: '#d1fae5', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600,
+              opacity: busy ? 0.6 : 1,
+            }}
+          >接受</button>
+          <button
+            onClick={onReject}
+            disabled={busy}
+            style={{
+              fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', color: '#b91c1c', background: 'rgba(255,255,255,0.9)', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 500,
+              opacity: busy ? 0.6 : 1,
+            }}
+          >拒绝</button>
         </div>
       </div>
     </div>

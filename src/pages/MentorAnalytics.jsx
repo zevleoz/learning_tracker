@@ -1,5 +1,12 @@
+// ═══════════════════════════════════════════════════════════
+// @legacy v1 旧版数据分析页 — 2026-08 版本
+// 包含 Chart1-Chart7 + observations + actions + healthScore
+// 已被 WeekReviewDashboard.jsx 替代，代码保留以备复用
+// 重新启用：在 Mentor.jsx 中将 USE_LEGACY_DASHBOARD 设为 true
+// ═══════════════════════════════════════════════════════════
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase.js';
+import { logger } from '../lib/logger.js';
 import { isSelfForm } from '../components/SharedDashboard.jsx';
 import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Area
@@ -29,6 +36,7 @@ function scoreToLetter(score) {
   return 'F';
 }
 
+/** @legacy v1 健康分数计算（均分/自主率/活跃天数/趋势） */
 function calculateHealthScore(avgScore, selfRate, activeDays, sessionTrend) {
   const scoreComponent = Math.min(avgScore / 100, 1) * 40;
   const selfComponent = Math.min(selfRate / 100, 1) * 30;
@@ -72,6 +80,7 @@ function AnimatedNumber({ value, duration = 1000, prefix = '', suffix = '' }) {
   return <span>{prefix}{displayValue}{suffix}</span>;
 }
 
+/** @legacy v1 关键发现生成器（Chart1-6 对应的观察与警告） */
 function generateObservations(selfRate, subjectTimeData, sessions) {
   const observations = [];
 
@@ -279,6 +288,7 @@ function generateObservations(selfRate, subjectTimeData, sessions) {
   return observations.sort((a, b) => a.priority - b.priority).slice(0, 5);
 }
 
+/** @legacy v1 导师行动建议生成器（弱科/自主性/活跃度） */
 function generateActions(sessions) {
   const result = [];
   if (!sessions || sessions.length === 0) return result;
@@ -586,6 +596,7 @@ function ContextPanel({ observations, actions }) {
   );
 }
 
+/** @legacy v1 Chart1: 学习时长模式（工作日/周末日均 + 4周波动） */
 function Chart1LearningDurationPattern({ sessions = [] }) {
   const chartData = useMemo(() => {
     // Group by actual calendar date, not day-of-week name
@@ -690,6 +701,7 @@ function Chart1LearningDurationPattern({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart2: 科目投入结构（自主/校外时长对比） */
 function Chart2SubjectInvestmentStructure({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
@@ -757,6 +769,7 @@ function Chart2SubjectInvestmentStructure({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart3: 学习效率矩阵（科目投入 vs 产出） */
 function Chart3LearningEfficiencyMatrix({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
@@ -865,6 +878,7 @@ function Chart3LearningEfficiencyMatrix({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart4: 自主学习趋势（4周滚动自主率） */
 function Chart4SelfLearningTrend({ sessions = [] }) {
   const chartData = useMemo(() => {
     const weekData = [];
@@ -965,6 +979,7 @@ function Chart4SelfLearningTrend({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart5: 科目平衡偏差（实际占比 vs 均匀分布） */
 function Chart5SubjectBalanceDeviation({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
@@ -1040,6 +1055,7 @@ function Chart5SubjectBalanceDeviation({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart6: 练习质量追踪（各科练习均分） */
 function Chart6PracticeQualityTracking({ sessions = [] }) {
   const chartData = useMemo(() => {
     const bySubj = {};
@@ -1116,6 +1132,7 @@ function Chart6PracticeQualityTracking({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 Chart7: 学习热力图（start_time 小时 × 星期分布） */
 function Chart7WeeklyHeatDistribution({ sessions = [] }) {
   const chartData = useMemo(() => {
     const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -1215,6 +1232,12 @@ function Chart7WeeklyHeatDistribution({ sessions = [] }) {
   );
 }
 
+/**
+ * @legacy v1 旧版导师数据分析页主入口
+ * @description 渲染 Chart1-Chart7 + observations + actions + healthScore
+ * @status 已被 WeekReviewDashboard 替代
+ * @reEnable Mentor.jsx 中将 USE_LEGACY_DASHBOARD 设为 true
+ */
 export default function MentorAnalyticsPage({ students, connections }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -1368,7 +1391,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
           .limit(200);
 
         if (supabaseError) {
-          console.error('Supabase error:', supabaseError);
+          logger.error('Supabase error:', supabaseError);
           throw new Error('数据加载失败');
         }
 
@@ -1390,7 +1413,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
       
       setSessions(sessionData);
     } catch (err) {
-      console.error('Failed to load sessions:', err);
+      logger.error('Failed to load sessions:', err);
       setError(err.message || '加载数据时发生错误');
       setSessions([]);
     } finally {

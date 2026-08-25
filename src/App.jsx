@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
@@ -9,13 +10,21 @@ import Learning from './pages/Learning.jsx';
 import Review from './pages/Review.jsx';
 import Mentor from './pages/Mentor.jsx';
 import Notifications from './pages/Notifications.jsx';
-import DebugTools from './pages/DebugTools.jsx';
+
+// DebugTools 只在开发环境加载，避免生产 bundle 包含数据操作工具
+const DebugTools = import.meta.env.DEV
+  ? lazy(() => import('./pages/DebugTools.jsx'))
+  : null;
 
 const MOBILE_BREAKPOINT = 767;
 
 function ResponsiveRedirect() {
   const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
   return <Navigate to={isMobile ? '/learning' : '/syllabus'} replace />;
+}
+
+function DebugToolsFallback() {
+  return <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>加载中…</div>;
 }
 
 export default function App() {
@@ -32,7 +41,16 @@ export default function App() {
             <Route path="/review" element={<Review />} />
             <Route path="/mentor" element={<Mentor />} />
             <Route path="/notifications" element={<Notifications />} />
-            <Route path="/debug-tools" element={<DebugTools />} />
+            {import.meta.env.DEV && DebugTools && (
+              <Route
+                path="/debug-tools"
+                element={
+                  <Suspense fallback={<DebugToolsFallback />}>
+                    <DebugTools />
+                  </Suspense>
+                }
+              />
+            )}
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

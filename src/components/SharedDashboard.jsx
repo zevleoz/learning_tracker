@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════
+// @legacy v1 旧版复盘仪表盘 — 2026-08 版本
+// 已被 WeekReviewDashboard.jsx 替代，代码保留以备复用
+// 重新启用：在 Mentor.jsx 中将 USE_LEGACY_DASHBOARD 设为 true
+// ═══════════════════════════════════════════════════════════
 import { useMemo } from 'react';
 import { fmtMinutes, isWeekday } from '../lib/date.js';
 
@@ -120,6 +125,7 @@ function isSelfForm(form) {
   return SELF_FORMS.includes(s);
 }
 
+/** @legacy v1 学习总览卡片（总时长/日均/4周均值） */
 function HeroBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
@@ -266,6 +272,7 @@ function HeroBlock({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 连续学习卡片（连续天数/本周天数/最长记录） */
 function StreakBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
@@ -432,6 +439,7 @@ function StreakBlock({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 效率分析卡片（效率指数/平均单次时长） */
 function EfficiencyBlock({ sessions = [] }) {
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) {
@@ -540,6 +548,7 @@ function EfficiencyBlock({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 月度趋势图表（工作日/周末对比） */
 function MonthlyBarsBlock({ sessions = [] }) {
   const data = useMemo(() => {
     const today = new Date();
@@ -737,6 +746,7 @@ function MonthlyBarsBlock({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 科目投入结构（自主/校外 + 占比） */
 function SubjectSummaryBlock({ sessions = [] }) {
   const courses = useMemo(() => {
     const today = new Date();
@@ -940,6 +950,7 @@ function SubjectSummaryBlock({ sessions = [] }) {
   );
 }
 
+/** @legacy v1 导师建议卡片（基于自主学习率等指标生成建议） */
 function SuggestionsBlock({ sessions = [] }) {
   const suggestions = useMemo(() => {
     if (!sessions || sessions.length === 0) return [];
@@ -1052,6 +1063,12 @@ function SuggestionsBlock({ sessions = [] }) {
   );
 }
 
+/**
+ * @legacy v1 旧版复盘仪表盘主入口
+ * @description 渲染 HeroBlock → StreakBlock → EfficiencyBlock → MonthlyBarsBlock → SubjectSummaryBlock → SuggestionsBlock
+ * @status 已被 WeekReviewDashboard 替代
+ * @reEnable Mentor.jsx 中将 USE_LEGACY_DASHBOARD 设为 true
+ */
 export function ReviewDashboard({ sessions, footerNote }) {
   return (
     <div>

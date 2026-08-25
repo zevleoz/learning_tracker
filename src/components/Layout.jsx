@@ -75,12 +75,16 @@ export default function Layout() {
   useEffect(() => {
     async function loadCount() {
       if (!profile?.id) return;
-      const { data, error } = await supabase
-        .from('teacher_student_connections')
-        .select('id')
-        .eq('student_id', profile.id)
-        .eq('status', 0);
-      if (!error) setNotificationCount(data?.length || 0);
+      try {
+        const { data, error } = await supabase
+          .from('teacher_student_connections')
+          .select('id')
+          .eq('student_id', profile.id)
+          .eq('status', 0);
+        if (!error) setNotificationCount(data?.length || 0);
+      } catch {
+        // 网络异常时静默处理，不影响主界面
+      }
     }
     loadCount();
 

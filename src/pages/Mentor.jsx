@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
@@ -7,7 +8,17 @@ import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
 import MentorAnalyticsPage from './MentorAnalytics.jsx';
 import ProfileEditor from '../components/ProfileEditor.jsx';
+import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
 import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
+import { subjectColor } from '../components/DeepDivePanels.jsx';
+import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
+
+// ═══════════════════════════════════════════════════════════
+// FEATURE FLAG: 设为 true 可切换回旧版仪表盘 (ReviewDashboard)
+// 旧版组件保留在 SharedDashboard.jsx，标记为 @legacy
+// 旧版图表保留在 MentorAnalytics.jsx，标记为 @legacy
+// ═══════════════════════════════════════════════════════════
+const USE_LEGACY_DASHBOARD = false;
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -88,6 +99,7 @@ const detailPanelVariants = {
 };
 
 export default function Mentor() {
+  const nav = useNavigate();
   const [user, setUser] = useState(null);
   const [students, setStudents] = useState([]);
   const [connections, setConnections] = useState([]);
@@ -118,13 +130,26 @@ export default function Mentor() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      if (!u) return;
-      setUser(u);
-      await loadData(u.id);
-      setIsLoading(false);
+      try {
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (!u) return;
+        // 角色检查：仅 role >= 2 可访问导师页面，学生直接重定向
+        const role = Number(u.user_metadata?.role) || 1;
+        if (role < 2) {
+          toast('仅老师账号可访问导师页面', { kind: 'error' });
+          nav('/syllabus', { replace: true });
+          return;
+        }
+        setUser(u);
+        await loadData(u.id);
+      } catch (err) {
+        logger.error('Mentor init failed:', err);
+        toast('加载失败，请刷新重试', { kind: 'error' });
+      } finally {
+        setIsLoading(false);
+      }
     })();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData(teacherId) {
     logger.log('===== 老师端加载数据 =====');
@@ -266,8 +291,10 @@ export default function Mentor() {
     supabase
       .from('learning_sessions')
       .select(`
-        id, session_date, duration_minutes, category, form, eval_type,
-        score, course_id, course:course_id(name, subject)
+        id, session_date, start_time, duration_minutes, category, form, eval_type,
+        score, self_rating, grade_label, notes, course_id,
+        course:course_id(name, subject),
+        chapter:chapter_id(name), unit:unit_id(name)
       `)
       .eq('student_id', picked.id)
       .order('session_date', { ascending: false })
@@ -283,7 +310,8 @@ export default function Mentor() {
             (data || []).map((s) => ({
               ...s,
               date: String(s.session_date || '').slice(0, 10),
-              subject: s.course?.subject || s.course?.name || '未分类',
+              time: s.start_time ? String(s.start_time).slice(0, 5) : null,
+              subject: s.course?.name || s.course?.subject || '未分类',
             }))
           );
         }
@@ -768,8 +796,82 @@ export default function Mentor() {
                               initial={{ opacity: 0 }}
                               animate={{ opacity: 1 }}
                               transition={{ delay: 0.1, duration: 0.3 }}
+                              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
                             >
-                              <ReviewDashboard sessions={sessions} />
+                              <div style={{
+                                padding: '10px 14px', borderRadius: 8,
+                                background: 'rgba(99,102,241,0.06)',
+                                border: '1px solid rgba(99,102,241,0.12)',
+                                fontSize: 12, color: '#475569', lineHeight: 1.6,
+                              }}>
+                                <div style={{ fontWeight: 600, marginBottom: 4, color: '#6366f1' }}>
+                                  💡 详细周度复盘请前往「数据分析」页
+                                </div>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                  当前在学生管理页仅显示简要摘要
+                                </div>
+                              </div>
+
+                              {/* Quick stats */}
+                              <div style={{
+                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 8,
+                              }}>
+                                {[
+                                  { label: '学习记录', value: sessions.length, suffix: '条' },
+                                  { label: '累计时长', value: fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0)), suffix: '' },
+                                  { label: '活跃天数', value: new Set(sessions.map(s => s.date?.split('T')[0])).size, suffix: '天' },
+                                ].map((stat, i) => (
+                                  <div key={i} style={{
+                                    padding: '8px 10px', borderRadius: 8,
+                                    background: 'var(--mentor-color-surface-secondary)',
+                                    textAlign: 'center',
+                                  }}>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                                      {stat.value}{stat.suffix}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#94a3b8' }}>{stat.label}</div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Recent sessions preview */}
+                              <div style={{
+                                fontSize: 10, color: '#94a3b8', fontWeight: 600,
+                                marginTop: 4,
+                              }}>最近记录</div>
+                              <div style={{
+                                display: 'flex', flexDirection: 'column', gap: 4,
+                                maxHeight: 180, overflow: 'auto',
+                              }}>
+                                {sessions.slice(0, 6).map((s, i) => (
+                                  <div key={i} style={{
+                                    display: 'flex', justifyContent: 'space-between',
+                                    padding: '4px 8px', borderRadius: 6,
+                                    background: 'var(--mentor-color-surface-secondary)',
+                                    fontSize: 11,
+                                  }}>
+                                    <span style={{ color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                                      {s.subject}
+                                    </span>
+                                    <span style={{ color: '#6366f1', fontWeight: 600, flexShrink: 0 }}>
+                                      {fmtMinutes(s.duration_minutes || 0)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                onClick={() => setActiveView('analytics')}
+                                style={{
+                                  padding: '8px 14px', borderRadius: 8, border: 'none',
+                                  background: '#6366f1', color: 'white',
+                                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                  marginTop: 4,
+                                }}
+                              >
+                                前往数据分析 →
+                              </button>
                             </motion.div>
                           ) : (
                             <motion.div 
@@ -797,12 +899,89 @@ export default function Mentor() {
           )}
 
           {activeView === 'analytics' && (
-            <MentorAnalyticsPage 
-              user={user} 
-              students={students} 
-              connections={Array.isArray(connections) ? connections : Object.values(connections)}
-              onSelectStudent={(s) => { setPicked(s); setActiveView('students'); }}
-            />
+            <motion.div
+              className="mentor-analytics-page"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <motion.div
+                className="mentor-page-header"
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+              >
+                <h1 className="mentor-page-title">数据分析</h1>
+                <p className="mentor-page-subtitle">选择学生查看周度学习复盘</p>
+              </motion.div>
+
+              {/* Student selector */}
+              <div className="mentor-analytics-picker" style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24,
+                padding: '12px 16px', borderRadius: 12,
+                background: 'var(--mentor-color-surface)',
+                border: '1px solid var(--mentor-color-border)',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                  选择学生
+                </span>
+                <select
+                  value={picked?.id || ''}
+                  onChange={(e) => {
+                    const s = students.find(st => st.id === e.target.value);
+                    setPicked(s || null);
+                  }}
+                  style={{
+                    flex: 1, padding: '8px 12px', borderRadius: 8,
+                    border: '1px solid var(--mentor-color-border)',
+                    background: 'var(--mentor-color-surface-secondary)',
+                    fontSize: 13, color: 'var(--mentor-color-text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="">— 请选择学生 —</option>
+                  {students.map(s => {
+                    const conn = connections[s.id];
+                    const status = conn?.status ?? -1;
+                    if (status !== 1) return null;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name || '(未命名)'} {s.school_name ? `· ${s.school_name}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {picked ? (
+                USE_LEGACY_DASHBOARD ? (
+                  <MentorAnalyticsPage
+                    user={user}
+                    students={students}
+                    connections={Array.isArray(connections) ? connections : Object.values(connections)}
+                    onSelectStudent={(s) => { setPicked(s); }}
+                  />
+                ) : (
+                  sessions.length > 0 ? (
+                    <WeekReviewDashboard sessions={sessions} student={picked} />
+                  ) : (
+                    <div className="mentor-empty-state" style={{ padding: 40 }}>
+                      <div>{busy ? '加载中…' : '该学生暂无学习记录'}</div>
+                    </div>
+                  )
+                )
+              ) : (
+                <div className="mentor-empty-state" style={{ padding: 60 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                    请选择一位学生
+                  </div>
+                  <div style={{ fontSize: 13, color: '#94a3b8' }}>
+                    从上方下拉菜单选择已连接的学生，查看他们的周度学习复盘报告
+                  </div>
+                </div>
+              )}
+            </motion.div>
           )}
 
           {activeView === 'settings' && (
@@ -1120,28 +1299,148 @@ export default function Mentor() {
                   <div className="m-detail-spacer" />
                 </div>
                 <div className="m-detail-body">
-                  <section className="glass m-detail-stats">
-                    <div className="m-detail-stat">
-                      <div className="m-detail-stat__value">{sessions.length}</div>
-                      <div className="m-detail-stat__label">学习记录</div>
-                    </div>
-                    <div className="m-detail-stat-divider" />
-                    <div className="m-detail-stat">
-                      <div className="m-detail-stat__value">{fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0))}</div>
-                      <div className="m-detail-stat__label">累计时长</div>
-                    </div>
-                  </section>
-                  {busy ? (
-                    <div className="m-loading">加载中…</div>
-                  ) : sessions.length > 0 ? (
-                    <div className="m-detail-dashboard">
-                      <ReviewDashboard sessions={sessions} />
-                    </div>
-                  ) : (
-                    <div className="m-empty-state">
-                      <div className="m-empty-state__text">该学生暂无学习记录</div>
-                    </div>
-                  )}
+                  {(() => {
+                    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+                    const allDates = sessions.map(s => (s.date || '').split('T')[0]).filter(Boolean);
+                    const uniqueDates = [...new Set(allDates)].sort();
+                    const spanDays = uniqueDates.length > 0
+                      ? Math.max(1, Math.round((new Date(uniqueDates[uniqueDates.length - 1]) - new Date(uniqueDates[0])) / 86400000) + 1)
+                      : 1;
+                    const dailyAvg = uniqueDates.length > 0 ? Math.round(totalMins / spanDays) : 0;
+                    // 本周活跃
+                    const today = new Date();
+                    const dow = today.getDay();
+                    const mon = new Date(today);
+                    mon.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+                    const weekStartStr = mon.toISOString().split('T')[0];
+                    const weekActive = uniqueDates.filter(d => d >= weekStartStr).length;
+                    // 学科分布
+                    const bySubj = {};
+                    for (const s of sessions) {
+                      const n = (s.subject || '未分类').trim();
+                      bySubj[n] = (bySubj[n] || 0) + (s.duration_minutes || 0);
+                    }
+                    const subjList = Object.entries(bySubj)
+                      .map(([name, total]) => ({ name, total, pct: totalMins > 0 ? Math.round(total / totalMins * 100) : 0 }))
+                      .sort((a, b) => b.total - a.total);
+                    // 有评估的
+                    const scored = sessions
+                      .filter(s => Number(s.eval_type) === 2 && s.score != null && s.score !== '' && !Number.isNaN(Number(s.score)))
+                      .slice(0, 5);
+                    const fmtD = (iso) => { const p = (iso || '').split('T')[0].split('-'); return p.length >= 3 ? `${p[1]}/${p[2]}` : ''; };
+
+                    return (
+                      <>
+                        {/* 4 stat grid */}
+                        <section className="glass m-detail-stats">
+                          <div className="m-detail-stat">
+                            <div className="m-detail-stat__value">{sessions.length}</div>
+                            <div className="m-detail-stat__label">学习记录</div>
+                          </div>
+                          <div className="m-detail-stat-divider" />
+                          <div className="m-detail-stat">
+                            <div className="m-detail-stat__value">{fmtMinutes(totalMins)}</div>
+                            <div className="m-detail-stat__label">累计时长</div>
+                          </div>
+                          <div className="m-detail-stat-divider" />
+                          <div className="m-detail-stat">
+                            <div className="m-detail-stat__value">{fmtMinutes(dailyAvg)}</div>
+                            <div className="m-detail-stat__label">日均</div>
+                          </div>
+                          <div className="m-detail-stat-divider" />
+                          <div className="m-detail-stat">
+                            <div className="m-detail-stat__value">{weekActive}<span style={{ fontSize: '0.6em', color: '#94a3b8' }}>/7</span></div>
+                            <div className="m-detail-stat__label">本周活跃</div>
+                          </div>
+                        </section>
+
+                        {busy ? (
+                          <div className="m-loading">加载中…</div>
+                        ) : sessions.length > 0 ? (
+                          <div className="m-detail-dashboard">
+                            {/* 学科分布 */}
+                            {subjList.length > 0 && (
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>学科分布</div>
+                                {subjList.map((subj, i) => {
+                                  const color = subjectColor(subj.name);
+                                  return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                                      <span style={{ fontSize: 12, fontWeight: 500, color: '#1e293b', minWidth: 50, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subj.name}</span>
+                                      <div style={{ flex: 1, height: 5, borderRadius: 3, background: '#f1f5f9', overflow: 'hidden' }}>
+                                        <motion.div
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${subj.pct}%` }}
+                                          transition={{ duration: 0.4, delay: 0.05 * i }}
+                                          style={{ height: '100%', borderRadius: 3, background: color }}
+                                        />
+                                      </div>
+                                      <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace', minWidth: 40, textAlign: 'right' }}>{fmtMinutes(subj.total)}</span>
+                                      <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 28, textAlign: 'right' }}>{subj.pct}%</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* 最近评估 */}
+                            {scored.length > 0 && (
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最近评估</div>
+                                {scored.map((s, i) => {
+                                  const grade = scoreToGrade(Number(s.score));
+                                  const sColor = scoreColor(Number(s.score));
+                                  const subjC = subjectColor((s.subject || '未分类').trim());
+                                  return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < scored.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC, flexShrink: 0 }} />
+                                      <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
+                                      <span style={{ fontSize: 14, fontWeight: 700, color: sColor, fontFamily: 'ui-monospace, monospace' }}>{s.score}</span>
+                                      {grade && <span style={{ fontSize: 11, fontWeight: 600, color: sColor, minWidth: 20 }}>{grade}</span>}
+                                      <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 36, textAlign: 'right' }}>{fmtD(s.date)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* 最近活动 */}
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最近活动</div>
+                              {sessions.slice(0, 3).map((s, i) => {
+                                const subjC = subjectColor((s.subject || '未分类').trim());
+                                return (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < 2 ? '1px solid #f1f5f9' : 'none' }}>
+                                    <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>{fmtD(s.date)}</span>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC }} />
+                                    <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
+                                    <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>{fmtMinutes(s.duration_minutes || 0)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <button
+                              onClick={() => { setActiveView('analytics'); setPicked(null); }}
+                              style={{
+                                width: '100%', padding: '10px',
+                                borderRadius: 8, border: 'none',
+                                background: '#6366f1', color: 'white',
+                                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              }}
+                            >
+                              前往深度分析 →
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="m-empty-state">
+                            <div className="m-empty-state__text">该学生暂无学习记录</div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </motion.div>
             )}
@@ -1149,18 +1448,61 @@ export default function Mentor() {
         </div>
       ) : activeView === 'analytics' ? (
         <div className="m-mentor-content">
-          <section className="glass m-analytics-summary">
-            <div className="m-analytics-summary__title">班级数据分析</div>
-            <div className="m-analytics-summary__sub">全体学生的学习表现概览</div>
+          <section className="glass m-analytics-summary" style={{ padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>选择学生</span>
+              <select
+                value={picked?.id || ''}
+                onChange={(e) => {
+                  const s = students.find(st => st.id === e.target.value);
+                  setPicked(s || null);
+                }}
+                style={{
+                  flex: 1, padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid var(--mentor-color-border)',
+                  background: 'var(--mentor-color-surface-secondary)',
+                  fontSize: 12, color: 'var(--mentor-color-text-primary)',
+                }}
+              >
+                <option value="">— 请选择 —</option>
+                {students.map(s => {
+                  const conn = connections[s.id];
+                  const status = conn?.status ?? -1;
+                  if (status !== 1) return null;
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name || '(未命名)'}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </section>
-          <div className="m-analytics-container">
-            <MentorAnalyticsPage
-              user={user}
-              students={students}
-              connections={Array.isArray(connections) ? connections : Object.values(connections)}
-              onSelectStudent={(s) => { setPicked(s); }}
-            />
-          </div>
+          {picked ? (
+            USE_LEGACY_DASHBOARD ? (
+              <div className="m-analytics-container">
+                <MentorAnalyticsPage
+                  user={user}
+                  students={students}
+                  connections={Array.isArray(connections) ? connections : Object.values(connections)}
+                  onSelectStudent={(s) => { setPicked(s); }}
+                />
+              </div>
+            ) : (
+              sessions.length > 0 ? (
+                <WeekReviewDashboard sessions={sessions} student={picked} />
+              ) : (
+                <div className="m-empty-state">
+                  <div className="m-empty-state__text">{busy ? '加载中…' : '该学生暂无学习记录'}</div>
+                </div>
+              )
+            )
+          ) : (
+            <div className="m-empty-state">
+              <div className="m-empty-state__icon">📊</div>
+              <div className="m-empty-state__text">请选择一位学生</div>
+            </div>
+          )}
         </div>
       ) : activeView === 'settings' ? (
         <div className="m-mentor-content">

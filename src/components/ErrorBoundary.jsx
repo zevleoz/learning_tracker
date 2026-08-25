@@ -1,5 +1,7 @@
 import { Component } from 'react';
 
+const isDev = import.meta.env.DEV;
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -12,8 +14,11 @@ class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     this.setState({ errorInfo });
-    console.error('Error Boundary caught error:', error, errorInfo);
-    
+    // 生产环境不输出到 console，避免泄露堆栈信息
+    if (isDev) {
+      console.error('Error Boundary caught error:', error, errorInfo);
+    }
+
     if (window && window.Sentry) {
       window.Sentry.captureException(error);
     }
@@ -40,7 +45,8 @@ class ErrorBoundary extends Component {
             <p className="error-boundary__message">
               抱歉，页面加载时出现了问题。请检查网络连接后重试。
             </p>
-            {this.state.errorInfo && (
+            {/* 仅在开发环境显示技术错误详情，生产环境不暴露堆栈 */}
+            {isDev && this.state.errorInfo && (
               <details className="error-boundary__details">
                 <summary>查看详情</summary>
                 <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{this.state.error?.message}</pre>

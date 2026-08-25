@@ -61,7 +61,6 @@ export default function Login() {
     }
     setResetBusy(true);
     try {
-      logger.log('Reset password attempt:', { email: resetEmail });
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
         redirectTo: window.location.origin + '/login'
       });
@@ -75,7 +74,6 @@ export default function Login() {
         }
         throw error;
       }
-      logger.log('Reset password email sent successfully');
       toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件）', { kind: 'success' });
       setShowReset(false);
       setResetEmail('');
@@ -95,7 +93,6 @@ export default function Login() {
     if (newPassword.length > 128) return toast('密码不能超过 128 位', { kind: 'error' });
     setUpdateBusy(true);
     try {
-      logger.log('Update password attempt');
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
         logger.error('Update password error:', error);
@@ -107,7 +104,6 @@ export default function Login() {
         }
         throw error;
       }
-      logger.log('Update password successful');
       toast('密码修改成功！请重新登录', { kind: 'success' });
       await supabase.auth.signOut();
       setRecoveryMode(false);
@@ -127,19 +123,20 @@ export default function Login() {
     if (!email || !pw) return toast('请填写邮箱和密码', { kind: 'error' });
     setBusy(true);
     try {
-      logger.log('Login attempt:', { email });
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
-      logger.log('Login result:', { data, error });
       if (error) throw error;
 
       const role = Number(data?.user?.user_metadata?.role) || 1;
-      logger.log('User role:', role);
       toast('登录成功', { kind: 'success' });
       const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
       nav(role >= 2 ? '/mentor' : (isMobile ? '/learning' : '/syllabus'), { replace: true });
     } catch (err) {
-      logger.error('Login error:', err);
-      toast(err.message || '登录失败', { kind: 'error' });
+      // 统一错误消息，避免账户枚举（不区分"用户不存在"和"密码错误"）
+      const msg = err?.message || '登录失败，请检查邮箱和密码';
+      const safeMsg = /Invalid login credentials|Invalid credentials/i.test(msg)
+        ? '邮箱或密码错误'
+        : msg;
+      toast(safeMsg, { kind: 'error' });
     } finally {
       setBusy(false);
     }

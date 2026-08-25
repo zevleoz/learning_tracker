@@ -238,6 +238,26 @@ body::after {
   --brand: #C1272D;
   --brand-soft: rgba(193, 39, 45, 0.12);
   --gold: #D4AF37;
+
+  /* ── 数据可视化统一调色板（2025 Radix v2 / Apple HIG 三层色空间） ── */
+  /* ② 语义层：与"好坏程度"绑定 — 全局只此一套，分类色绝对不准复用这些 hue */
+  --sem-good:     #16A34A;  /* Radix Grass 600 — 唯一"好"绿 */
+  --sem-good-bg:  rgba(22, 163, 74, 0.10);
+  --sem-moderate: #F59E0B;  /* Radix Amber 500 — 唯一"中"黄 */
+  --sem-mod-bg:   rgba(245, 158, 11, 0.12);
+  --sem-risk:     #EA580C;  /* Radix Orange 600 — "风险"橙（与黄拉开明度差 20） */
+  --sem-risk-bg:  rgba(234, 88, 12, 0.12);
+  --sem-alert:    #C1272D;  /* 品牌红（最严重，直接升品牌调） */
+  --sem-alert-bg: rgba(193, 39, 45, 0.12);
+  --sem-info:     #4F46E5;  /* Radix Iris 600 — 信息/强调/中性好 */
+  --sem-info-bg:  rgba(79, 70, 229, 0.10);
+
+  /* ③ 分类层：学/复/练 / 自主·外部 — 和语义层 hue 严格不相交 */
+  --cat-study:    #2563EB;  /* Blue 600 深邃权威蓝（与品牌红补色对比） */
+  --cat-review:   #7C3AED;  /* Violet 600（含红色成分，呼应品牌暖色） */
+  --cat-practice: #0D9488;  /* Teal 600（饱和 86%，L31 明度梯度最深） */
+  --cat-self:     #2563EB;  /* 自主学习 = Blue 600 主色 */
+  --cat-external: #A78BFA;  /* 外部/辅导 = Violet 400 淡紫 */
 }
 
 /* ================================================================
@@ -4496,11 +4516,15 @@ textarea::placeholder { color: #9ca3af; }
   background: var(--mentor-color-surface);
   border: 1px solid var(--mentor-color-border);
   border-radius: var(--mentor-radius-xl);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 320px);
   transition: all var(--mentor-transition-normal);
+}
+
+.mentor-student-list-panel {
+  overflow: auto;
 }
 
 .mentor-student-list-panel:hover,

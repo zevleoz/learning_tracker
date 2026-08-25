@@ -3,6 +3,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
 
 /* ---------- 常量定义 ---------- */
 
@@ -201,10 +202,10 @@ export default function LearningPage() {
 
       const { data, error } = await supabase
         .from('courses')
-        .select('id, name, subject, created_by, chapters(id, name, units(id, name))')
+        .select('id, name, subject, course_type, created_by, chapters(id, name, units(id, name))')
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
-      if (error) { console.error(error); }
+      if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
       const list = (data || []).filter(c => {
         if (c.created_by === user.id) return true;
         if (!mySchool) return false;
@@ -253,7 +254,7 @@ export default function LearningPage() {
         .select('name')
         .eq('student_id', user.id)
         .order('created_at', { ascending: false });
-      if (error) { console.error(error); return; }
+      if (error) { logger.error('加载学习形式失败:', error); return; }
       setCustomForms((data || []).map(x => x.name));
     })();
   }, [user]);
@@ -268,7 +269,7 @@ export default function LearningPage() {
           id, session_date, start_time, end_time, duration_minutes,
           category, form, eval_type, self_rating, grade_label, notes,
           course_id, chapter_id, unit_id,
-          course:courses(id,name,subject),
+          course:courses(id,name,subject,course_type),
           chapter:chapters(id,name),
           unit:units(id,name)
         `)
@@ -277,7 +278,7 @@ export default function LearningPage() {
         .order('session_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(10);
-      if (error) { console.error(error); return; }
+      if (error) { logger.error('加载最近记录失败:', error); return; }
       setRecent(data || []);
     })();
   }, [user]);
@@ -302,7 +303,7 @@ export default function LearningPage() {
       setAddingCustom(false);
       setCustomInput('');
     } catch (e) {
-      alert('保存失败：' + e.message);
+      toast(e.message || '保存失败', { kind: 'error' });
     }
   }
 
@@ -396,7 +397,7 @@ export default function LearningPage() {
         .select(`
           id, session_date, start_time, end_time, duration_minutes,
           category, form, eval_type, self_rating, grade_label, notes,
-          course:courses(id,name,subject),
+          course:courses(id,name,subject,course_type),
           chapter:chapters(id,name),
           unit:units(id,name)
         `)
@@ -523,7 +524,7 @@ export default function LearningPage() {
         .update(payload)
         .eq('id', editingSessionId);
       if (error) {
-        console.error('Update session error:', error);
+        logger.error('Update session error:', error);
         throw error;
       }
       toast('已更新', { kind: 'success' });
@@ -534,7 +535,7 @@ export default function LearningPage() {
           id, session_date, start_time, end_time, duration_minutes,
           category, form, eval_type, self_rating, grade_label, notes,
           course_id, chapter_id, unit_id,
-          course:courses(id,name,subject),
+          course:courses(id,name,subject,course_type),
           chapter:chapters(id,name),
           unit:units(id,name)
         `)

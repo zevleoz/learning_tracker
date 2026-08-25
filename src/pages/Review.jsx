@@ -1,23 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
-import {
-  HeroBlock,
-  StreakBlock,
-  EfficiencyBlock,
-  MonthlyBarsBlock,
-  SubjectSummaryBlock,
-  SuggestionsBlock,
-} from '../components/SharedDashboard.jsx';
+import { logger } from '../lib/logger.js';
+import StudentDashboard from '../components/StudentDashboard.jsx';
 
 export default function Review() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('week');
+  const [loadError, setLoadError] = useState(null);
   const location = useLocation();
 
   async function fetchSessions() {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
@@ -35,7 +30,8 @@ export default function Review() {
         .limit(2000);
 
       if (error) {
-        console.error('Review fetch error', error);
+        logger.error('Review fetch error', error);
+        throw error;
       }
 
       const list = (data || []).map((s) => {
@@ -54,6 +50,9 @@ export default function Review() {
         };
       });
       setSessions(list);
+    } catch (err) {
+      logger.error('Review fetch failed:', err);
+      setLoadError('数据加载失败，请刷新页面重试');
     } finally {
       setLoading(false);
     }
@@ -63,22 +62,6 @@ export default function Review() {
     fetchSessions();
   }, [location.pathname]);
 
-  const filteredSessions = useMemo(() => {
-    if (!sessions || sessions.length === 0) return [];
-
-    const today = new Date();
-    let days = 7;
-    if (timeRange === 'month') days = 30;
-    else if (timeRange === 'quarter') days = 90;
-    else if (timeRange === 'year') days = 365;
-
-    const cutoff = new Date(today);
-    cutoff.setDate(today.getDate() - days);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-    return sessions.filter((s) => s.date >= cutoffStr);
-  }, [sessions, timeRange]);
-
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 16px', color: '#64748b', fontSize: '14px' }}>
@@ -87,70 +70,26 @@ export default function Review() {
     );
   }
 
-  const rangeOptions = [
-    { key: 'week', label: '本周' },
-    { key: 'month', label: '本月' },
-    { key: 'quarter', label: '近3月' },
-    { key: 'year', label: '全年' },
-  ];
+  if (loadError) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
+        <p style={{ color: '#64748b', fontSize: '14px', marginBottom: 16 }}>{loadError}</p>
+        <button
+          onClick={() => fetchSessions()}
+          style={{
+            padding: '8px 20px', fontSize: 14, fontWeight: 600,
+            borderRadius: 10, border: 'none', cursor: 'pointer',
+            background: '#6366f1', color: 'white',
+          }}
+        >刷新重试</button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ paddingBottom: '112px' }}>
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        padding: '0 16px 12px',
-        overflowX: 'auto',
-      }}>
-        <button
-          onClick={fetchSessions}
-          disabled={loading}
-          style={{
-            flex: '0 0 auto',
-            padding: '6px 10px',
-            borderRadius: '999px',
-            fontSize: '12px',
-            fontWeight: 500,
-            border: 'none',
-            cursor: 'pointer',
-            background: 'rgba(255,255,255,0.4)',
-            color: '#475569',
-            transition: 'all 0.15s ease',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-        >
-          {loading ? '刷新中…' : '🔄'}
-        </button>
-        {rangeOptions.map((opt) => (
-          <button
-            key={opt.key}
-            onClick={() => setTimeRange(opt.key)}
-            style={{
-              flex: '0 0 auto',
-              padding: '6px 14px',
-              borderRadius: '999px',
-              fontSize: '12px',
-              fontWeight: 500,
-              border: 'none',
-              cursor: 'pointer',
-              background: timeRange === opt.key ? '#6366f1' : 'rgba(255,255,255,0.4)',
-              color: timeRange === opt.key ? 'white' : '#475569',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      <HeroBlock sessions={filteredSessions} />
-      <StreakBlock sessions={filteredSessions} />
-      <EfficiencyBlock sessions={filteredSessions} />
-      <MonthlyBarsBlock sessions={filteredSessions} />
-      <SubjectSummaryBlock sessions={sessions} />
-      <SuggestionsBlock sessions={filteredSessions} />
+    <div style={{ padding: '0 16px', paddingBottom: '112px' }}>
+      <StudentDashboard sessions={sessions} />
     </div>
   );
 }

@@ -2,11 +2,26 @@ import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
+import { logger } from '../lib/logger.js';
+
+// 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
+function friendlyError(err, fallback = '操作失败，请稍后再试') {
+  if (!err) return fallback;
+  const msg = err.message || '';
+  // 23505 = unique_violation
+  if (err.code === '23505' || /duplicate key/i.test(msg)) return '该名称已存在，请换一个';
+  // 42501 = insufficient_privilege
+  if (err.code === '42501' || /permission denied|policy/i.test(msg)) return '没有权限执行此操作';
+  // 23503 = foreign_key_violation
+  if (err.code === '23503' || /foreign key/i.test(msg)) return '关联数据不存在，请刷新页面后重试';
+  return fallback;
+}
 
 export default function Syllabus() {
   const [courses, setCourses] = useState([]);
   const [schoolName, setSchoolName] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [isDesktop, setIsDesktop] = useState(window.matchMedia('(min-width: 768px)').matches);
 
   useEffect(() => {
@@ -17,45 +32,59 @@ export default function Syllabus() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('school_name')
-        .eq('id', user.id)
-        .maybeSingle();
-      const mySchool = profile?.school_name;
-      if (mySchool) setSchoolName(mySchool);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('school_name')
+          .eq('id', user.id)
+          .maybeSingle();
+        const mySchool = profile?.school_name;
+        if (mySchool) setSchoolName(mySchool);
 
-      const { data: cs } = await supabase
-        .from('courses')
-        .select(`
-          id, name, subject, source, created_by,
-          chapters:chapters(id, name, order_idx, units(id, name, order_idx))
-        `)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
+        const { data: cs, error } = await supabase
+          .from('courses')
+          .select(`
+            id, name, subject, source, course_type, created_by,
+            chapters:chapters(id, name, order_idx, units(id, name, order_idx))
+          `)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
 
-      const sorted = (cs || []).filter((c) => {
-        if (c.created_by === user.id) return true;
-        if (!mySchool) return false;
-        return true;
-      }).map((c) => ({
-        ...c,
-        _isOwn: c.created_by === user.id,
-        chapters: (c.chapters || [])
-          .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
-          .map((ch) => ({
-            ...ch,
-            units: (ch.units || [])
-              .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
-          }))
-      }));
-      setCourses(sorted);
-      setLoading(false);
+        if (error) throw error;
+
+        // RLS 已在学校维度过滤可见课程；前端只需区分"我创建的"和"同校共享的"
+        const sorted = (cs || []).map((c) => ({
+          ...c,
+          _isOwn: c.created_by === user.id,
+          chapters: (c.chapters || [])
+            .slice()
+            .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
+            .map((ch) => ({
+              ...ch,
+              units: (ch.units || [])
+                .slice()
+                .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
+            }))
+        }));
+        if (!cancelled) {
+          setCourses(sorted);
+          setLoadError(null);
+        }
+      } catch (err) {
+        logger.error('Syllabus load failed:', err);
+        if (!cancelled) {
+          setLoadError(friendlyError(err, '加载课程失败，请检查网络后刷新页面'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   /* ===== 添加课程 ===== */
@@ -87,7 +116,10 @@ export default function Syllabus() {
       .select()
       .single();
 
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('createCourse failed:', error);
+      return toast(friendlyError(error, '创建课程失败'), { kind: 'error' });
+    }
     toast('课程已创建', { kind: 'success' });
     setCourses((prev) => [{ ...created, _isOwn: true, chapters: [] }, ...prev]);
   }
@@ -103,7 +135,10 @@ export default function Syllabus() {
       .select('id, name, order_idx')
       .single();
 
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('addChapter failed:', error);
+      return toast(friendlyError(error, '添加章节失败'), { kind: 'error' });
+    }
     toast('章节已添加', { kind: 'success' });
     setCourses((prev) => prev.map((c) =>
       c.id === courseId
@@ -124,7 +159,10 @@ export default function Syllabus() {
       .select('id, name, order_idx')
       .single();
 
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('addUnit failed:', error);
+      return toast(friendlyError(error, '添加单元失败'), { kind: 'error' });
+    }
     toast('单元已添加', { kind: 'success' });
 
     setCourses((prev) => prev.map((c) =>
@@ -147,7 +185,10 @@ export default function Syllabus() {
       .from('courses')
       .update({ name: name.trim(), course_type: courseType })
       .eq('id', courseId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('updateCourse failed:', error);
+      return toast(friendlyError(error, '更新失败'), { kind: 'error' });
+    }
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, name: name.trim(), course_type: courseType } : c));
   }
@@ -157,7 +198,10 @@ export default function Syllabus() {
       .from('chapters')
       .update({ name: name.trim() })
       .eq('id', chapterId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('updateChapter failed:', error);
+      return toast(friendlyError(error, '更新失败'), { kind: 'error' });
+    }
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, name: name.trim() } : ch) } : c));
   }
@@ -167,7 +211,10 @@ export default function Syllabus() {
       .from('units')
       .update({ name: name.trim() })
       .eq('id', unitId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('updateUnit failed:', error);
+      return toast(friendlyError(error, '更新失败'), { kind: 'error' });
+    }
     toast('已更新', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: c.chapters.map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).map(u => u.id === unitId ? { ...u, name: name.trim() } : u) } : ch) } : c));
   }
@@ -179,7 +226,10 @@ export default function Syllabus() {
       .from('courses')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', courseId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('deleteCourse failed:', error);
+      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+    }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.filter(c => c.id !== courseId));
   }
@@ -190,7 +240,10 @@ export default function Syllabus() {
       .from('chapters')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', chapterId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('deleteChapter failed:', error);
+      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+    }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).filter(ch => ch.id !== chapterId) } : c));
   }
@@ -201,7 +254,10 @@ export default function Syllabus() {
       .from('units')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', unitId);
-    if (error) return toast(error.message, { kind: 'error' });
+    if (error) {
+      logger.error('deleteUnit failed:', error);
+      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+    }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).filter(u => u.id !== unitId) } : ch) } : c));
   }
@@ -246,6 +302,17 @@ export default function Syllabus() {
         <div className="empty-state">
           <div className="empty-state-icon">⏳</div>
           <h3>加载中…</h3>
+        </div>
+      ) : loadError ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">⚠️</div>
+          <h3>加载失败</h3>
+          <p>{loadError}</p>
+          <button
+            className="btn btn-primary"
+            onClick={() => { setLoadError(null); setLoading(true); window.location.reload(); }}
+            style={{ marginTop: 12 }}
+          >刷新重试</button>
         </div>
       ) : (
         <>
@@ -1166,7 +1233,7 @@ function DesktopCourseCard({
               value={course.name}
               canEdit={canEdit}
               editSignal={editNameSignal}
-              onSave={(name) => onUpdateCourse(course.id, { name, subject: course.subject })}
+              onSave={(name) => onUpdateCourse(course.id, { name, courseType: course.course_type || 1 })}
               style={{
                 fontSize: '16px',
                 fontWeight: 600,

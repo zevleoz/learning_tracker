@@ -56,7 +56,11 @@ export default function Signup() {
     e.preventDefault();
     if (!form.name.trim()) return toast('请填写昵称', { kind: 'error' });
     if (!form.email.trim()) return toast('请填写邮箱', { kind: 'error' });
+    // 基本邮箱格式校验，避免无效邮箱提交到 Supabase
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(form.email.trim())) return toast('请输入有效的邮箱地址', { kind: 'error' });
     if (form.password.length < 6) return toast('密码至少 6 位', { kind: 'error' });
+    if (form.password.length > 128) return toast('密码不能超过 128 位', { kind: 'error' });
     const role = Number(form.role) || 1;
     if (role === 1 && !form.school.trim()) return toast('请填写学校名称', { kind: 'error' });
 

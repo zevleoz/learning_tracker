@@ -90,6 +90,12 @@
   }
 }
 
+/* 待补填 bottom sheet 入场动画 */
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* ================================================================
    Liquid Glass · 折射层叠玻璃界面（浅色）
    - 背景：#f5f5f7 底 + 4 个缓慢漂移的低饱和柔和色块
@@ -280,7 +286,7 @@ body::after {
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    /* 不设 transform，避免 fill-mode: both 留下 transform 干扰 position: fixed 后代 */
   }
 }
 
@@ -545,6 +551,18 @@ body::after {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+/* 移动端也保持三列（用于课程/章节/小节、日期/时间等） */
+.three-col-stay {
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
+.three-col-stay label { font-size: 13px; }
+.three-col-stay select,
+.three-col-stay input {
+  font-size: 14px !important;
+  padding: 10px 8px !important;
+  min-height: 44px;
 }
 .two-col {
   display: grid;

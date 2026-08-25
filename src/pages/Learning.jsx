@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
@@ -7,20 +9,20 @@ import { logger } from '../lib/logger.js';
 
 /* ---------- 常量定义 ---------- */
 
-// 学习行为类别（category）
+// 学习行为类别（category）— 与数据库/分析面板一致：1=学习 2=复习 3=练习
 const CATEGORY_OPTS = [
-  { key: 1, label: '复习' },
-  { key: 2, label: '练习' },
-  { key: 3, label: '学习' },
+  { key: 1, label: '学习' },
+  { key: 2, label: '复习' },
+  { key: 3, label: '练习' },
 ];
 
 // 学习行为形式（预设 form，字符串；按学习行为类别分组；
 // 额外的 "+其他/自定义" 通过 ADD_OTHER_SENTINEL 让用户新增，不与预设重复）
 const ADD_OTHER_SENTINEL = '__ADD_OTHER__';
 const FORM_PRESET_BY_CATEGORY = {
-  3: ['自主预习', '校外线上', '校外线下'],       // 学习
-  1: ['自主复习', '校外线上', '校外线下'],       // 复习
-  2: ['自主练习', '校外线上', '校外线下', '课外作业', '学校作业'], // 练习
+  1: ['自主预习', '校外线上', '校外线下'],                                 // 学习
+  2: ['自主复习', '校外线上', '校外线下'],                                 // 复习
+  3: ['自主练习', '校外线上', '校外线下', '课外作业', '学校作业'],          // 练习
 };
 const ALL_FORM_PRESET = Array.from(new Set(Object.values(FORM_PRESET_BY_CATEGORY).flat()));
 
@@ -169,12 +171,14 @@ export default function LearningPage() {
   const [endStr, setEndStr] = useState('');
 
   /* --- 学习行为类别 --- */
-  const [category, setCategory] = useState(3); // 默认"学习"
+  const [category, setCategory] = useState(1); // 默认"学习"（1=学习 2=复习 3=练习）
 
   /* --- 评估方式 --- */
-  const [evalType, setEvalType] = useState(1); // 1=主观 2=客观
-  const [subjIdx, setSubjIdx] = useState(3);   // 默认"基本掌握" → 80
-  const [objIdx, setObjIdx] = useState(9);     // 默认"B+"
+  // 主观：必填，始终展示
+  // 客观：可选，仅"练习"(category=3)展示，可滞后填写（objDeferred=true 表示暂不填写）
+  const [subjIdx, setSubjIdx] = useState(3);     // 默认"基本掌握" → 80
+  const [objIdx, setObjIdx] = useState(9);        // 默认 B+；展开即给默认值
+  const [objDeferred, setObjDeferred] = useState(false); // 默认"现在填写"
 
   /* --- 备注 --- */
   const [notes, setNotes] = useState('');
@@ -188,6 +192,16 @@ export default function LearningPage() {
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
+
+  /* --- 顶部 tab：记录 / 待补填 --- */
+  const [view, setView] = useState('record'); // 'record' | 'pending'
+
+  /* --- 待补填客观评价列表 --- */
+  const [pending, setPending] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [pendingModalSession, setPendingModalSession] = useState(null); // 选中的 session
+  const [pendingModalGrade, setPendingModalGrade] = useState(null);     // 选中的 grade label
+  const [pendingSaving, setPendingSaving] = useState(false);
 
   /* ========== 载入：课程 tree ========== */
   useEffect(() => {
@@ -283,6 +297,40 @@ export default function LearningPage() {
     })();
   }, [user]);
 
+  /* ========== 载入：待补填客观评价列表（练习类 + 无客观） ========== */
+  const loadPending = async () => {
+    if (!user) return;
+    setLoadingPending(true);
+    try {
+      const { data, error } = await supabase
+        .from('learning_sessions')
+        .select(`
+          id, session_date, start_time, end_time, duration_minutes,
+          category, form, eval_type, self_rating, grade_label, notes,
+          course:courses(id,name,subject,course_type),
+          chapter:chapters(id,name),
+          unit:units(id,name)
+        `)
+        .eq('student_id', user.id)
+        .eq('category', 3)            // 练习
+        .is('grade_label', null)      // 无 letter grade
+        .is('score', null)            // 也无分数（排除旧 seed 数据）
+        .is('deleted_at', null)
+        .order('session_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) { logger.error('加载待补填列表失败:', error); return; }
+      setPending(data || []);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  // 切到「待补填」tab 时拉取；提交后也刷新
+  useEffect(() => {
+    if (user && view === 'pending') loadPending();
+  }, [user, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ========== 添加自定义 学习行为形式 ========== */
   async function onAddCustomForm() {
     const name = customInput.trim();
@@ -368,15 +416,16 @@ export default function LearningPage() {
         unit_id: unitId || null,
         category,
         form: formValue,
-        eval_type: evalType,
+        eval_type: !objDeferred && objIdx !== null ? 2 : 1,  // 1=仅主观 / 2=含客观
         duration_minutes: duration,
         notes: notes.trim() || null,
         session_date: dateStr,
         start_time: newStartTime,
         end_time: newEndTime,
-        ...(evalType === 1
-          ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value }
-          : { grade_label: OBJECTIVE_STEPS[objIdx].label }),
+        self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
+        ...(!objDeferred && objIdx !== null
+          ? { grade_label: OBJECTIVE_STEPS[objIdx].label }
+          : { grade_label: null }),
       };
 
       const { error } = await supabase.from('learning_sessions').insert(payload);
@@ -388,9 +437,9 @@ export default function LearningPage() {
       setStartStr(toTimeStr(d));
       setEndStr('');
       setNotes('');
-      setEvalType(1);
       setSubjIdx(3);
       setObjIdx(9);
+      setObjDeferred(false);
 
       const { data } = await supabase
         .from('learning_sessions')
@@ -408,12 +457,13 @@ export default function LearningPage() {
         .limit(10);
       setRecent(data || []);
     } catch (err) {
-      const msg = err.message || '保存失败';
-      if (msg.includes('self_rating') || msg.includes('not-null') || msg.includes('constraint')) {
-        toast('数据库配置需要更新', { kind: 'error' });
-      } else {
-        toast(msg, { kind: 'error' });
+      let msg = err.message || '保存失败';
+      if (msg.includes('row-level security')) {
+        msg = '权限不足：您只能操作自己的学习记录。';
+      } else if (msg.includes('self_rating') || msg.includes('not-null') || msg.includes('constraint')) {
+        msg = '数据库配置需要更新';
       }
+      toast(msg, { kind: 'error' });
     } finally {
       setBusy(false);
     }
@@ -432,15 +482,19 @@ export default function LearningPage() {
     setDateStr(String(r.session_date || toDateStr(new Date())));
     setStartStr(String(r.start_time || toTimeStr(new Date())).slice(0, 5));
     setEndStr(String(r.end_time || '').slice(0, 5));
-    setCategory(r.category || 3);
+    setCategory(r.category || 1);
     setFormValue(r.form || '');
-    setEvalType(r.eval_type || 1);
-    if (r.eval_type === 1) {
-      const idx = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
-      setSubjIdx(idx >= 0 ? idx : 3);
+    // 主观：始终回显
+    const subjIdxLoaded = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
+    setSubjIdx(subjIdxLoaded >= 0 ? subjIdxLoaded : 3);
+    // 客观：按字段存在性独立回显（不依赖 eval_type）
+    if (r.grade_label) {
+      const objIdxLoaded = OBJECTIVE_STEPS.findIndex(s => s.label === r.grade_label);
+      setObjIdx(objIdxLoaded >= 0 ? objIdxLoaded : 9);
+      setObjDeferred(false);
     } else {
-      const idx = OBJECTIVE_STEPS.findIndex(s => s.label === r.grade_label);
-      setObjIdx(idx >= 0 ? idx : 9);
+      setObjIdx(9);
+      setObjDeferred(false);  // 编辑时也默认"现在填写"，让学生看到滑轨
     }
     setNotes(r.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -452,11 +506,11 @@ export default function LearningPage() {
     setDateStr(toDateStr(d));
     setStartStr(toTimeStr(d));
     setEndStr('');
-    setCategory(3);
+    setCategory(1);
     setFormValue('');
-    setEvalType(1);
     setSubjIdx(3);
     setObjIdx(9);
+    setObjDeferred(false);
     setNotes('');
   }
 
@@ -508,15 +562,16 @@ export default function LearningPage() {
         unit_id: unitId || null,
         category,
         form: formValue,
-        eval_type: evalType,
+        eval_type: !objDeferred && objIdx !== null ? 2 : 1,  // 1=仅主观 / 2=含客观
         duration_minutes: duration,
         notes: notes.trim() || null,
         session_date: dateStr,
         start_time: newStartTime,
         end_time: newEndTime,
-        ...(evalType === 1
-          ? { self_rating: SUBJECTIVE_STEPS[subjIdx].value, grade_label: null }
-          : { grade_label: OBJECTIVE_STEPS[objIdx].label, self_rating: null }),
+        self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
+        ...(!objDeferred && objIdx !== null
+          ? { grade_label: OBJECTIVE_STEPS[objIdx].label }
+          : { grade_label: null }),
       };
 
       const { error } = await supabase
@@ -547,7 +602,11 @@ export default function LearningPage() {
       setRecent(data || []);
       setEditingSessionId(null);
     } catch (err) {
-      toast(err.message || '保存失败', { kind: 'error' });
+      let msg = err.message || '保存失败';
+      if (msg.includes('row-level security')) {
+        msg = '权限不足：您只能操作自己的学习记录。';
+      }
+      toast(msg, { kind: 'error' });
     } finally {
       setBusy(false);
     }
@@ -570,7 +629,11 @@ export default function LearningPage() {
       toast('已删除', { kind: 'success' });
       setRecent(prev => prev.filter(x => x.id !== r.id));
     } catch (err) {
-      toast(err.message || '删除失败', { kind: 'error' });
+      let msg = err.message || '删除失败';
+      if (msg.includes('row-level security')) {
+        msg = '权限不足：您只能删除自己的学习记录。';
+      }
+      toast(msg, { kind: 'error' });
     } finally {
       setBusy(false);
     }
@@ -582,7 +645,7 @@ export default function LearningPage() {
 
   /* ========== helper 渲染 ========== */
   // 预设列表按学习行为类别切换；用户自定义项在任意类别下都可选择
-  const currentPreset = FORM_PRESET_BY_CATEGORY[category] || FORM_PRESET_BY_CATEGORY[3];
+  const currentPreset = FORM_PRESET_BY_CATEGORY[category] || FORM_PRESET_BY_CATEGORY[1];
   const customForCategory = customForms.filter(n => !ALL_FORM_PRESET.includes(n));
   const formOptions = [...currentPreset, ...customForCategory];
 
@@ -591,14 +654,39 @@ export default function LearningPage() {
     if (formValue && !formOptions.includes(formValue)) setFormValue('');
   }, [category]); // eslint-disable-line react-hooks/exhaustive-deps
   const catLabel = (k) => CATEGORY_OPTS.find(c => c.key === k)?.label || '';
-  const evalLabel = (t, sr, gl) => {
-    if (t === 1) return `主观：${SUBJECTIVE_STEPS.find(s => s.value === sr)?.label || '-'}`;
-    return `客观：${gl || '-'}`;
-  };
   const autoDur = computeDuration();
+
+  /* ========== 待补填：一键保存客观评价 ========== */
+  async function onSavePendingGrade() {
+    if (!pendingModalSession || !pendingModalGrade) return;
+    setPendingSaving(true);
+    try {
+      const { error } = await supabase
+        .from('learning_sessions')
+        .update({
+          grade_label: pendingModalGrade,
+          eval_type: 2,  // 含客观
+        })
+        .eq('id', pendingModalSession.id);
+      if (error) throw error;
+      toast('客观评价已保存', { kind: 'success' });
+      setPendingModalSession(null);
+      setPendingModalGrade(null);
+      await loadPending();  // 刷新待补填列表
+    } catch (err) {
+      let msg = err.message || '保存失败';
+      if (msg.includes('row-level security')) {
+        msg = '权限不足：您只能操作自己的学习记录。';
+      }
+      toast(msg, { kind: 'error' });
+    } finally {
+      setPendingSaving(false);
+    }
+  }
 
   /* ========== JSX ========== */
   return (
+    <>
     <div className="learn-wrap animate-fade-in">
 
       <div className="page-title">
@@ -606,6 +694,113 @@ export default function LearningPage() {
         <p>填写一次学习行为，数据积累帮你了解自己</p>
       </div>
 
+      {/* ====== 顶部 Tab: 记录 / 待补填 ====== */}
+      <div className="learn-tabs" style={{
+        display: 'inline-flex',
+        background: 'rgba(15,23,42,0.05)',
+        borderRadius: 12,
+        padding: 3,
+        marginBottom: 16,
+      }}>
+        <button
+          type="button"
+          onClick={() => setView('record')}
+          style={{
+            padding: '8px 18px', fontSize: 13, fontWeight: 600,
+            border: 'none', borderRadius: 9, cursor: 'pointer',
+            background: view === 'record' ? '#fff' : 'transparent',
+            color: view === 'record' ? '#0f172a' : '#94a3b8',
+            boxShadow: view === 'record' ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+            transition: 'all 160ms ease',
+            fontFamily: 'inherit',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >记录</button>
+        <button
+          type="button"
+          onClick={() => setView('pending')}
+          style={{
+            padding: '8px 18px', fontSize: 13, fontWeight: 600,
+            border: 'none', borderRadius: 9, cursor: 'pointer',
+            background: view === 'pending' ? '#fff' : 'transparent',
+            color: view === 'pending' ? '#0f172a' : '#94a3b8',
+            boxShadow: view === 'pending' ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+            transition: 'all 160ms ease',
+            fontFamily: 'inherit',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          待补填
+          {pending.length > 0 && (
+            <span style={{
+              background: view === 'pending' ? '#0f172a' : 'rgba(15,23,42,0.15)',
+              color: view === 'pending' ? '#fff' : '#64748b',
+              fontSize: 10, fontWeight: 700,
+              padding: '1px 6px', borderRadius: 8,
+              minWidth: 16, textAlign: 'center',
+            }}>{pending.length}</span>
+          )}
+        </button>
+      </div>
+
+      {view === 'pending' ? (
+        /* ====== 待补填视图 ====== */
+        <div className="pending-section">
+          {loadingPending ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 13 }}>
+              加载中…
+            </div>
+          ) : pending.length === 0 ? (
+            <div style={{
+              textAlign: 'center', padding: '40px 20px',
+              color: '#94a3b8', fontSize: 13,
+            }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
+              暂无待补填的客观评价
+            </div>
+          ) : (
+            <div className="recent-list">
+              {pending.map(r => (
+                <div
+                  key={r.id}
+                  className="record-card"
+                  onClick={() => {
+                    setPendingModalSession(r);
+                    setPendingModalGrade(null);
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="record-card__info">
+                    <div className="record-card__course">
+                      {r.course?.name || '-'}
+                      <span className="record-card__subject" style={{ color: r.course?.course_type === 2 ? '#f59e0b' : '#64748b' }}>
+                        {r.course?.course_type === 2 ? '校外' : '校内'}
+                      </span>
+                    </div>
+                    <div className="record-card__path">{r.chapter?.name || '-'} · {r.unit?.name || '-'}</div>
+                    <div className="record-card__tags">
+                      <span className="record-tag record-tag--form">{r.form}</span>
+                      {r.self_rating != null && (
+                        <span className="record-tag record-tag--eval">
+                          主观：{SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label || '-'}
+                        </span>
+                      )}
+                      <span className="record-tag record-tag--eval" style={{ color: '#94a3b8' }}>
+                        客观：待补充 ›
+                      </span>
+                    </div>
+                  </div>
+                  <div className="record-card__top-right">
+                    <div className="record-card__time">{fmtRecentDate(r.session_date, r.start_time)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ====== 记录视图（表单 + 最近记录）====== */
+        <>
       {courses.length > 0 && (
         <div className="quick-actions">
           <div className="quick-actions-label">快速记录</div>
@@ -617,9 +812,10 @@ export default function LearningPage() {
                 onClick={() => {
                   setCourseId(course.id);
                   setStartStr(toTimeStr(new Date()));
-                  setCategory(3);
+                  setCategory(1);  // 学习
                   setFormValue('自主预习');
-                  setEvalType(1);
+                  setObjIdx(9);
+                  setObjDeferred(false);
                 }}
               >
                 <span className="quick-action-course">{course.name}</span>
@@ -663,7 +859,7 @@ export default function LearningPage() {
             {/* ---- 1) 课程 / 章节 / 单元 ---- */}
             <div className="rec-block">
               <div className="rec-label">课程 / 章节 / 单元</div>
-              <div className="three-col">
+              <div className="three-col three-col-stay">
                 <div className="field">
                   <label>课程</label>
                   <select className={`input input-strong ${errors.course ? 'input-error' : ''}`}
@@ -703,7 +899,7 @@ export default function LearningPage() {
             {/* ---- 2) 日期 + 开始/结束时间 ---- */}
             <div className="rec-block">
               <div className="rec-label">时间</div>
-              <div className="three-col">
+              <div className="three-col three-col-stay">
                 <div className="field">
                   <label>日期</label>
                   <input type="date" className="input input-strong"
@@ -807,78 +1003,123 @@ export default function LearningPage() {
               )}
             </div>
 
-            {/* ---- 5) 评估方式 ---- */}
+            {/* ---- 5) 主观评估（必填）---- */}
             <div className="rec-block">
-              <div className="rec-label">评估方式</div>
-              <div className="eval-tabs">
-                <button
-                  type="button"
-                  className={'eval-tab' + (evalType === 1 ? ' active' : '')}
-                  onClick={() => { setEvalType(1); }}
-                  disabled={busy}
-                >主观评估</button>
-                <button
-                  type="button"
-                  className={'eval-tab' + (evalType === 2 ? ' active' : '')}
-                  onClick={() => { setEvalType(2); }}
-                  disabled={busy}
-                >客观评估</button>
+              <div className="rec-label">
+                主观评估
+                <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 400, marginLeft: 6 }}>* 必填</span>
               </div>
-
-              {evalType === 1 ? (
-                <GlassRail
-                  steps={SUBJECTIVE_STEPS}
-                  idx={subjIdx}
-                  onChange={setSubjIdx}
-                  disabled={busy}
-                />
-              ) : (
-                <div>
-                  <GlassRail
-                    steps={OBJECTIVE_STEPS}
-                    idx={objIdx}
-                    onChange={setObjIdx}
-                    disabled={busy}
-                  />
-                  <div className="grade-legend" style={{
-                    marginTop: 12,
-                    padding: '10px 12px',
-                    borderRadius: 12,
-                    background: 'rgba(99,102,241,0.05)',
-                    border: '1px solid rgba(99,102,241,0.18)',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
-                    rowGap: 4,
-                    columnGap: 10,
-                    fontSize: 12,
-                    color: '#334155',
-                  }}>
-                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
-                      letter grade 对应的百分制区间（参考）
-                    </div>
-                    {['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F'].map(g => (
-                      <div key={g} style={{
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        justifyContent: 'space-between',
-                        padding: '2px 4px',
-                        background: g === OBJECTIVE_STEPS[objIdx]?.label
-                          ? 'rgba(99,102,241,0.18)'
-                          : 'transparent',
-                        borderRadius: 6,
-                      }}>
-                        <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label ? '#4338ca' : '#475569' }}>
-                          {g}
-                        </span>
-                        <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-                          {GRADE_RANGES[g]}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <GlassRail
+                steps={SUBJECTIVE_STEPS}
+                idx={subjIdx}
+                onChange={setSubjIdx}
+                disabled={busy}
+              />
             </div>
+
+            {/* ---- 5b) 客观评估（仅练习类，可选/可滞后）---- */}
+            {category === 3 && (
+              <div className="rec-block">
+                <div className="rec-label">
+                  客观评估
+                  <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 400, marginLeft: 6 }}>（可选）</span>
+                </div>
+                {/* iOS-style segmented control: 现在填写 / 稍后补充 */}
+                <div className="eval-seg" role="tablist" style={{
+                  display: 'inline-flex',
+                  background: 'rgba(15,23,42,0.05)',
+                  borderRadius: 10,
+                  padding: 2,
+                  marginBottom: 10,
+                  position: 'relative',
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setObjDeferred(false)}
+                    disabled={busy}
+                    style={{
+                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
+                      background: !objDeferred ? '#fff' : 'transparent',
+                      color: !objDeferred ? '#0f172a' : '#94a3b8',
+                      boxShadow: !objDeferred ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
+                      transition: 'all 160ms ease',
+                      fontFamily: 'inherit',
+                    }}
+                  >现在填写</button>
+                  <button
+                    type="button"
+                    onClick={() => setObjDeferred(true)}
+                    disabled={busy}
+                    style={{
+                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
+                      background: objDeferred ? '#fff' : 'transparent',
+                      color: objDeferred ? '#0f172a' : '#94a3b8',
+                      boxShadow: objDeferred ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
+                      transition: 'all 160ms ease',
+                      fontFamily: 'inherit',
+                    }}
+                  >稍后补充</button>
+                </div>
+                {!objDeferred && (
+                  <>
+                    <GlassRail
+                      steps={OBJECTIVE_STEPS}
+                      idx={objIdx}
+                      onChange={setObjIdx}
+                      disabled={busy}
+                    />
+                    <div className="grade-legend" style={{
+                      marginTop: 12,
+                      padding: '10px 12px',
+                      borderRadius: 12,
+                      background: 'rgba(99,102,241,0.05)',
+                      border: '1px solid rgba(99,102,241,0.18)',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
+                      rowGap: 4,
+                      columnGap: 10,
+                      fontSize: 12,
+                      color: '#334155',
+                    }}>
+                      <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
+                        letter grade 对应的百分制区间（参考）
+                      </div>
+                      {['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F'].map(g => (
+                        <div key={g} style={{
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          justifyContent: 'space-between',
+                          padding: '2px 4px',
+                          background: g === OBJECTIVE_STEPS[objIdx]?.label
+                            ? 'rgba(99,102,241,0.18)'
+                            : 'transparent',
+                          borderRadius: 6,
+                        }}>
+                          <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label ? '#4338ca' : '#475569' }}>
+                            {g}
+                          </span>
+                          <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                            {GRADE_RANGES[g]}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {objDeferred && (
+                  <div style={{
+                    padding: '10px 12px', borderRadius: 10,
+                    background: 'rgba(99,102,241,0.05)',
+                    border: '1px dashed rgba(99,102,241,0.25)',
+                    fontSize: 12, color: '#64748b',
+                  }}>
+                    已选择稍后补充。可在顶部「待补填」标签页一键补填客观评价。
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ---- 6) 备注 ---- */}
             <div className="rec-block">
@@ -886,7 +1127,7 @@ export default function LearningPage() {
               <textarea
                 rows="3"
                 className="input input-strong"
-                placeholder={evalType === 2
+                placeholder={category === 3 && !objDeferred
                   ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
                   : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
                 value={notes}
@@ -940,7 +1181,21 @@ export default function LearningPage() {
                   <div className="record-card__tags">
                     <span className="record-tag record-tag--category">{catLabel(r.category)}</span>
                     <span className="record-tag record-tag--form">{r.form}</span>
-                    <span className="record-tag record-tag--eval">{r.eval_type === 1 ? SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label : r.grade_label}</span>
+                    {r.self_rating != null && (
+                      <span className="record-tag record-tag--eval">
+                        主观：{SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label || '-'}
+                      </span>
+                    )}
+                    {r.grade_label && (
+                      <span className="record-tag record-tag--eval">
+                        客观：{r.grade_label}
+                      </span>
+                    )}
+                    {r.category === 3 && !r.grade_label && (
+                      <span className="record-tag record-tag--eval" style={{ color: '#94a3b8' }}>
+                        客观：待补充
+                      </span>
+                    )}
                   </div>
                   {r.notes && <div className="record-card__notes">{r.notes}</div>}
                 </div>
@@ -975,7 +1230,125 @@ export default function LearningPage() {
           </div>
         )}
       </div>
+      </>
+      )}
+      </div>
 
-    </div>
+      {/* ====== 待补填客观评价 Modal（createPortal 到 document.body，彻底绕开父级 transform 干扰） ====== */}
+      {createPortal(
+        <AnimatePresence>
+        {pendingModalSession && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => { setPendingModalSession(null); setPendingModalGrade(null); }}
+            style={{
+              position: 'fixed', inset: 0,
+              background: 'rgba(15,23,42,0.4)',
+              backdropFilter: 'blur(4px)',
+              zIndex: 1000,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px 16px',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff',
+                borderRadius: 16,
+                boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+                width: '100%', maxWidth: 420,
+                maxHeight: '85vh',
+                display: 'flex', flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+            {/* 标题区 */}
+            <div style={{
+              padding: '16px 20px 14px',
+              borderBottom: '1px solid #f1f5f9',
+            }}>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>选择客观评价</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                {pendingModalSession.course?.name || '-'}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                {pendingModalSession.form} · {String(pendingModalSession.session_date || '').slice(5)}
+              </div>
+            </div>
+            {/* Grade 网格 */}
+            <div style={{
+              padding: '16px 20px 20px',
+              overflowY: 'auto',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 8,
+            }}>
+              {OBJECTIVE_STEPS.map(s => {
+                const selected = pendingModalGrade === s.label;
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setPendingModalGrade(s.label)}
+                    style={{
+                      padding: '12px 0',
+                      fontSize: 16, fontWeight: 700,
+                      border: selected ? '1.5px solid #4338ca' : '1px solid #e2e8f0',
+                      borderRadius: 10,
+                      background: selected ? 'rgba(99,102,241,0.12)' : '#fff',
+                      color: selected ? '#4338ca' : '#0f172a',
+                      cursor: 'pointer',
+                      transition: 'all 120ms ease',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {s.label}
+                    <div style={{ fontSize: 10, fontWeight: 400, color: '#94a3b8', marginTop: 2 }}>
+                      {GRADE_RANGES[s.label]}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {/* 保存按钮 */}
+            <div style={{
+              padding: '12px 20px 20px',
+              borderTop: '1px solid #f1f5f9',
+              flexShrink: 0,
+            }}>
+              <button
+                type="button"
+                onClick={onSavePendingGrade}
+                disabled={!pendingModalGrade || pendingSaving}
+                style={{
+                  width: '100%',
+                  padding: '14px 0',
+                  fontSize: 14, fontWeight: 700,
+                  border: 'none',
+                  borderRadius: 12,
+                  background: pendingModalGrade && !pendingSaving ? '#0f172a' : '#e2e8f0',
+                  color: pendingModalGrade && !pendingSaving ? '#fff' : '#94a3b8',
+                  cursor: pendingModalGrade && !pendingSaving ? 'pointer' : 'not-allowed',
+                  transition: 'all 160ms ease',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {pendingSaving ? '保存中…' : '保存客观评价'}
+              </button>
+            </div>
+            </motion.div>
+          </motion.div>
+        )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
   );
 }

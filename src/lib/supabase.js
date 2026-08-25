@@ -7,6 +7,18 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.');
 }
 
+// Vercel 部署提醒：如果使用的是默认 localhost 地址，提示用户在 Vercel 配置环境变量
+if (import.meta.env.DEV && SUPABASE_URL.includes('localhost')) {
+  console.warn('%c[DEPLOY WARNING]%c 检测到本地 Supabase 配置。', 'color:orange; font-weight:bold;', '');
+  console.warn('  部署到 Vercel 前，请在 Project Settings -> Environment Variables 中配置：');
+  console.warn('    - VITE_SUPABASE_URL');
+  console.warn('    - VITE_SUPABASE_ANON_KEY');
+}
+if (import.meta.env.PROD && SUPABASE_URL.includes('localhost')) {
+  console.error('%c[DEPLOY ERROR]%c 生产环境仍在使用 localhost Supabase 配置！', 'color:red; font-weight:bold;', '');
+  console.error('  请立即在 Vercel Project Settings 中配置正确的环境变量。');
+}
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
   schema: 'public',

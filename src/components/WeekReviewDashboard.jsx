@@ -274,8 +274,13 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
       {/* ── 维度总览 ── */}
       <DimensionStrip sessions={periodSessions} period={range} />
 
-      {/* ── 深度分析 ── */}
-      <DeepDivePanels sessions={periodSessions} weeks={weeks} studentName={studentName} />
+      {/* ── 深度分析（key 跟随时间维度变化，强制面板重挂载以重新展开 + 测量高度）── */}
+      <DeepDivePanels
+        key={`${presetId}-${range.start.toISOString()}-${range.end.toISOString()}`}
+        sessions={periodSessions}
+        weeks={weeks}
+        studentName={studentName}
+      />
     </div>
   );
 }

@@ -113,15 +113,15 @@ class PanelErrorBoundary extends Component {
 }
 
 // ── 可折叠面板壳 ─────────────────────────────────────
-function CollapsiblePanel({ title, icon, defaultOpen = false, children }) {
+function CollapsiblePanel({ title, icon, defaultOpen = false, children, _dataKey }) {
   const [open, setOpen] = useState(defaultOpen);
   const contentRef = useRef(null);
   const [measuredH, setMeasuredH] = useState(0);
 
   // 展开后自动测量内容高度，用精确像素代替 'auto' 兼容 Framer Motion v12
+  // _dataKey 变化时也重新测量（时间维度切换导致内容变化但面板仍开着的情况）
   useEffect(() => {
     if (open && contentRef.current) {
-      // 需要在下一帧测量
       const t = requestAnimationFrame(() => {
         if (contentRef.current) {
           setMeasuredH(contentRef.current.scrollHeight);
@@ -131,7 +131,7 @@ function CollapsiblePanel({ title, icon, defaultOpen = false, children }) {
     } else {
       setMeasuredH(0);
     }
-  }, [open]);
+  }, [open, _dataKey]);
 
   return (
     <div style={{
@@ -1331,19 +1331,19 @@ export default function DeepDivePanels({ sessions = [], weeks = [], studentName 
         深度分析
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <CollapsiblePanel title="学科时间分配详情" icon="◎" defaultOpen>
+        <CollapsiblePanel title="学科时间分配详情" icon="◎" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
           <SubjectAllocationPanel sessions={sessions} />
         </CollapsiblePanel>
-        <CollapsiblePanel title="学习趋势识别" icon="◎" defaultOpen>
+        <CollapsiblePanel title="学习趋势识别" icon="◎" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
           <LearningPatternInsightPanel sessions={sessions} studentName={studentName} />
         </CollapsiblePanel>
-        <CollapsiblePanel title="自主学习趋势" icon="◐" defaultOpen>
+        <CollapsiblePanel title="自主学习趋势" icon="◐" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
           <SelfLearningTrendPanel sessions={sessions} weeks={weeks} />
         </CollapsiblePanel>
-        <CollapsiblePanel title="练习质量分析" icon="✎" defaultOpen>
+        <CollapsiblePanel title="练习质量分析" icon="✎" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
           <PracticeQualityPanel sessions={sessions} />
         </CollapsiblePanel>
-        <CollapsiblePanel title="教育诊断结论" icon="⚠" defaultOpen>
+        <CollapsiblePanel title="教育诊断结论" icon="⚠" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
           <DiagnosisPanel sessions={sessions} />
         </CollapsiblePanel>
       </div>

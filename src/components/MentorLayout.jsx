@@ -26,6 +26,16 @@ function IconChartBar() {
   );
 }
 
+function IconBook() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}
+
 function IconSettings() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -50,6 +60,7 @@ function IconLogOut() {
 const MENU_ITEMS = [
   { id: 'students', label: '学生管理', Icon: IconUsers },
   { id: 'analytics', label: '数据分析', Icon: IconChartBar },
+  { id: 'syllabus', label: '课表', Icon: IconBook },
   { id: 'settings', label: '系统设置', Icon: IconSettings },
 ];
 

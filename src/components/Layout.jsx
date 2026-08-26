@@ -348,8 +348,9 @@ export default function Layout() {
             {isTeacher && (
               <span style={{
                 fontSize: '11px', padding: '3px 8px', borderRadius: '999px',
-                background: 'rgba(99,102,241,0.12)', color: '#4338ca',
-                border: '1px solid rgba(99,102,241,0.25)', marginLeft: '4px',
+                background: 'var(--brand-soft)', color: 'var(--brand)',
+                border: '1px solid rgba(193,39,45,0.25)', marginLeft: '4px',
+                fontWeight: 600,
               }}>老师</span>
             )}
             <button className="signout-btn" onClick={handleSignOut}>退出</button>

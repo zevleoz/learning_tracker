@@ -1,13 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 
+// 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
+function friendlyError(err, fallback = '操作失败，请稍后再试') {
+  if (!err) return fallback;
+  const msg = err.message || '';
+  const code = err.code;
+  // 42501 = insufficient_privilege / RLS 拒绝
+  if (code === '42501' || /permission denied|policy/i.test(msg)) return '权限不足：您只能操作自己的数据';
+  // 网络类
+  if (/Failed to fetch|NetworkError/i.test(msg)) return '网络连接异常，请检查网络';
+  if (/timeout|abort/i.test(msg)) return '请求超时，请稍后重试';
+  return fallback;
+}
+
+/* Spinner：inline loading indicator，用于按钮 busy 态 */
+function Spinner({ size = 12, color = 'currentColor' }) {
+  return (
+    <motion.svg
+      width={size} height={size} viewBox="0 0 50 50"
+      animate={{ rotate: 360 }}
+      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+      style={{ display: 'inline-block', verticalAlign: 'middle' }}
+    >
+      <circle cx="25" cy="25" r="20" fill="none" stroke={color} strokeOpacity="0.25" strokeWidth="5" />
+      <path d="M25 5 a20 20 0 0 1 20 20" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" />
+    </motion.svg>
+  );
+}
+
 export default function Notifications() {
   const [user, setUser] = useState(null);
   const [invites, setInvites] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   // 用 ref 保存 subscription，确保卸载时能正确清理（不能用 state，否则 cleanup 闭包里读到的是 null）
   const subRef = useRef(null);
 
@@ -18,6 +50,7 @@ export default function Notifications() {
       if (!u || cancelled) return;
       setUser(u);
       await loadInvites(u.id);
+      setInitialLoaded(true);
 
       // 在 effect 内创建 subscription，cleanup 时通过同一引用卸载
       const subscription = supabase
@@ -58,7 +91,7 @@ export default function Notifications() {
 
       if (connError) {
         logger.error('Connection query error:', connError);
-        toast(`加载邀请失败：${connError.message}`, { kind: 'error' });
+        toast(friendlyError(connError, '加载邀请失败，请稍后重试'), { kind: 'error' });
         return;
       }
 
@@ -86,7 +119,7 @@ export default function Notifications() {
       setInvites(decorated);
     } catch (err) {
       logger.error('loadInvites error:', err);
-      toast(err.message || '加载邀请失败', { kind: 'error' });
+      toast(friendlyError(err, '加载邀请失败，请稍后重试'), { kind: 'error' });
     } finally {
       setLoading(false);
     }
@@ -104,7 +137,7 @@ export default function Notifications() {
         .eq('student_id', user.id);
       if (error) {
         logger.error('updateStatus error:', error);
-        toast(`操作失败：${error.message}`, { kind: 'error' });
+        toast(friendlyError(error, '操作失败，请稍后重试'), { kind: 'error' });
         return;
       }
       // 乐观更新本地状态，避免完全依赖 realtime 回流
@@ -117,7 +150,6 @@ export default function Notifications() {
 
   async function disconnect(id) {
     if (!user) return;
-    if (!confirm('确定要断开与这位老师的连接吗？断开后老师将无法继续查看你的学习数据。')) return;
     if (busyId) return;
     setBusyId(id);
     try {
@@ -128,7 +160,7 @@ export default function Notifications() {
         .eq('student_id', user.id);
       if (error) {
         logger.error('disconnect error:', error);
-        toast(`操作失败：${error.message}`, { kind: 'error' });
+        toast(friendlyError(error, '断开失败，请稍后重试'), { kind: 'error' });
         return;
       }
       setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status: 2 } : c));
@@ -141,6 +173,9 @@ export default function Notifications() {
   const pending = invites.filter((i) => i.status === 0);
   const accepted = invites.filter((i) => i.status === 1);
 
+  // 确认弹窗的目标对象
+  const confirmInvite = confirmTarget ? invites.find((c) => c.id === confirmTarget) : null;
+
   return (
     <div style={{ padding: '16px 16px 120px', maxWidth: 760, margin: '0 auto', fontSize: 13, color: '#334155' }}>
       <header>
@@ -150,16 +185,22 @@ export default function Notifications() {
         </p>
       </header>
 
-      {loading && <div style={{ marginTop: 20, color: '#94a3b8' }}>加载中…</div>}
-
-      {!loading && pending.length === 0 && accepted.length === 0 && (
-        <Card style={{ marginTop: 16, textAlign: 'center' }}>
-          <div style={{ fontSize: 14, marginBottom: 4 }}>还没有邀请。</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>老师邀请你后，你将在这里看到并选择接受/拒绝。</div>
-        </Card>
+      {loading && !initialLoaded && (
+        <div className="loading-state" style={{ padding: '60px 16px' }}>
+          <div className="loading-spinner"></div>
+          <span>加载中…</span>
+        </div>
       )}
 
-      {pending.length > 0 && (
+      {!loading && initialLoaded && pending.length === 0 && accepted.length === 0 && (
+        <div className="empty-state" style={{ marginTop: 16 }}>
+          <div className="empty-state-icon">📨</div>
+          <h3>还没有邀请</h3>
+          <p>老师邀请你后，你将在这里看到并选择接受或拒绝。</p>
+        </div>
+      )}
+
+      {initialLoaded && pending.length > 0 && (
         <Section title="等待你的决定" count={pending.length} hint="接受后老师将能查看你的学习数据">
           {pending.map((c) => (
             <InviteRow
@@ -192,31 +233,31 @@ export default function Notifications() {
                   color: '#059669', background: '#a7f3d0',
                 }}>已连接</span>
                 <button
-                  onClick={() => disconnect(c.id)}
+                  onClick={() => setConfirmTarget(c.id)}
                   disabled={busyId === c.id}
-                  style={{
-                    fontSize: 11, padding: '4px 10px', borderRadius: 8,
-                    border: '1px solid rgba(239,68,68,0.3)', color: '#b91c1c',
-                    background: 'rgba(255,255,255,0.8)', cursor: busyId === c.id ? 'not-allowed' : 'pointer',
-                    opacity: busyId === c.id ? 0.6 : 1,
-                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#b91c1c', borderColor: 'rgba(239,68,68,0.3)' }}
                 >断开</button>
               </div>
             </div>
           ))}
         </Section>
       )}
-    </div>
-  );
-}
 
-function Card({ children, style }) {
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.4)',
-      borderRadius: 16, padding: 18, ...style,
-    }}>
-      {children}
+      {confirmTarget && confirmInvite && createPortal(
+        <ConfirmDialog
+          title="断开连接？"
+          message={`确定要断开与 ${confirmInvite.teacher_name} 的连接吗？断开后老师将无法继续查看你的学习数据。`}
+          busy={busyId === confirmInvite.id}
+          confirmLabel="断开"
+          confirmVariant="danger"
+          onCancel={() => setConfirmTarget(null)}
+          onConfirm={() => {
+            disconnect(confirmInvite.id).then(() => setConfirmTarget(null));
+          }}
+        />,
+        document.body
+      )}
     </div>
   );
 }
@@ -257,19 +298,75 @@ function InviteRow({ invite, onAccept, onReject, busy }) {
           <button
             onClick={onAccept}
             disabled={busy}
-            style={{
-              fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid #10b981', color: '#065f46', background: '#d1fae5', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600,
-              opacity: busy ? 0.6 : 1,
-            }}
-          >接受</button>
+            className="btn btn-primary btn-sm"
+            style={{ borderColor: '#10b981', color: '#065f46', background: '#d1fae5', minWidth: 64 }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {busy && <Spinner size={11} color="#065f46" />}
+              {busy ? '处理中…' : '接受'}
+            </span>
+          </button>
           <button
             onClick={onReject}
             disabled={busy}
-            style={{
-              fontSize: 12, padding: '6px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)', color: '#b91c1c', background: 'rgba(255,255,255,0.9)', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 500,
-              opacity: busy ? 0.6 : 1,
-            }}
-          >拒绝</button>
+            className="btn btn-ghost btn-sm"
+            style={{ color: '#b91c1c', borderColor: 'rgba(239,68,68,0.4)', minWidth: 64 }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {busy && <Spinner size={11} color="#b91c1c" />}
+              {busy ? '处理中…' : '拒绝'}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({ title, message, onConfirm, onCancel, busy, confirmLabel = '确认', confirmVariant = 'primary' }) {
+  const isDanger = confirmVariant === 'danger';
+  const confirmStyle = isDanger
+    ? { background: 'rgba(239,68,68,0.12)', color: '#b91c1c', borderColor: 'rgba(239,68,68,0.3)' }
+    : {};
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(15,23,42,0.35)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20, animation: 'fadeIn 180ms ease-out',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--glass-strong, rgba(255,255,255,0.9))',
+          backdropFilter: 'var(--blur-sheet, blur(20px))',
+          WebkitBackdropFilter: 'var(--blur-sheet, blur(20px))',
+          borderRadius: 20, padding: 24,
+          width: '100%', maxWidth: 340,
+          border: '1px solid var(--edge-bright, rgba(15,23,42,0.08))',
+          boxShadow: '0 2px 6px rgba(15,23,42,0.04), 0 18px 44px rgba(15,23,42,0.12)',
+          animation: 'authModalIn 220ms cubic-bezier(0.32,0.72,0,1)',
+        }}
+      >
+        <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700, color: 'var(--text-strong, #0f172a)' }}>{title}</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-soft, #64748b)', lineHeight: 1.55 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="btn btn-ghost btn-sm"
+          >取消</button>
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            className="btn btn-primary btn-sm"
+            style={confirmStyle}
+          >{busy ? '处理中…' : confirmLabel}</button>
         </div>
       </div>
     </div>

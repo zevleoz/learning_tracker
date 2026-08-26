@@ -275,6 +275,11 @@ body::after {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes authModalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 /* —— iOS 风格页面转场（从右滑入 / 向左滑出） —— */
 .page-enter {
   animation: pageSlideIn 300ms cubic-bezier(0.32, 0.72, 0.0, 1) both;
@@ -790,12 +795,53 @@ select.input-strong {
   width: 32px;
   height: 32px;
   border: 3px solid rgba(148,163,184,0.2);
-  border-top-color: #6366f1;
+  border-top-color: var(--brand);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ================================================================
+   Segmented Tab（记录/待补填 等）
+   ================================================================ */
+.seg-tabs {
+  display: inline-flex;
+  background: rgba(15,23,42,0.05);
+  border-radius: 12px;
+  padding: 3px;
+  margin-bottom: 16px;
+}
+.seg-tab {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  background: transparent;
+  color: #94a3b8;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 160ms ease;
+}
+.seg-tab:hover { color: var(--text-soft); }
+.seg-tab.active {
+  background: #fff;
+  color: var(--text-strong);
+  box-shadow: 0 1px 3px rgba(15,23,42,0.08);
+}
+.seg-tab-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #94a3b8;
+  color: #ffffff;
+  line-height: 1.5;
 }
 
 /* —— 分段按钮（3 行为类别 / 2 评估方式）· Liquid Glass —— */

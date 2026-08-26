@@ -33,20 +33,14 @@ drop function if exists public.current_user_id()                  cascade;
 -- 1. 工具函数（角色判定）
 -- ----------------------------------------------------------------
 
+-- 安全说明：role 只从 profiles 表读取（数据库权威来源），
+-- 不再从 JWT user_metadata 读取（user_metadata 可被用户自行修改 → 提权漏洞）
 create or replace function public.is_mentor() returns boolean
 language plpgsql security definer stable as $$
 declare
   the_role smallint;
 begin
-  if current_setting('request.jwt.claims', true) is not null then
-    the_role := coalesce(
-      (current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role')::smallint,
-      (current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role')::smallint
-    );
-  end if;
-  if the_role is null and auth.uid() is not null then
-    select p.role into the_role from public.profiles p where p.id = auth.uid();
-  end if;
+  select p.role into the_role from public.profiles p where p.id = auth.uid();
   return coalesce(the_role, 1) >= 2;
 end;
 $$;
@@ -74,18 +68,18 @@ create table public.profiles (
   created_at timestamptz default now()
 );
 
--- 注册时自动建档案 + 学校（Supabase 推荐写法：读 raw_app_meta_data.role）
+-- 注册时自动建档案 + 学校
+-- 安全说明：role 始终为 1（学生默认），不再从 user_metadata 读取 role，
+-- 避免用户在 signUp 时传 data:{role:2} 绕过老师密钥。
+-- 导师提权必须通过 register_teacher() RPC（服务端验证密钥后执行）。
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer as $$
 declare
   v_school_name text;
   v_school_id   uuid;
-  v_role        smallint;
   v_full_name   text;
 begin
-  v_role      := coalesce((new.raw_app_meta_data ->> 'role')::smallint,
-                          (new.raw_user_meta_data ->> 'role')::smallint, 1);
-  v_full_name := coalesce(new.raw_user_meta_data ->> 'full_name', new.email);
+  v_full_name   := coalesce(new.raw_user_meta_data ->> 'full_name', new.email);
   v_school_name := trim(coalesce(new.raw_user_meta_data ->> 'school_name', ''));
 
   if v_school_name <> '' and v_school_name is not null then
@@ -96,8 +90,12 @@ begin
     end if;
   end if;
 
+  -- role 始终为 1（学生默认），导师提权走 register_teacher RPC
   insert into public.profiles (id, role, full_name, school_id)
-  values (new.id, v_role, v_full_name, v_school_id);
+  values (new.id, 1, v_full_name, v_school_id)
+  on conflict (id) do update set
+    full_name = excluded.full_name,
+    school_id = excluded.school_id;
   return new;
 end;
 $$;
@@ -416,8 +414,10 @@ create policy profiles_select_self on public.profiles
   for select using (id = auth.uid() or public.is_mentor());
 
 drop policy if exists profiles_update_self on public.profiles;
+-- with check 双重保险：防止用户通过 update 改 role 提权
 create policy profiles_update_self on public.profiles
-  for update using (id = auth.uid());
+  for update using (id = auth.uid())
+  with check (id = auth.uid());
 
 -- courses：导师/作者可写；所有人可看同校所有课程或自己创建的课程
 drop policy if exists courses_select on public.courses;
@@ -531,6 +531,65 @@ create policy signals_select on public.signals
 insert into public.schools (id, name) values ('00000000-0000-0000-0000-000000000001', '示例学校')
 on conflict do nothing;
 */
+
+-- ----------------------------------------------------------------
+-- 8. 安全加固：禁止非 service-role 直接修改 profiles.role
+-- ----------------------------------------------------------------
+-- profiles_update_self 允许用户 update 自己的 profile，
+-- 此 trigger 作为最后一道防线：阻止非管理员修改 role 列。
+-- register_teacher() RPC 是 security definer，在其中直接 update role。
+create or replace function public.guard_profile_role() returns trigger
+language plpgsql security definer as $$
+begin
+  if OLD.role is distinct from NEW.role then
+    if current_user not in ('postgres', 'supabase_admin', 'service_role') then
+      raise exception 'Role cannot be changed directly. Use register_teacher() RPC.'
+        using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_profile_role on public.profiles;
+create trigger guard_profile_role
+  before update on public.profiles
+  for each row execute function public.guard_profile_role();
+
+-- ----------------------------------------------------------------
+-- 9. register_teacher RPC：服务端验证密钥 + 提升调用者 role
+-- ----------------------------------------------------------------
+-- 流程：用户 signUp（role=1）→ 前端调用 register_teacher(key) →
+--       RPC 验证密钥 → update profiles set role=2 → 前端重新登录
+create or replace function public.register_teacher(key_text text)
+returns boolean
+language plpgsql security definer as $$
+declare
+  v_uid uuid := auth.uid();
+  v_key_valid boolean := false;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated' using errcode = '42501';
+  end if;
+
+  select exists (
+    select 1 from public.teacher_keys
+    where key_hash = encode(digest(key_text, 'sha256'), 'hex')
+  ) into v_key_valid;
+
+  if not v_key_valid then
+    raise exception 'Invalid teacher key' using errcode = '42501';
+  end if;
+
+  update public.profiles set role = 2, updated_at = now()
+  where id = v_uid and role = 1;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.register_teacher(text) from public;
+grant execute on function public.register_teacher(text) to authenticated;
 
 -- ================================================================
 -- 完成

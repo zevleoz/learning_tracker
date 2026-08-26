@@ -64,25 +64,37 @@ export default function Review() {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 16px', color: '#64748b', fontSize: '14px' }}>
-        加载中…
+      <div className="loading-state" style={{ padding: '60px 16px' }}>
+        <div className="loading-spinner"></div>
+        <span>加载中…</span>
       </div>
     );
   }
 
   if (loadError) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 16px' }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-        <p style={{ color: '#64748b', fontSize: '14px', marginBottom: 16 }}>{loadError}</p>
+      <div className="empty-state" style={{ padding: '40px 16px' }}>
+        <div className="empty-state-icon">⚠️</div>
+        <h3>加载失败</h3>
+        <p>{loadError}</p>
         <button
+          className="btn btn-primary btn-sm"
           onClick={() => fetchSessions()}
-          style={{
-            padding: '8px 20px', fontSize: 14, fontWeight: 600,
-            borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: '#6366f1', color: 'white',
-          }}
+          style={{ marginTop: 12 }}
         >刷新重试</button>
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="empty-state" style={{ padding: '40px 16px' }}>
+        <div className="empty-state-icon">📊</div>
+        <h3>还没有学习记录</h3>
+        <p>去「记录」页面记录第一次学习，这里会自动生成数据分析。</p>
+        <a href="/learning" className="btn btn-primary btn-sm" style={{ marginTop: 12, textDecoration: 'none' }}>
+          去记录
+        </a>
       </div>
     );
   }

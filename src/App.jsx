@@ -39,7 +39,6 @@ export default function App() {
             <Route path="/syllabus" element={<Syllabus />} />
             <Route path="/learning" element={<Learning />} />
             <Route path="/review" element={<Review />} />
-            <Route path="/mentor" element={<Mentor />} />
             <Route path="/notifications" element={<Notifications />} />
             {import.meta.env.DEV && DebugTools && (
               <Route
@@ -51,6 +50,12 @@ export default function App() {
                 }
               />
             )}
+          </Route>
+        </Route>
+        {/* 导师专属路由：需要 role >= 2 */}
+        <Route element={<ProtectedRoute minRole={2} />}>
+          <Route element={<Layout />}>
+            <Route path="/mentor" element={<Mentor />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

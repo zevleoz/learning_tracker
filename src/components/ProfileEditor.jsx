@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
@@ -30,6 +31,7 @@ export default function ProfileEditor({
   const [fullName, setFullName] = useState('');
   const [schoolName, setSchoolName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Pre-fill from target profile or user_metadata
   useEffect(() => {
@@ -121,7 +123,7 @@ export default function ProfileEditor({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
         <div style={{
           width: 48, height: 48, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          background: 'linear-gradient(135deg, var(--brand), #a83338)',
           color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 20, fontWeight: 700, flexShrink: 0,
         }}>{initials}</div>
@@ -137,15 +139,15 @@ export default function ProfileEditor({
           <div style={{
             display: 'inline-block', marginTop: 4, fontSize: 10, fontWeight: 600,
             padding: '2px 8px', borderRadius: 999,
-            background: role >= 2 ? 'rgba(99,102,241,0.12)' : 'rgba(16,185,129,0.12)',
-            color: role >= 2 ? '#4338ca' : '#047857',
+            background: role >= 2 ? 'var(--brand-soft)' : 'rgba(16,185,129,0.12)',
+            color: role >= 2 ? 'var(--brand)' : '#047857',
           }}>{roleLabel}</div>
         </div>
       </div>
 
       <div>
         <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-          昵称 <span style={{ color: '#6366f1' }}>*</span>
+          昵称 <span style={{ color: 'var(--brand)' }}>*</span>
         </label>
         <input
           type="text"
@@ -161,7 +163,7 @@ export default function ProfileEditor({
             boxSizing: 'border-box', outline: 'none',
             transition: 'border-color 0.15s',
           }}
-          onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+          onFocus={(e) => (e.target.style.borderColor = 'var(--brand)')}
           onBlur={(e) => (e.target.style.borderColor = 'rgba(15,23,42,0.12)')}
         />
       </div>
@@ -169,7 +171,7 @@ export default function ProfileEditor({
       {showSchool && (
         <div>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-            学校 {isStudent && <span style={{ color: '#6366f1' }}>*</span>}
+            学校 {isStudent && <span style={{ color: 'var(--brand)' }}>*</span>}
           </label>
           <input
             type="text"
@@ -184,7 +186,7 @@ export default function ProfileEditor({
               boxSizing: 'border-box', outline: 'none',
               transition: 'border-color 0.15s',
             }}
-            onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+            onFocus={(e) => (e.target.style.borderColor = 'var(--brand)')}
             onBlur={(e) => (e.target.style.borderColor = 'rgba(15,23,42,0.12)')}
           />
           {isEditingOther && (
@@ -202,7 +204,7 @@ export default function ProfileEditor({
           style={{
             flex: 1, padding: '10px 16px', fontSize: 14, fontWeight: 600,
             borderRadius: 10, border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
-            background: busy ? '#cbd5e1' : '#6366f1', color: 'white',
+            background: busy ? '#cbd5e1' : 'var(--brand)', color: 'white',
             opacity: busy ? 0.7 : 1, transition: 'background 0.15s',
           }}
         >
@@ -226,19 +228,60 @@ export default function ProfileEditor({
       </div>
 
       {!isEditingOther && (
-        <button
-          type="button"
-          onClick={() => { if (confirm('确定退出登录吗？')) { signOut(); onClose?.(); } }}
-          style={{
-            marginTop: 8, padding: '8px 12px', fontSize: 13,
-            borderRadius: 8, cursor: 'pointer',
-            background: 'transparent', color: '#ef4444',
-            border: '1px solid rgba(239,68,68,0.25)',
-            alignSelf: 'flex-start',
-          }}
-        >
-          退出登录
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => setShowLogoutConfirm(true)}
+            style={{
+              marginTop: 8, padding: '8px 12px', fontSize: 13,
+              borderRadius: 8, cursor: 'pointer',
+              background: 'transparent', color: 'var(--brand)',
+              border: '1px solid rgba(193,39,45,0.25)',
+              alignSelf: 'flex-start',
+            }}
+          >
+            退出登录
+          </button>
+          {showLogoutConfirm && createPortal(
+            <div
+              onClick={() => setShowLogoutConfirm(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 1000,
+                background: 'rgba(15,23,42,0.35)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: 20, animation: 'fadeIn 180ms ease-out',
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  background: 'var(--glass-strong, rgba(255,255,255,0.95))',
+                  backdropFilter: 'var(--blur-sheet, blur(20px))',
+                  WebkitBackdropFilter: 'var(--blur-sheet, blur(20px))',
+                  borderRadius: 20, padding: 24,
+                  width: '100%', maxWidth: 340,
+                  border: '1px solid var(--edge-bright, rgba(15,23,42,0.08))',
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.04), 0 18px 44px rgba(15,23,42,0.12)',
+                  animation: 'authModalIn 220ms cubic-bezier(0.32,0.72,0,1)',
+                }}
+              >
+                <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700, color: 'var(--text-strong, #0f172a)' }}>退出登录？</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-soft, #64748b)', lineHeight: 1.55 }}>确定要退出当前账号吗？</p>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowLogoutConfirm(false)} className="btn btn-ghost btn-sm">取消</button>
+                  <button
+                    onClick={() => { signOut(); setShowLogoutConfirm(false); onClose?.(); }}
+                    className="btn btn-primary btn-sm"
+                    style={{ background: 'rgba(193,39,45,0.12)', color: 'var(--brand)', borderColor: 'rgba(193,39,45,0.3)' }}
+                  >退出</button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+        </>
       )}
     </form>
   );

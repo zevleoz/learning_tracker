@@ -66,7 +66,7 @@ export default function Signup() {
 
     setBusy(true);
     try {
-      // 老师注册密钥：调用后端 RPC 校验哈希，避免明文密钥暴露在前端
+      // 老师注册：先预校验密钥（UX，快速失败），signUp 后由 register_teacher RPC 提权
       if (role === 2) {
         const { data: ok, error: keyErr } = await supabase.rpc('verify_teacher_key', {
           key_text: form.teacherKey,
@@ -76,6 +76,9 @@ export default function Signup() {
           return;
         }
       }
+
+      // signUp 不再传 role（避免用户绕过密钥自行传 role=2 提权）
+      // handle_new_user trigger 会默认创建 role=1 的 profile
       const { data: signUpData, error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
@@ -83,36 +86,44 @@ export default function Signup() {
           data: {
             full_name: form.name.trim() || form.email.split('@')[0],
             school_name: form.school.trim() || '',
-            role,
           }
         }
       });
       if (error) throw error;
 
-      // Use signUpData.user.id (always the new user's ID) instead of getSession()
-      // getSession() may return a previous mentor's session if email confirmation is enabled
-      try {
-        const uid = signUpData?.user?.id;
-        if (uid) {
-          await supabase.from('profiles').upsert({
-            id: uid,
-            full_name: form.name.trim() || form.email.split('@')[0],
-            school_name: form.school.trim() || '',
-            role,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'id' });
+      const uid = signUpData?.user?.id;
+
+      // 老师注册：signUp 成功后调用 register_teacher RPC 服务端提权
+      // RPC 会再次验证密钥并 update profiles.role=2（绕过 guard_profile_role trigger）
+      if (role === 2 && uid) {
+        try {
+          const { error: elevateErr } = await supabase.rpc('register_teacher', {
+            key_text: form.teacherKey,
+          });
+          if (elevateErr) {
+            logger.error('register_teacher failed:', elevateErr);
+            // 提权失败：账号已创建但仍是学生角色，提示用户
+            toast('账号已创建，但密钥验证失败，请登录后联系管理员', { kind: 'warning' });
+            await supabase.auth.signOut();
+            nav('/login', { replace: true });
+            return;
+          }
+        } catch (elevateErr) {
+          logger.error('register_teacher error:', elevateErr);
+          toast('账号已创建，但导师提权失败，请登录后重试', { kind: 'warning' });
+          await supabase.auth.signOut();
+          nav('/login', { replace: true });
+          return;
         }
-      } catch (syncErr) {
-        logger.warn('profile sync failed:', syncErr);
+        // 提权成功：signOut 后重新登录，确保 profile 和 JWT 刷新
+        toast('老师账号已创建 🎉\n请重新登录以激活导师权限。', { kind: 'success' });
+        await supabase.auth.signOut();
+        nav('/login', { replace: true });
+        return;
       }
 
-      toast(
-        role >= 2
-          ? '老师账号已创建 🎉\n现在可以向学生发送邀请，学生接受后即可看到他的学习数据。'
-          : '账号已创建 🎉\n开始添加你的课程大纲吧！',
-        { kind: 'success' }
-      );
-      nav(role >= 2 ? '/mentor' : '/syllabus', { replace: true });
+      toast('账号已创建 🎉\n开始添加你的课程大纲吧！', { kind: 'success' });
+      nav('/syllabus', { replace: true });
     } catch (err) {
       logger.error('signup error:', err);
       toast(err.message || '注册失败，请稍后再试', { kind: 'error' });
@@ -222,8 +233,8 @@ export default function Signup() {
               <label style={{
                 display: 'flex', alignItems: 'center', gap: '8px',
                 padding: '10px 12px', borderRadius: '10px', cursor: 'pointer',
-                border: form.role === '1' ? '1px solid #6366f1' : '1px solid rgba(100,116,139,0.35)',
-                background: form.role === '1' ? 'rgba(99,102,241,0.08)' : 'transparent',
+                border: form.role === '1' ? '1px solid var(--brand)' : '1px solid rgba(100,116,139,0.35)',
+                background: form.role === '1' ? 'var(--brand-soft)' : 'transparent',
               }}>
                 <input type="radio" name="role" value="1"
                        checked={form.role === '1'}
@@ -233,8 +244,8 @@ export default function Signup() {
               <label style={{
                 display: 'flex', alignItems: 'center', gap: '8px',
                 padding: '10px 12px', borderRadius: '10px', cursor: 'pointer',
-                border: form.role === '2' ? '1px solid #6366f1' : '1px solid rgba(100,116,139,0.35)',
-                background: form.role === '2' ? 'rgba(99,102,241,0.08)' : 'transparent',
+                border: form.role === '2' ? '1px solid var(--brand)' : '1px solid rgba(100,116,139,0.35)',
+                background: form.role === '2' ? 'var(--brand-soft)' : 'transparent',
               }}>
                 <input type="radio" name="role" value="2"
                        checked={form.role === '2'}

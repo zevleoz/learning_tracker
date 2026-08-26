@@ -69,6 +69,11 @@ const GRADE_RANGES = {
   'F':  '0–59',
 };
 
+// 成绩 tab 预设等第（仅 letter grade A+ ~ F）
+const GRADE_PRESET_CHIPS = [
+  'A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F',
+];
+
 const SUBJECT_COLORS = {
   '数学': { bg: 'rgba(99, 102, 241, 0.15)', text: '#4338ca', border: 'rgba(99, 102, 241, 0.3)' },
   '物理': { bg: 'rgba(34, 197, 94, 0.15)', text: '#166534', border: 'rgba(34, 197, 94, 0.3)' },
@@ -148,6 +153,107 @@ function GlassRail({ steps, idx, onChange, disabled, labelFn }) {
   );
 }
 
+/* ============ Inline Spinner（14px，用于按钮 busy 态左侧） ============ */
+function Spinner({ size = 14, color = 'currentColor' }) {
+  return (
+    <motion.svg
+      width={size}
+      height={size}
+      viewBox="0 0 50 50"
+      animate={{ rotate: 360 }}
+      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+      style={{ display: 'inline-block', verticalAlign: 'middle' }}
+    >
+      <circle
+        cx="25" cy="25" r="20"
+        fill="none"
+        stroke={color}
+        strokeOpacity="0.25"
+        strokeWidth="5"
+      />
+      <path
+        d="M25 5 a20 20 0 0 1 20 20"
+        fill="none"
+        stroke={color}
+        strokeWidth="5"
+        strokeLinecap="round"
+      />
+    </motion.svg>
+  );
+}
+
+/* ============ Liquid Glass Checkmark（成功/失败反馈 overlay） ============ */
+function LiquidGlassFlash({ show, variant = 'success', size = 88, duration = 500, onComplete }) {
+  const [visible, setVisible] = useState(false);
+  const [animKey, setAnimKey] = useState(0);
+  useEffect(() => {
+    if (show) {
+      setVisible(true);
+      setAnimKey(k => k + 1);
+      const t = setTimeout(() => {
+        setVisible(false);
+        onComplete && onComplete();
+      }, duration);
+      return () => clearTimeout(t);
+    }
+  }, [show]); // eslint-disable-line
+  if (!show && !visible) return null;
+  const isSuccess = variant === 'success';
+  return (
+    <motion.div
+      key={animKey}
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 1.05 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+      style={{
+        position: 'fixed',
+        top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: size, height: size,
+        borderRadius: Math.round(size * 0.26),
+        background: 'rgba(255,255,255,0.78)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: `1px solid ${isSuccess ? 'rgba(148,163,184,0.55)' : 'rgba(254,202,202,0.9)'}`,
+        boxShadow: '0 24px 60px rgba(15,23,42,0.18)',
+        zIndex: 1500,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      {isSuccess ? (
+        <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
+          <motion.path
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+            d="M14 27 L23 36 L39 18"
+            stroke="#0f172a"
+            strokeWidth="4.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
+          <motion.g
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+            stroke="#0f172a"
+            strokeWidth="4.5"
+            strokeLinecap="round"
+          >
+            <line x1="16" y1="16" x2="36" y2="36" />
+            <line x1="36" y1="16" x2="16" y2="36" />
+          </motion.g>
+        </svg>
+      )}
+    </motion.div>
+  );
+}
+
 /* ============ 页面主体 ============ */
 export default function LearningPage() {
   const { user } = useAuth();
@@ -176,9 +282,11 @@ export default function LearningPage() {
   /* --- 评估方式 --- */
   // 主观：必填，始终展示
   // 客观：可选，仅"练习"(category=3)展示，可滞后填写（objDeferred=true 表示暂不填写）
+  //       或标记为不适用（isObjNA=true 时 grade_label='N/A'，自动从待补填列表排除）
   const [subjIdx, setSubjIdx] = useState(3);     // 默认"基本掌握" → 80
   const [objIdx, setObjIdx] = useState(9);        // 默认 B+；展开即给默认值
   const [objDeferred, setObjDeferred] = useState(false); // 默认"现在填写"
+  const [isObjNA, setIsObjNA] = useState(false);  // 客观不适用 (N/A)
 
   /* --- 备注 --- */
   const [notes, setNotes] = useState('');
@@ -193,8 +301,8 @@ export default function LearningPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
 
-  /* --- 顶部 tab：记录 / 待补填 --- */
-  const [view, setView] = useState('record'); // 'record' | 'pending'
+  /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
+  const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
 
   /* --- 待补填客观评价列表 --- */
   const [pending, setPending] = useState([]);
@@ -202,6 +310,24 @@ export default function LearningPage() {
   const [pendingModalSession, setPendingModalSession] = useState(null); // 选中的 session
   const [pendingModalGrade, setPendingModalGrade] = useState(null);     // 选中的 grade label
   const [pendingSaving, setPendingSaving] = useState(false);
+
+  /* --- 成绩 Tab：校内课程 + 考试成绩 --- */
+  const [scoreCourses, setScoreCourses] = useState([]);   // 校内课程列表 course_type=1
+  const [examScores, setExamScores] = useState([]);      // 所有 exam_scores 记录
+  const [loadingScores, setLoadingScores] = useState(false);
+  // 新增/编辑成绩 modal
+  const [scoreModalOpen, setScoreModalOpen] = useState(false);
+  const [scoreModalEditing, setScoreModalEditing] = useState(null);  // exam_score 对象或 null(新增)
+  const [scoreModalCourseId, setScoreModalCourseId] = useState('');
+  const [scoreForm, setScoreForm] = useState({ exam_name: '', exam_date: '', score: '', grade_label: '', notes: '' });
+  const [scoreSaving, setScoreSaving] = useState(false);
+  const [scoreDeletingId, setScoreDeletingId] = useState(null);
+
+  /* --- Liquid Glass 成功/失败反馈 flash --- */
+  const [flashState, setFlashState] = useState({ show: false, variant: 'success', size: 88, duration: 500 });
+  function triggerFlash(variant = 'success', size = 88, duration = 500) {
+    setFlashState({ show: true, variant, size, duration });
+  }
 
   /* ========== 载入：课程 tree ========== */
   useEffect(() => {
@@ -326,10 +452,145 @@ export default function LearningPage() {
     }
   };
 
-  // 切到「待补填」tab 时拉取；提交后也刷新
+  // 进页面即加载 pending（tab bar badge 需要立即显示数字）
+  useEffect(() => {
+    if (user) loadPending();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 切到「待补填」tab 时再次刷新；提交后也刷新
   useEffect(() => {
     if (user && view === 'pending') loadPending();
   }, [user, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ========== 载入：成绩 Tab 数据（校内课程 + exam_scores）========== */
+  const loadScores = async () => {
+    if (!user) return;
+    setLoadingScores(true);
+    let cancelled = false;
+    try {
+      const [coursesRes, scoresRes] = await Promise.all([
+        supabase
+          .from('courses')
+          .select('id, name, subject, course_type')
+          .eq('created_by', user.id)
+          .eq('course_type', 1)   // 仅校内课程
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('exam_scores')
+          .select('*')
+          .eq('student_id', user.id)
+          .is('deleted_at', null)
+          .order('exam_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+      ]);
+      if (cancelled) return;
+      if (coursesRes.error) { logger.error('加载校内课程失败:', coursesRes.error); }
+      if (scoresRes.error)  { logger.error('加载考试成绩失败:', scoresRes.error); }
+      if (!coursesRes.error) setScoreCourses(coursesRes.data || []);
+      if (!scoresRes.error)  setExamScores(scoresRes.data || []);
+    } finally {
+      if (!cancelled) setLoadingScores(false);
+    }
+  };
+  useEffect(() => {
+    if (user && view === 'scores') loadScores();
+  }, [user, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ========== 成绩：打开新增/编辑 modal ========== */
+  function openScoreModal(courseId, editingScore = null) {
+    setScoreModalCourseId(courseId);
+    setScoreModalEditing(editingScore);
+    if (editingScore) {
+      setScoreForm({
+        exam_name: editingScore.exam_name || '',
+        exam_date: String(editingScore.exam_date || ''),
+        score: editingScore.score != null ? String(editingScore.score) : '',
+        grade_label: editingScore.grade_label || '',
+        notes: editingScore.notes || '',
+      });
+    } else {
+      const today = new Date();
+      setScoreForm({
+        exam_name: '',
+        exam_date: toDateStr(today),
+        score: '',
+        grade_label: '',
+        notes: '',
+      });
+    }
+    setScoreModalOpen(true);
+  }
+  function closeScoreModal() {
+    setScoreModalOpen(false);
+    setScoreModalEditing(null);
+    setScoreSaving(false);
+  }
+  function friendlyErr(e, fallback = '保存失败') {
+    let msg = (e && e.message) || fallback;
+    if (msg.includes('row-level security')) msg = '权限不足：您只能操作自己的记录。';
+    return msg;
+  }
+  async function saveScore() {
+    const { exam_name, exam_date, score, grade_label, notes } = scoreForm;
+    if (!exam_name.trim()) { toast('请填写考试名称', { kind: 'error' }); return; }
+    if (!exam_date) { toast('请选择考试日期', { kind: 'error' }); return; }
+    const scoreNum = (score !== '' && score != null) ? Number(score) : null;
+    const hasGrade = scoreNum != null || (grade_label && grade_label.trim());
+    if (!hasGrade) { toast('请至少填写分数或评级一项', { kind: 'error' }); return; }
+    if (scoreNum != null && (Number.isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100)) {
+      toast('分数需在 0–100 之间', { kind: 'error' }); return;
+    }
+    setScoreSaving(true);
+    try {
+      const payload = {
+        student_id: user.id,
+        course_id: scoreModalCourseId,
+        exam_name: exam_name.trim(),
+        exam_date,
+        score: scoreNum,
+        grade_label: grade_label.trim() || null,
+        notes: notes.trim() || null,
+      };
+      if (scoreModalEditing) {
+        const { error } = await supabase
+          .from('exam_scores')
+          .update(payload)
+          .eq('id', scoreModalEditing.id);
+        if (error) throw error;
+        toast('已更新', { kind: 'success' });
+      } else {
+        const { error } = await supabase
+          .from('exam_scores')
+          .insert(payload);
+        if (error) throw error;
+        toast('已保存', { kind: 'success' });
+      }
+      triggerFlash('success', 92, 500);
+      closeScoreModal();
+      await loadScores();
+    } catch (e) {
+      logger.error('saveScore failed:', e);
+      toast(friendlyErr(e, '保存失败'), { kind: 'error' });
+      triggerFlash('failure', 92, 450);
+    } finally {
+      setScoreSaving(false);
+    }
+  }
+  async function deleteScore(score) {
+    try {
+      const { error } = await supabase
+        .from('exam_scores')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', score.id);
+      if (error) throw error;
+      toast('已删除', { kind: 'success' });
+      setScoreDeletingId(null);
+      await loadScores();
+    } catch (e) {
+      logger.error('deleteScore failed:', e);
+      toast(friendlyErr(e, '删除失败'), { kind: 'error' });
+    }
+  }
 
   /* ========== 添加自定义 学习行为形式 ========== */
   async function onAddCustomForm() {
@@ -409,6 +670,8 @@ export default function LearningPage() {
         return;
       }
 
+      const hasObjective = !objDeferred && (isObjNA || objIdx !== null);
+      const gradeLabelValue = isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null);
       const payload = {
         student_id: user.id,
         course_id: courseId,
@@ -416,22 +679,21 @@ export default function LearningPage() {
         unit_id: unitId || null,
         category,
         form: formValue,
-        eval_type: !objDeferred && objIdx !== null ? 2 : 1,  // 1=仅主观 / 2=含客观
+        eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
         duration_minutes: duration,
         notes: notes.trim() || null,
         session_date: dateStr,
         start_time: newStartTime,
         end_time: newEndTime,
         self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-        ...(!objDeferred && objIdx !== null
-          ? { grade_label: OBJECTIVE_STEPS[objIdx].label }
-          : { grade_label: null }),
+        grade_label: gradeLabelValue,
       };
 
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
 
       toast('记录已保存', { kind: 'success' });
+      triggerFlash('success', 88, 480);
 
       const d = new Date();
       setStartStr(toTimeStr(d));
@@ -440,6 +702,7 @@ export default function LearningPage() {
       setSubjIdx(3);
       setObjIdx(9);
       setObjDeferred(false);
+      setIsObjNA(false);
 
       const { data } = await supabase
         .from('learning_sessions')
@@ -456,6 +719,7 @@ export default function LearningPage() {
         .order('created_at', { ascending: false })
         .limit(10);
       setRecent(data || []);
+      await loadPending();
     } catch (err) {
       let msg = err.message || '保存失败';
       if (msg.includes('row-level security')) {
@@ -488,11 +752,17 @@ export default function LearningPage() {
     const subjIdxLoaded = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
     setSubjIdx(subjIdxLoaded >= 0 ? subjIdxLoaded : 3);
     // 客观：按字段存在性独立回显（不依赖 eval_type）
-    if (r.grade_label) {
+    if (r.grade_label === 'N/A') {
+      setIsObjNA(true);
+      setObjIdx(9);
+      setObjDeferred(false);
+    } else if (r.grade_label) {
+      setIsObjNA(false);
       const objIdxLoaded = OBJECTIVE_STEPS.findIndex(s => s.label === r.grade_label);
       setObjIdx(objIdxLoaded >= 0 ? objIdxLoaded : 9);
       setObjDeferred(false);
     } else {
+      setIsObjNA(false);
       setObjIdx(9);
       setObjDeferred(false);  // 编辑时也默认"现在填写"，让学生看到滑轨
     }
@@ -511,6 +781,7 @@ export default function LearningPage() {
     setSubjIdx(3);
     setObjIdx(9);
     setObjDeferred(false);
+    setIsObjNA(false);
     setNotes('');
   }
 
@@ -556,22 +827,22 @@ export default function LearningPage() {
         return;
       }
 
+      const hasObjective = !objDeferred && (isObjNA || objIdx !== null);
+      const gradeLabelValue = isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null);
       const payload = {
         course_id: courseId,
         chapter_id: chapterId || null,
         unit_id: unitId || null,
         category,
         form: formValue,
-        eval_type: !objDeferred && objIdx !== null ? 2 : 1,  // 1=仅主观 / 2=含客观
+        eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
         duration_minutes: duration,
         notes: notes.trim() || null,
         session_date: dateStr,
         start_time: newStartTime,
         end_time: newEndTime,
         self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-        ...(!objDeferred && objIdx !== null
-          ? { grade_label: OBJECTIVE_STEPS[objIdx].label }
-          : { grade_label: null }),
+        grade_label: gradeLabelValue,
       };
 
       const { error } = await supabase
@@ -583,6 +854,7 @@ export default function LearningPage() {
         throw error;
       }
       toast('已更新', { kind: 'success' });
+      triggerFlash('success', 88, 480);
 
       const { data } = await supabase
         .from('learning_sessions')
@@ -601,6 +873,7 @@ export default function LearningPage() {
         .limit(10);
       setRecent(data || []);
       setEditingSessionId(null);
+      await loadPending();
     } catch (err) {
       let msg = err.message || '保存失败';
       if (msg.includes('row-level security')) {
@@ -670,6 +943,8 @@ export default function LearningPage() {
         .eq('id', pendingModalSession.id);
       if (error) throw error;
       toast('客观评价已保存', { kind: 'success' });
+      triggerFlash('success', 108, 750);
+      await new Promise(r => setTimeout(r, 750));
       setPendingModalSession(null);
       setPendingModalGrade(null);
       await loadPending();  // 刷新待补填列表
@@ -679,6 +954,7 @@ export default function LearningPage() {
         msg = '权限不足：您只能操作自己的学习记录。';
       }
       toast(msg, { kind: 'error' });
+      triggerFlash('failure', 108, 500);
     } finally {
       setPendingSaving(false);
     }
@@ -694,56 +970,202 @@ export default function LearningPage() {
         <p>填写一次学习行为，数据积累帮你了解自己</p>
       </div>
 
-      {/* ====== 顶部 Tab: 记录 / 待补填 ====== */}
-      <div className="learn-tabs" style={{
-        display: 'inline-flex',
-        background: 'rgba(15,23,42,0.05)',
-        borderRadius: 12,
-        padding: 3,
-        marginBottom: 16,
-      }}>
+      {/* ====== 顶部 Tab: 记录 / 待补填 / 成绩 ====== */}
+      <div className="seg-tabs">
         <button
           type="button"
+          className={'seg-tab' + (view === 'record' ? ' active' : '')}
           onClick={() => setView('record')}
-          style={{
-            padding: '8px 18px', fontSize: 13, fontWeight: 600,
-            border: 'none', borderRadius: 9, cursor: 'pointer',
-            background: view === 'record' ? '#fff' : 'transparent',
-            color: view === 'record' ? '#0f172a' : '#94a3b8',
-            boxShadow: view === 'record' ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
-            transition: 'all 160ms ease',
-            fontFamily: 'inherit',
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}
         >记录</button>
         <button
           type="button"
+          className={'seg-tab' + (view === 'pending' ? ' active' : '')}
           onClick={() => setView('pending')}
-          style={{
-            padding: '8px 18px', fontSize: 13, fontWeight: 600,
-            border: 'none', borderRadius: 9, cursor: 'pointer',
-            background: view === 'pending' ? '#fff' : 'transparent',
-            color: view === 'pending' ? '#0f172a' : '#94a3b8',
-            boxShadow: view === 'pending' ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
-            transition: 'all 160ms ease',
-            fontFamily: 'inherit',
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}
         >
           待补填
           {pending.length > 0 && (
-            <span style={{
-              background: view === 'pending' ? '#0f172a' : 'rgba(15,23,42,0.15)',
-              color: view === 'pending' ? '#fff' : '#64748b',
-              fontSize: 10, fontWeight: 700,
-              padding: '1px 6px', borderRadius: 8,
-              minWidth: 16, textAlign: 'center',
-            }}>{pending.length}</span>
+            <span className="seg-tab-badge">{pending.length}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={'seg-tab' + (view === 'scores' ? ' active' : '')}
+          onClick={() => setView('scores')}
+        >
+          成绩
+          {examScores.length > 0 && (
+            <span className="seg-tab-badge">{examScores.length}</span>
           )}
         </button>
       </div>
 
-      {view === 'pending' ? (
+      {view === 'scores' ? (
+        /* ====== 成绩视图 ====== */
+        <div className="scores-section">
+          {loadingScores ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 13 }}>
+              加载中…
+            </div>
+          ) : scoreCourses.length === 0 ? (
+            <div style={{
+              textAlign: 'center', padding: '50px 24px',
+              color: '#94a3b8', fontSize: 13, lineHeight: 1.7,
+            }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>📘</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                还没有校内课程
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                先在「课表」页面创建勾选「校内课程」的课程，
+                <br/>这里就会自动出现，可以自由记录考试成绩。
+              </div>
+              <a href="/syllabus" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                去创建课程
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {scoreCourses.map(c => {
+                const scores = examScores.filter(s => s.course_id === c.id);
+                return (
+                  <div key={c.id} className="glass-sheet" style={{ padding: '16px 16px 14px' }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      marginBottom: 10,
+                    }}>
+                      <div style={{
+                        fontSize: 15, fontWeight: 700, color: '#0f172a',
+                      }}>{c.name}</div>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600,
+                        padding: '3px 8px', borderRadius: 999,
+                        background: 'rgba(15,23,42,0.05)', color: '#475569',
+                      }}>
+                        已记录 {scores.length} 次
+                      </span>
+                    </div>
+                    {scores.length === 0 ? (
+                      <div style={{
+                        fontSize: 12, color: '#94a3b8', textAlign: 'center',
+                        padding: '18px 0 4px',
+                      }}>
+                        还没有成绩记录
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 4 }}>
+                        {scores.map(s => (
+                          <div key={s.id} style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            background: 'rgba(15,23,42,0.02)',
+                          }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{
+                                  fontSize: 13, fontWeight: 700, color: '#0f172a',
+                                }}>{s.exam_name}</span>
+                                <span style={{
+                                  fontSize: 11, color: '#94a3b8',
+                                  fontFamily: 'ui-monospace, monospace',
+                                }}>{String(s.exam_date || '').slice(5)}</span>
+                              </div>
+                              {(s.score != null || s.grade_label) && (
+                                <div style={{
+                                  marginTop: 2, fontSize: 13, fontWeight: 600,
+                                  color: '#0f172a',
+                                  fontFamily: 'ui-monospace, monospace', tabularNums: true,
+                                }}>
+                                  {s.score != null && `${s.score} 分`}
+                                  {s.score != null && s.grade_label ? ' · ' : ''}
+                                  {s.grade_label}
+                                </div>
+                              )}
+                              {s.notes && (
+                                <div style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
+                                  {s.notes}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                              {scoreDeletingId === s.id ? (
+                                <>
+                                  <button
+                                    onClick={() => deleteScore(s)}
+                                    title="确认删除"
+                                    style={{
+                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
+                                      border: 'none', borderRadius: 6,
+                                      background: '#fee2e2', color: '#b91c1c',
+                                      cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
+                                  >确认</button>
+                                  <button
+                                    onClick={() => setScoreDeletingId(null)}
+                                    title="取消"
+                                    style={{
+                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
+                                      border: '1px solid #e2e8f0', borderRadius: 6,
+                                      background: '#fff', color: '#475569',
+                                      cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
+                                  >取消</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => openScoreModal(c.id, s)}
+                                    title="编辑"
+                                    style={{
+                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
+                                      border: '1px solid #e2e8f0', borderRadius: 6,
+                                      background: '#fff', color: '#475569',
+                                      cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
+                                  >编辑</button>
+                                  <button
+                                    onClick={() => setScoreDeletingId(s.id)}
+                                    title="删除"
+                                    style={{
+                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
+                                      border: '1px solid #e2e8f0', borderRadius: 6,
+                                      background: '#fff', color: '#94a3b8',
+                                      cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
+                                  >删除</button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openScoreModal(c.id, null)}
+                      style={{
+                        marginTop: 8,
+                        width: '100%',
+                        padding: '8px 12px',
+                        fontSize: 12, fontWeight: 600,
+                        border: '1px dashed #cbd5e1',
+                        borderRadius: 8,
+                        background: '#fafafa',
+                        color: '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 160ms ease',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      + 新增成绩
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : view === 'pending' ? (
         /* ====== 待补填视图 ====== */
         <div className="pending-section">
           {loadingPending ? (
@@ -816,6 +1238,7 @@ export default function LearningPage() {
                   setFormValue('自主预习');
                   setObjIdx(9);
                   setObjDeferred(false);
+                  setIsObjNA(false);
                 }}
               >
                 <span className="quick-action-course">{course.name}</span>
@@ -853,6 +1276,15 @@ export default function LearningPage() {
           <div className="loading-state">
             <div className="loading-spinner"></div>
             <span>加载课程中…</span>
+          </div>
+        ) : courses.length === 0 ? (
+          <div className="empty-state" style={{ padding: '40px 20px' }}>
+            <div className="empty-state-icon">📚</div>
+            <h3>还没有课程</h3>
+            <p>需要先创建课程大纲，才能记录学习行为。</p>
+            <a href="/syllabus" className="btn btn-primary btn-sm" style={{ marginTop: 12, textDecoration: 'none' }}>
+              去创建课程
+            </a>
           </div>
         ) : (
           <>
@@ -1035,7 +1467,7 @@ export default function LearningPage() {
                 }}>
                   <button
                     type="button"
-                    onClick={() => setObjDeferred(false)}
+                    onClick={() => { setObjDeferred(false); setIsObjNA(false); }}
                     disabled={busy}
                     style={{
                       flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
@@ -1049,7 +1481,7 @@ export default function LearningPage() {
                   >现在填写</button>
                   <button
                     type="button"
-                    onClick={() => setObjDeferred(true)}
+                    onClick={() => { setObjDeferred(true); setIsObjNA(false); }}
                     disabled={busy}
                     style={{
                       flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
@@ -1067,8 +1499,8 @@ export default function LearningPage() {
                     <GlassRail
                       steps={OBJECTIVE_STEPS}
                       idx={objIdx}
-                      onChange={setObjIdx}
-                      disabled={busy}
+                      onChange={(v) => { setObjIdx(v); setIsObjNA(false); }}
+                      disabled={busy || isObjNA}
                     />
                     <div className="grade-legend" style={{
                       marginTop: 12,
@@ -1082,6 +1514,8 @@ export default function LearningPage() {
                       columnGap: 10,
                       fontSize: 12,
                       color: '#334155',
+                      opacity: isObjNA ? 0.45 : 1,
+                      transition: 'opacity 160ms ease',
                     }}>
                       <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
                         letter grade 对应的百分制区间（参考）
@@ -1092,12 +1526,12 @@ export default function LearningPage() {
                           alignItems: 'baseline',
                           justifyContent: 'space-between',
                           padding: '2px 4px',
-                          background: g === OBJECTIVE_STEPS[objIdx]?.label
+                          background: g === OBJECTIVE_STEPS[objIdx]?.label && !isObjNA
                             ? 'rgba(99,102,241,0.18)'
                             : 'transparent',
                           borderRadius: 6,
                         }}>
-                          <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label ? '#4338ca' : '#475569' }}>
+                          <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label && !isObjNA ? '#4338ca' : '#475569' }}>
                             {g}
                           </span>
                           <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
@@ -1106,6 +1540,29 @@ export default function LearningPage() {
                         </div>
                       ))}
                     </div>
+                    {/* NA: 与正常分值轻微区分（灰色描边 + 斜体）*/}
+                    <button
+                      type="button"
+                      onClick={() => setIsObjNA(!isObjNA)}
+                      disabled={busy}
+                      style={{
+                        marginTop: 10,
+                        width: '100%',
+                        padding: '10px 14px',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        fontStyle: 'italic',
+                        border: isObjNA ? '1.5px solid #94a3b8' : '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        background: isObjNA ? '#f1f5f9' : '#f8fafc',
+                        color: '#64748b',
+                        cursor: busy ? 'not-allowed' : 'pointer',
+                        transition: 'all 160ms ease',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {isObjNA ? '✓ Not Applicable（不适用）' : 'Not Applicable（不适用）'}
+                    </button>
                   </>
                 )}
                 {objDeferred && (
@@ -1140,7 +1597,10 @@ export default function LearningPage() {
             {editingSessionId ? (
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                 <button type="button" className="btn btn-primary btn-submit" onClick={onSaveEdit} disabled={busy}>
-                  {busy ? '保存中…' : '保存修改'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {busy && <Spinner color="#ffffff" />}
+                    {busy ? '保存中…' : '保存修改'}
+                  </span>
                 </button>
                 <button type="button" className="btn btn-ghost btn-submit" onClick={onCancelEdit} disabled={busy}>
                   取消编辑
@@ -1148,7 +1608,10 @@ export default function LearningPage() {
               </div>
             ) : (
               <button type="button" className="btn btn-primary btn-submit" onClick={onSubmit} disabled={busy}>
-                {busy ? '保存中…' : '保存记录'}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {busy && <Spinner color="#ffffff" />}
+                  {busy ? '保存中…' : '保存记录'}
+                </span>
               </button>
             )}
           </>
@@ -1187,7 +1650,8 @@ export default function LearningPage() {
                       </span>
                     )}
                     {r.grade_label && (
-                      <span className="record-tag record-tag--eval">
+                      <span className="record-tag record-tag--eval"
+                        style={r.grade_label === 'N/A' ? { color: '#94a3b8', fontStyle: 'italic' } : undefined}>
                         客观：{r.grade_label}
                       </span>
                     )}
@@ -1251,6 +1715,7 @@ export default function LearningPage() {
               zIndex: 1000,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '20px 16px',
+              paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
             }}
           >
             <motion.div
@@ -1284,7 +1749,7 @@ export default function LearningPage() {
             </div>
             {/* Grade 网格 */}
             <div style={{
-              padding: '16px 20px 20px',
+              padding: '16px 20px 0',
               overflowY: 'auto',
               display: 'grid',
               gridTemplateColumns: 'repeat(4, 1fr)',
@@ -1317,6 +1782,29 @@ export default function LearningPage() {
                 );
               })}
             </div>
+            {/* NA 独立按钮 */}
+            <div style={{ padding: '10px 20px 0' }}>
+              <button
+                type="button"
+                onClick={() => setPendingModalGrade('N/A')}
+                style={{
+                  width: '100%',
+                  padding: '12px 0',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  fontStyle: 'italic',
+                  border: pendingModalGrade === 'N/A' ? '1.5px solid #94a3b8' : '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  background: pendingModalGrade === 'N/A' ? '#f1f5f9' : '#f8fafc',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  transition: 'all 120ms ease',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Not Applicable（不适用）
+              </button>
+            </div>
             {/* 保存按钮 */}
             <div style={{
               padding: '12px 20px 20px',
@@ -1340,13 +1828,246 @@ export default function LearningPage() {
                   fontFamily: 'inherit',
                 }}
               >
-                {pendingSaving ? '保存中…' : '保存客观评价'}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {pendingSaving && <Spinner color={pendingModalGrade ? '#ffffff' : '#94a3b8'} />}
+                  {pendingSaving ? '保存中…' : '保存客观评价'}
+                </span>
               </button>
             </div>
             </motion.div>
           </motion.div>
         )}
         </AnimatePresence>,
+        document.body
+      )}
+
+      {/* ====== 成绩新增/编辑 Modal ====== */}
+      {createPortal(
+        <AnimatePresence>
+        {scoreModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={closeScoreModal}
+            style={{
+              position: 'fixed', inset: 0,
+              background: 'rgba(15,23,42,0.4)',
+              backdropFilter: 'blur(4px)',
+              zIndex: 1000,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px 16px',
+              paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff',
+                borderRadius: 16,
+                boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+                width: '100%', maxWidth: 420,
+                maxHeight: '85vh',
+                display: 'flex', flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{
+                padding: '16px 20px 14px',
+                borderBottom: '1px solid #f1f5f9',
+              }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>
+                  {scoreModalEditing ? '编辑成绩' : '新增成绩'}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                  {scoreCourses.find(c => c.id === scoreModalCourseId)?.name || '-'}
+                </div>
+              </div>
+              <div style={{
+                padding: '16px 20px 12px',
+                overflowY: 'auto',
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
+                  }}>考试名称 <span style={{ color: '#ef4444' }}>*</span></div>
+                  <input
+                    type="text"
+                    value={scoreForm.exam_name}
+                    onChange={(e) => setScoreForm({ ...scoreForm, exam_name: e.target.value })}
+                    placeholder="如：期末考试、月考、单元测"
+                    className="input input-strong"
+                    style={{ fontSize: 13 }}
+                    disabled={scoreSaving}
+                  />
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
+                  }}>考试日期 <span style={{ color: '#ef4444' }}>*</span></div>
+                  <input
+                    type="date"
+                    value={scoreForm.exam_date}
+                    onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
+                    className="input input-strong"
+                    style={{ fontSize: 13 }}
+                    disabled={scoreSaving}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+                  <div>
+                    <div style={{
+                      fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
+                    }}>分数（0–100，可选）</div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={scoreForm.score}
+                      onChange={(e) => setScoreForm({ ...scoreForm, score: e.target.value })}
+                      placeholder="如：92.5"
+                      className="input input-strong"
+                      style={{ fontSize: 14, padding: '10px 12px' }}
+                      disabled={scoreSaving}
+                    />
+                  </div>
+                  <div>
+                    <div style={{
+                      fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
+                    }}>等第/评级</div>
+                    {/* 预设 chips 网格，响应式 auto-fill minmax，触控目标 ≥ 40px */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
+                      gap: 6,
+                    }}>
+                      {GRADE_PRESET_CHIPS.map(chip => {
+                        const selected = scoreForm.grade_label === chip;
+                        return (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => {
+                              if (selected) {
+                                setScoreForm({ ...scoreForm, grade_label: '' });
+                              } else {
+                                setScoreForm({ ...scoreForm, grade_label: chip });
+                              }
+                            }}
+                            disabled={scoreSaving}
+                            style={{
+                              minHeight: 40,
+                              padding: '8px 4px',
+                              fontSize: 13,
+                              fontWeight: 700,
+                              border: selected ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+                              borderRadius: 8,
+                              background: selected ? 'rgba(15,23,42,0.06)' : '#fff',
+                              color: selected ? '#0f172a' : '#475569',
+                              cursor: scoreSaving ? 'not-allowed' : 'pointer',
+                              transition: 'all 120ms ease',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            {chip}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
+                  }}>备注</div>
+                  <textarea
+                    rows={3}
+                    value={scoreForm.notes}
+                    onChange={(e) => setScoreForm({ ...scoreForm, notes: e.target.value })}
+                    placeholder="可选：如失分点分析、排名信息等"
+                    className="input input-strong"
+                    style={{ fontSize: 13, resize: 'vertical' }}
+                    disabled={scoreSaving}
+                  />
+                </div>
+                <div style={{
+                  fontSize: 11, color: '#94a3b8', marginTop: -4,
+                }}>
+                  * 分数和评级至少填写一项
+                </div>
+              </div>
+              <div style={{
+                padding: '12px 20px 20px',
+                paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+                borderTop: '1px solid #f1f5f9',
+                flexShrink: 0,
+                display: 'flex', gap: 8,
+              }}>
+                <button
+                  type="button"
+                  onClick={closeScoreModal}
+                  disabled={scoreSaving}
+                  style={{
+                    flex: 1,
+                    padding: '12px 0',
+                    fontSize: 14, fontWeight: 700,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 12,
+                    background: '#fff',
+                    color: '#475569',
+                    cursor: scoreSaving ? 'not-allowed' : 'pointer',
+                    transition: 'all 160ms ease',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={saveScore}
+                  disabled={scoreSaving}
+                  style={{
+                    flex: 1.3,
+                    padding: '12px 0',
+                    fontSize: 14, fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 12,
+                    background: '#0f172a',
+                    color: '#fff',
+                    cursor: scoreSaving ? 'not-allowed' : 'pointer',
+                    transition: 'all 160ms ease',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {scoreSaving && <Spinner color="#ffffff" />}
+                    {scoreSaving ? '保存中…' : (scoreModalEditing ? '保存修改' : '保存成绩')}
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* ====== Liquid Glass 成功/失败反馈 overlay ====== */}
+      {createPortal(
+        <LiquidGlassFlash
+          show={flashState.show}
+          variant={flashState.variant}
+          size={flashState.size}
+          duration={flashState.duration}
+          onComplete={() => setFlashState(f => ({ ...f, show: false }))}
+        />,
         document.body
       )}
     </>

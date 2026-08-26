@@ -3,6 +3,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 // 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
 function friendlyError(err, fallback = '操作失败，请稍后再试') {
@@ -23,6 +24,8 @@ export default function Syllabus() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [isDesktop, setIsDesktop] = useState(window.matchMedia('(min-width: 768px)').matches);
+  // 确认对话框状态（替代原生 confirm()，PWA 里原生对话框体验突兀）
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '删除', onConfirm: null });
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)');
@@ -221,42 +224,78 @@ export default function Syllabus() {
 
   /* ========== 删除（软删除）========== */
   async function deleteCourse(courseId) {
-    if (!confirm('确认删除该课程及其所有章节/单元？')) return;
+    setConfirmState({
+      open: true,
+      title: '删除课程',
+      message: '确认删除该课程及其所有章节/单元？此操作不可撤销。',
+      confirmLabel: '删除',
+      onConfirm: () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        doDeleteCourse(courseId);
+      },
+    });
+  }
+
+  async function doDeleteCourse(courseId) {
     const { error } = await supabase
       .from('courses')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', courseId);
     if (error) {
       logger.error('deleteCourse failed:', error);
-      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+      return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.filter(c => c.id !== courseId));
   }
 
   async function deleteChapter(chapterId, courseId) {
-    if (!confirm('确认删除该章节及其所有单元？')) return;
+    setConfirmState({
+      open: true,
+      title: '删除章节',
+      message: '确认删除该章节及其所有单元？此操作不可撤销。',
+      confirmLabel: '删除',
+      onConfirm: () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        doDeleteChapter(chapterId, courseId);
+      },
+    });
+  }
+
+  async function doDeleteChapter(chapterId, courseId) {
     const { error } = await supabase
       .from('chapters')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', chapterId);
     if (error) {
       logger.error('deleteChapter failed:', error);
-      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+      return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).filter(ch => ch.id !== chapterId) } : c));
   }
 
   async function deleteUnit(unitId, chapterId, courseId) {
-    if (!confirm('确认删除该单元？')) return;
+    setConfirmState({
+      open: true,
+      title: '删除单元',
+      message: '确认删除该单元？此操作不可撤销。',
+      confirmLabel: '删除',
+      onConfirm: () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        doDeleteUnit(unitId, chapterId, courseId);
+      },
+    });
+  }
+
+  async function doDeleteUnit(unitId, chapterId, courseId) {
     const { error } = await supabase
       .from('units')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', unitId);
     if (error) {
       logger.error('deleteUnit failed:', error);
-      return toast(friendlyError(error, '删除失败'), { kind: 'error' });
+      return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).filter(u => u.id !== unitId) } : ch) } : c));
@@ -267,21 +306,32 @@ export default function Syllabus() {
 
   if (isDesktop) {
     return (
-      <DesktopTree
-        myCourses={myCourses}
-        sharedCourses={sharedCourses}
-        loading={loading}
-        schoolName={schoolName}
-        onAddCourse={createCourse}
-        onAddChapter={addChapter}
-        onAddUnit={addUnit}
-        onUpdateCourse={updateCourse}
-        onDeleteCourse={deleteCourse}
-        onUpdateChapter={updateChapter}
-        onDeleteChapter={deleteChapter}
-        onUpdateUnit={updateUnit}
-        onDeleteUnit={deleteUnit}
-      />
+      <>
+        <DesktopTree
+          myCourses={myCourses}
+          sharedCourses={sharedCourses}
+          loading={loading}
+          schoolName={schoolName}
+          onAddCourse={createCourse}
+          onAddChapter={addChapter}
+          onAddUnit={addUnit}
+          onUpdateCourse={updateCourse}
+          onDeleteCourse={deleteCourse}
+          onUpdateChapter={updateChapter}
+          onDeleteChapter={deleteChapter}
+          onUpdateUnit={updateUnit}
+          onDeleteUnit={deleteUnit}
+        />
+        <ConfirmDialog
+          open={confirmState.open}
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          variant="danger"
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+        />
+      </>
     );
   }
 
@@ -361,6 +411,15 @@ export default function Syllabus() {
           )}
         </>
       )}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        variant="danger"
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+      />
     </div>
   );
 }

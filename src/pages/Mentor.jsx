@@ -12,6 +12,7 @@ import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
 import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
 import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 // ═══════════════════════════════════════════════════════════
 // FEATURE FLAG: 设为 true 可切换回旧版仪表盘 (ReviewDashboard)
@@ -98,9 +99,25 @@ const detailPanelVariants = {
   },
 };
 
+/* Spinner：inline loading indicator，用于按钮 busy 态 */
+function Spinner({ size = 14, color = 'currentColor' }) {
+  return (
+    <motion.svg
+      width={size} height={size} viewBox="0 0 50 50"
+      animate={{ rotate: 360 }}
+      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+      style={{ display: 'inline-block', verticalAlign: 'middle' }}
+    >
+      <circle cx="25" cy="25" r="20" fill="none" stroke={color} strokeOpacity="0.25" strokeWidth="5" />
+      <path d="M25 5 a20 20 0 0 1 20 20" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" />
+    </motion.svg>
+  );
+}
+
 export default function Mentor() {
   const nav = useNavigate();
   const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [students, setStudents] = useState([]);
   const [connections, setConnections] = useState([]);
   const [picked, setPicked] = useState(null);
@@ -111,22 +128,78 @@ export default function Mentor() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSchool, setFilterSchool] = useState('all');
   const [activeView, setActiveView] = useState('students');
+  const [syllabusCourses, setSyllabusCourses] = useState([]);
+  const [syllabusLoading, setSyllabusLoading] = useState(false);
+  const [studentScores, setStudentScores] = useState([]);
+  const [studentScoresLoading, setStudentScoresLoading] = useState(false);
   const [inviteNotes, setInviteNotes] = useState({});
   const [sub, setSub] = useState(null);
   const [schools, setSchools] = useState([]);
   const [classStats, setClassStats] = useState({});
   const [editingSchoolId, setEditingSchoolId] = useState(null);
   const [editingSchoolValue, setEditingSchoolValue] = useState('');
+  const [inviteBusyId, setInviteBusyId] = useState(null);  // 发送/撤回邀请 per-student busy
   const [isLoading, setIsLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  // 确认对话框状态（替代原生 confirm()）
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '确认', variant: 'danger', onConfirm: null });
+
+  // 组件卸载或 sub 变更时清理 realtime subscription，防止内存泄漏与重复订阅
+  useEffect(() => {
+    return () => {
+      if (sub) {
+        try { sub.unsubscribe(); } catch (_) {}
+      }
+    };
+  }, [sub]);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
+    // 老师端默认桌面布局；仅在 iPhone 宽度（≤480px）时切换到移动端布局
+    // iPad（768px+）走桌面端，符合导师在大屏上工作的场景
+    const mq = window.matchMedia('(max-width: 480px)');
     const handler = (e) => setIsMobile(e.matches);
     handler(mq);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
+
+  // 师生连接状态实时刷新：学生接受邀请/断开连接后自动重拉 connections（无需手动刷新页面）
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const channel = supabase
+      .channel('mentor-connections')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'teacher_student_connections',
+        filter: `teacher_id=eq.${user.id}`,
+      }, async (payload) => {
+        if (cancelled) return;
+        logger.log('[realtime] mentor connections event:', payload.eventType, payload);
+        // 收到变更即完整重拉一遍 students/connections，状态立即生效
+        try {
+          await loadData(user.id, isAdmin);
+        } catch (e) {
+          logger.error('[realtime] loadData failed:', e);
+        }
+      })
+      .subscribe((status, err) => {
+        if (err) {
+          logger.error('[realtime] mentor-connections subscribe error:', err);
+          console.warn(
+            '%c[Realtime 未启用]%c 需要在 Supabase Dashboard → Database → Replication 启用 public.teacher_student_connections 表的 realtime，否则学生接受邀请后需手动刷新页面才能看到状态变更。',
+            'color:#b45309;font-weight:700;', ''
+          );
+        } else {
+          logger.log('[realtime] mentor-connections channel status:', status);
+        }
+      });
+    return () => {
+      cancelled = true;
+      try { supabase.removeChannel(channel); } catch (_) {}
+    };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     (async () => {
@@ -134,14 +207,25 @@ export default function Mentor() {
         const { data: { user: u } } = await supabase.auth.getUser();
         if (!u) return;
         // 角色检查：仅 role >= 2 可访问导师页面，学生直接重定向
-        const role = Number(u.user_metadata?.role) || 1;
+        // 必须从 profiles 表读取权威 role（user_metadata 不再包含 role，
+        // 否则导师会被误判为学生并重定向，导致无法进入导师页面）
+        let role = 1;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', u.id)
+          .maybeSingle();
+        if (profile?.role != null) role = Number(profile.role);
+
         if (role < 2) {
           toast('仅老师账号可访问导师页面', { kind: 'error' });
           nav('/syllabus', { replace: true });
           return;
         }
         setUser(u);
-        await loadData(u.id);
+        const admin = role >= 3;
+        setIsAdmin(admin);
+        await loadData(u.id, admin);
       } catch (err) {
         logger.error('Mentor init failed:', err);
         toast('加载失败，请刷新重试', { kind: 'error' });
@@ -151,9 +235,9 @@ export default function Mentor() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadData(teacherId) {
+  async function loadData(teacherId, admin = isAdmin) {
     logger.log('===== 老师端加载数据 =====');
-    logger.log('teacherId:', teacherId);
+    logger.log('teacherId:', teacherId, 'isAdmin:', admin);
 
     const [pRes, cRes, sRes] = await Promise.all([
       supabase
@@ -206,20 +290,49 @@ export default function Mentor() {
     setStudents(pRes.data || []);
     const map = {};
     for (const c of (cRes.data || [])) map[c.student_id] = c;
+
+    // admin 自动与所有未连接学生建立真实连接（status=1），跳过邀请流程
+    if (admin) {
+      const needConnect = (pRes.data || []).filter((s) => !map[s.id] && s.id !== teacherId);
+      if (needConnect.length > 0) {
+        const rows = needConnect.map((s) => ({
+          teacher_id: teacherId,
+          student_id: s.id,
+          status: 1,
+          note: 'auto-admin',
+        }));
+        const { error: insErr } = await supabase
+          .from('teacher_student_connections')
+          .insert(rows);
+        if (!insErr) {
+          for (const s of needConnect) {
+            map[s.id] = { student_id: s.id, status: 1, note: 'auto-admin' };
+          }
+        } else {
+          // 插入失败时退回虚拟连接，保证前端仍可显示
+          for (const s of needConnect) {
+            map[s.id] = { student_id: s.id, status: 1, note: 'admin', virtual: true };
+          }
+        }
+      }
+    }
     setConnections(map);
 
     const schoolSet = new Set((sRes.data || []).map((p) => p.school_name).filter(Boolean));
     setSchools(Array.from(schoolSet).sort());
 
-    await loadClassStats(teacherId);
+    await loadClassStats(teacherId, map, pRes.data || [], admin);
   }
 
-  async function loadClassStats(teacherId) {
-    const connectedStudents = Object.values(connections)
-      .filter((c) => c.status === 1)
-      .map((c) => c.student_id);
+  async function loadClassStats(teacherId, connectionsMap, allStudents, admin) {
+    // admin 看全部学生；普通导师只看已连接（status === 1）的学生
+    const targetStudents = admin
+      ? (allStudents || []).map((s) => s.id)
+      : Object.values(connectionsMap || {})
+          .filter((c) => c.status === 1)
+          .map((c) => c.student_id);
 
-    if (connectedStudents.length === 0) {
+    if (targetStudents.length === 0) {
       setClassStats({
         totalStudents: 0,
         avgDailyMinutes: 0,
@@ -232,7 +345,7 @@ export default function Mentor() {
     const { data: sessionData, error } = await supabase
       .from('learning_sessions')
       .select('student_id, duration_minutes, eval_type, score')
-      .in('student_id', connectedStudents)
+      .in('student_id', targetStudents)
       .gte('session_date', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 
     if (error) {
@@ -257,8 +370,8 @@ export default function Mentor() {
     const activeStudents = Object.keys(studentMins).length;
 
     setClassStats({
-      totalStudents: connectedStudents.length,
-      avgDailyMinutes: connectedStudents.length > 0 ? Math.round(totalMins / connectedStudents.length / 7) : 0,
+      totalStudents: targetStudents.length,
+      avgDailyMinutes: targetStudents.length > 0 ? Math.round(totalMins / targetStudents.length / 7) : 0,
       avgScore: scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0,
       activeStudents,
     });
@@ -320,10 +433,81 @@ export default function Mentor() {
     return () => { cancelled = true; };
   }, [picked]);
 
+  // 加载选中学学生的 syllabus（课程→章节→单元）
+  useEffect(() => {
+    if (!picked) { setSyllabusCourses([]); return; }
+    let cancelled = false;
+    setSyllabusLoading(true);
+    supabase
+      .from('courses')
+      .select(`
+        id, name, subject, source, course_type, created_by,
+        chapters:chapters(id, name, order_idx, units:units(id, name, order_idx))
+      `)
+      .is('deleted_at', null)
+      .eq('created_by', picked.id)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          logger.error('mentor load syllabus', error);
+          setSyllabusCourses([]);
+        } else {
+          const sorted = (data || []).map(c => ({
+            ...c,
+            chapters: (c.chapters || [])
+              .slice()
+              .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
+              .map(ch => ({
+                ...ch,
+                units: (ch.units || [])
+                  .slice()
+                  .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
+              }))
+          }));
+          setSyllabusCourses(sorted);
+        }
+        setSyllabusLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [picked]);
+
+  // 加载选中学生的校内课程考试成绩（exam_scores join courses）
+  useEffect(() => {
+    if (!picked) { setStudentScores([]); return; }
+    let cancelled = false;
+    setStudentScoresLoading(true);
+    supabase
+      .from('exam_scores')
+      .select(`
+        *,
+        course:courses(id, name, course_type)
+      `)
+      .eq('student_id', picked.id)
+      .is('deleted_at', null)
+      .order('exam_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          logger.error('mentor load studentScores', error);
+          setStudentScores([]);
+        } else {
+          // 仅保留 course_type=1（校内课程）的成绩
+          const filtered = (data || []).filter(s => s.course && s.course.course_type === 1);
+          setStudentScores(filtered);
+        }
+        setStudentScoresLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [picked]);
+
   async function sendInvite(studentId) {
     if (!user) { toast('请先登录老师账号', { kind: 'error' }); return; }
     if (!deployCheck.ok) { toast('邀请系统尚未部署完成', { kind: 'error' }); return; }
+    if (inviteBusyId) return;
     const note = inviteNotes[studentId] || '';
+    setInviteBusyId(studentId);
     try {
       const { error } = await supabase
         .from('teacher_student_connections')
@@ -346,13 +530,32 @@ export default function Mentor() {
       } else {
         toast(`邀请失败（${code || 'error'}: ${msg || '未知错误'}）`, { kind: 'error' });
       }
+    } finally {
+      setInviteBusyId(null);
     }
   }
 
   async function withdrawInvite(studentId) {
-    if (!confirm('确定撤回这封邀请吗？')) return;
     const c = connections[studentId];
     if (!c || c.status !== 0) return;
+    if (inviteBusyId) return;
+    setConfirmState({
+      open: true,
+      title: '撤回邀请',
+      message: '确定撤回这封邀请吗？',
+      confirmLabel: '撤回',
+      variant: 'danger',
+      onConfirm: () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        doWithdrawInvite(studentId);
+      },
+    });
+  }
+
+  async function doWithdrawInvite(studentId) {
+    const c = connections[studentId];
+    if (!c || c.status !== 0) return;
+    setInviteBusyId(studentId);
     try {
       const { error } = await supabase
         .from('teacher_student_connections')
@@ -364,11 +567,28 @@ export default function Mentor() {
     } catch (err) {
       logger.error('withdrawInvite failed:', err);
       toast(`撤回失败`, { kind: 'error' });
+    } finally {
+      setInviteBusyId(null);
     }
   }
 
   async function disconnectStudent(studentId) {
-    if (!confirm('确定断开与这位学生的连接吗？断开后将无法查看他的学习数据。')) return;
+    const c = connections[studentId];
+    if (!c || c.status !== 1) return;
+    setConfirmState({
+      open: true,
+      title: '断开连接',
+      message: '确定断开与这位学生的连接吗？断开后将无法查看他的学习数据。',
+      confirmLabel: '断开',
+      variant: 'danger',
+      onConfirm: () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        doDisconnectStudent(studentId);
+      },
+    });
+  }
+
+  async function doDisconnectStudent(studentId) {
     const c = connections[studentId];
     if (!c || c.status !== 1) return;
     try {
@@ -447,6 +667,7 @@ export default function Mentor() {
 
   if (!isMobile) {
     return (
+      <>
       <MentorLayout activeView={activeView} onViewChange={setActiveView}>
         <div className="mentor-desktop-content">
           {!deployCheck.ok && (
@@ -507,32 +728,37 @@ export default function Mentor() {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>我的学生</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                        {isAdmin ? '全部学生' : '我的学生'}
+                      </div>
                       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                        {Object.values(connections).filter(c => c.status === 1).length} 位已连接
+                        {isAdmin
+                          ? `${students.length} 位学生`
+                          : `${Object.values(connections).filter(c => c.status === 1).length} 位已连接`}
                       </div>
                     </div>
                   </div>
                   <div style={{ overflowY: 'auto', flex: 1, padding: '8px 10px' }}>
                     {(() => {
-                      const connected = students
-                        .filter(s => connections[s.id]?.status === 1)
-                        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-                      if (connected.length === 0) {
+                      const connected = isAdmin
+                        ? students
+                        : students.filter(s => connections[s.id]?.status === 1);
+                      const sorted = [...connected].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+                      if (sorted.length === 0) {
                         return (
                           <div style={{
                             textAlign: 'center', padding: '40px 20px',
                             color: '#94a3b8', fontSize: 13,
                           }}>
                             <div style={{ fontSize: 28, marginBottom: 8 }}>👥</div>
-                            暂无已连接学生
+                            {isAdmin ? '暂无学生' : '暂无已连接学生'}
                             <div style={{ fontSize: 11, marginTop: 4 }}>
-                              从右侧搜索并邀请学生
+                              {isAdmin ? '暂未注册学生账号' : '从右侧搜索并邀请学生'}
                             </div>
                           </div>
                         );
                       }
-                      return connected.map((s) => {
+                      return sorted.map((s) => {
                         const isActive = picked?.id === s.id;
                         const conn = connections[s.id];
                         return (
@@ -540,7 +766,7 @@ export default function Mentor() {
                             key={s.id}
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
-                            onClick={() => { setPicked(s); loadSessionsForStudent(s.id); }}
+                            onClick={() => { setPicked(s); }}
                             style={{
                               padding: '12px 14px',
                               borderRadius: 12,
@@ -728,7 +954,7 @@ export default function Mentor() {
                                     {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
                                   </span>
                                   <div style={{ display: 'flex', gap: 6 }}>
-                                    {status === -1 && (
+                                    {!isAdmin && status === -1 && (
                                       <button
                                         onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
                                         style={{
@@ -739,7 +965,7 @@ export default function Mentor() {
                                         }}
                                       >邀请</button>
                                     )}
-                                    {status === 0 && (
+                                    {!isAdmin && status === 0 && (
                                       <>
                                         <button
                                           onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}
@@ -761,7 +987,7 @@ export default function Mentor() {
                                         >重发</button>
                                       </>
                                     )}
-                                    {status === 2 && (
+                                    {!isAdmin && status === 2 && (
                                       <button
                                         onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
                                         style={{
@@ -772,7 +998,7 @@ export default function Mentor() {
                                         }}
                                       >再次邀请</button>
                                     )}
-                                    {status === 1 && (
+                                    {!isAdmin && status === 1 && (
                                       <>
                                         <button
                                           onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
@@ -984,7 +1210,7 @@ export default function Mentor() {
                   {students.map(s => {
                     const conn = connections[s.id];
                     const status = conn?.status ?? -1;
-                    if (status !== 1) return null;
+                    if (!isAdmin && status !== 1) return null;
                     return (
                       <option key={s.id} value={s.id}>
                         {s.full_name || '(未命名)'} {s.school_name ? `· ${s.school_name}` : ''}
@@ -1004,7 +1230,148 @@ export default function Mentor() {
                   />
                 ) : (
                   sessions.length > 0 ? (
-                    <WeekReviewDashboard sessions={sessions} student={picked} />
+                    <>
+                      <WeekReviewDashboard sessions={sessions} student={picked} />
+
+                      {/* ── 成绩概览：数据分析最底部 ── */}
+                      <div style={{ marginTop: 24 }}>
+                        <div style={{
+                          fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 10,
+                          display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                          <span style={{
+                            width: 3, height: 14, background: '#4F46E5', borderRadius: 2,
+                            display: 'inline-block',
+                          }} />
+                          校内课程成绩概览
+                        </div>
+                        {studentScoresLoading ? (
+                          <div style={{
+                            textAlign: 'center', padding: '32px 0',
+                            color: '#94a3b8', fontSize: 12,
+                          }}>
+                            加载中…
+                          </div>
+                        ) : (() => {
+                          // 按课程分组
+                          const groups = {};
+                          for (const s of studentScores) {
+                            const name = s.course?.name || '未分类';
+                            if (!groups[name]) groups[name] = [];
+                            groups[name].push(s);
+                          }
+                          const courseNames = Object.keys(groups);
+                          if (courseNames.length === 0) {
+                            return (
+                              <div style={{
+                                textAlign: 'center', padding: '32px 16px',
+                                fontSize: 12, color: '#94a3b8',
+                                borderRadius: 12,
+                                background: 'rgba(255,255,255,0.5)',
+                                border: '1px solid rgba(148,163,184,0.2)',
+                              }}>
+                                该学生暂无校内课程考试成绩记录
+                              </div>
+                            );
+                          }
+                          return (
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                              gap: 10,
+                            }}>
+                              {courseNames.map(name => {
+                                const list = (groups[name] || [])
+                                  .sort((a, b) => {
+                                    const da = String(a.exam_date || '');
+                                    const db = String(b.exam_date || '');
+                                    return db.localeCompare(da); // 日期倒序
+                                  });
+                                const top3 = list.slice(0, 3);
+                                return (
+                                  <div key={name} style={{
+                                    padding: '14px 14px 12px',
+                                    borderRadius: 12,
+                                    background: 'rgba(255,255,255,0.6)',
+                                    border: '1px solid rgba(148,163,184,0.25)',
+                                  }}>
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                      marginBottom: 10,
+                                    }}>
+                                      <div style={{
+                                        fontSize: 14, fontWeight: 700, color: '#0f172a',
+                                      }}>{name}</div>
+                                      <span style={{
+                                        fontSize: 11, fontWeight: 600,
+                                        padding: '3px 8px', borderRadius: 999,
+                                        background: 'rgba(15,23,42,0.05)',
+                                        color: '#475569',
+                                      }}>
+                                        {list.length} 条记录
+                                      </span>
+                                    </div>
+                                    {top3.length === 0 ? (
+                                      <div style={{
+                                        fontSize: 11, color: '#94a3b8', textAlign: 'center',
+                                        padding: '10px 0',
+                                      }}>暂无成绩记录</div>
+                                    ) : (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        {top3.map(s => {
+                                          const dateStr = String(s.exam_date || '').slice(5); // MM-DD
+                                          const parts = [];
+                                          if (s.score != null) parts.push(`${s.score} 分`);
+                                          if (s.grade_label) parts.push(s.grade_label);
+                                          const result = parts.length ? parts.join(' · ') : '—';
+                                          return (
+                                            <div key={s.id} style={{
+                                              display: 'flex', alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              padding: '6px 8px',
+                                              borderRadius: 8,
+                                              background: 'rgba(15,23,42,0.02)',
+                                              gap: 8,
+                                            }}>
+                                              <div style={{
+                                                flex: 1, minWidth: 0, display: 'flex',
+                                                alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                                              }}>
+                                                <span style={{
+                                                  fontSize: 12, fontWeight: 600, color: '#0f172a',
+                                                }}>{s.exam_name}</span>
+                                                <span style={{
+                                                  fontSize: 10, color: '#94a3b8',
+                                                  fontFamily: 'ui-monospace, monospace',
+                                                }}>{dateStr}</span>
+                                              </div>
+                                              <div style={{
+                                                fontSize: 12, fontWeight: 700, color: '#0f172a',
+                                                fontFamily: 'ui-monospace, monospace',
+                                                tabularNums: true,
+                                                flexShrink: 0,
+                                              }}>{result}</div>
+                                            </div>
+                                          );
+                                        })}
+                                        {list.length > 3 && (
+                                          <div style={{
+                                            fontSize: 10, color: '#94a3b8', textAlign: 'center',
+                                            marginTop: 2,
+                                          }}>
+                                            另还有 {list.length - 3} 条历史记录
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </>
                   ) : (
                     <div className="mentor-empty-state" style={{ padding: 40 }}>
                       <div>{busy ? '加载中…' : '该学生暂无学习记录'}</div>
@@ -1019,6 +1386,179 @@ export default function Mentor() {
                   </div>
                   <div style={{ fontSize: 13, color: '#94a3b8' }}>
                     从上方下拉菜单选择已连接的学生，查看他们的周度学习复盘报告
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeView === 'syllabus' && (
+            <motion.div
+              className="mentor-syllabus-page"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <motion.div
+                className="mentor-page-header"
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+              >
+                <h1 className="mentor-page-title">课表</h1>
+                <p className="mentor-page-subtitle">查看学生的课程大纲</p>
+              </motion.div>
+
+              {/* 学生选择器 */}
+              <div className="mentor-analytics-picker" style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24,
+                padding: '12px 16px', borderRadius: 12,
+                background: 'var(--mentor-color-surface)',
+                border: '1px solid var(--mentor-color-border)',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                  选择学生
+                </span>
+                <select
+                  value={picked?.id || ''}
+                  onChange={(e) => {
+                    const s = students.find(st => st.id === e.target.value);
+                    setPicked(s || null);
+                  }}
+                  style={{
+                    flex: 1, padding: '8px 12px', borderRadius: 8,
+                    border: '1px solid var(--mentor-color-border)',
+                    background: 'var(--mentor-color-surface-secondary)',
+                    fontSize: 13, color: 'var(--mentor-color-text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="">— 请选择学生 —</option>
+                  {students.map(s => {
+                    const conn = connections[s.id];
+                    const status = conn?.status ?? -1;
+                    if (!isAdmin && status !== 1) return null;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name || '(未命名)'} {s.school_name ? `· ${s.school_name}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {picked ? (
+                syllabusLoading ? (
+                  <div className="mentor-empty-state" style={{ padding: 40 }}>
+                    <div>加载中…</div>
+                  </div>
+                ) : syllabusCourses.length > 0 ? (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                    gap: 16,
+                  }}>
+                    {syllabusCourses.map(course => (
+                      <motion.div
+                        key={course.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                        style={{
+                          background: '#fff',
+                          borderRadius: 16,
+                          border: '1px solid rgba(15,23,42,0.06)',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {/* 课程头部 */}
+                        <div style={{
+                          padding: '16px 18px',
+                          borderBottom: '1px solid #f1f5f9',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                              {course.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                              {course.subject || '未分类学科'}
+                              {course.source ? ` · ${course.source}` : ''}
+                            </div>
+                          </div>
+                          <div style={{
+                            fontSize: 11, color: '#94a3b8',
+                            background: '#f8fafc', padding: '3px 8px', borderRadius: 6,
+                          }}>
+                            {(course.chapters || []).length} 章
+                          </div>
+                        </div>
+
+                        {/* 章节 + 单元列表 */}
+                        <div style={{ padding: '8px 18px 16px' }}>
+                          {(course.chapters || []).length === 0 ? (
+                            <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>
+                              暂无章节
+                            </div>
+                          ) : (
+                            course.chapters.map((ch, chi) => (
+                              <div key={ch.id} style={{ marginBottom: chi === course.chapters.length - 1 ? 0 : 12 }}>
+                                <div style={{
+                                  fontSize: 13, fontWeight: 600, color: '#0f172a',
+                                  padding: '6px 0',
+                                  display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                  <span style={{
+                                    width: 18, height: 18, borderRadius: 5,
+                                    background: '#f1f5f9',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 10, fontWeight: 700, color: '#64748b',
+                                    flexShrink: 0,
+                                  }}>{chi + 1}</span>
+                                  {ch.name}
+                                </div>
+                                {(ch.units || []).length > 0 && (
+                                  <div style={{ paddingLeft: 24, paddingBottom: 4 }}>
+                                    {ch.units.map(u => (
+                                      <div key={u.id} style={{
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '3px 0',
+                                      }}>
+                                        <span style={{
+                                          width: 4, height: 4, borderRadius: '50%',
+                                          background: '#cbd5e1', flexShrink: 0,
+                                        }} />
+                                        <span style={{ fontSize: 12, color: '#64748b' }}>
+                                          {u.name}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mentor-empty-state" style={{ padding: 40 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>📖</div>
+                    <div>该学生暂未创建课程</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                      学生可以在学生端的「课表」页面添加课程
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="mentor-empty-state" style={{ padding: 60 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                    请选择一位学生
+                  </div>
+                  <div style={{ fontSize: 13, color: '#94a3b8' }}>
+                    从上方下拉菜单选择已连接的学生，查看他们的课程大纲
                   </div>
                 </div>
               )}
@@ -1045,6 +1585,16 @@ export default function Mentor() {
           )}
         </div>
       </MentorLayout>
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        variant={confirmState.variant}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+      />
+      </>
     );
   }
 
@@ -1066,6 +1616,12 @@ export default function Mentor() {
             className={`m-mentor-tab ${activeView === 'analytics' ? 'm-mentor-tab-active' : ''}`}
           >
             数据分析
+          </button>
+          <button
+            onClick={() => setActiveView('syllabus')}
+            className={`m-mentor-tab ${activeView === 'syllabus' ? 'm-mentor-tab-active' : ''}`}
+          >
+            课表
           </button>
           <button
             onClick={() => setActiveView('settings')}
@@ -1205,7 +1761,15 @@ export default function Mentor() {
                   </div>
 
                   <div className="m-student-card__actions">
-                    {status === 1 && (
+                    {isAdmin && (
+                      <button
+                        className="m-action-btn m-action-btn--primary"
+                        onClick={() => setPicked(s)}
+                      >
+                        查看数据
+                      </button>
+                    )}
+                    {!isAdmin && status === 1 && (
                       <>
                         <button
                           className="m-action-btn m-action-btn--primary"
@@ -1221,7 +1785,7 @@ export default function Mentor() {
                         </button>
                       </>
                     )}
-                    {status === 0 && (
+                    {!isAdmin && status === 0 && (
                       <>
                         <button className="m-action-btn" onClick={() => withdrawInvite(s.id)}>
                           撤回邀请
@@ -1234,7 +1798,7 @@ export default function Mentor() {
                         </button>
                       </>
                     )}
-                    {status === 2 && (
+                    {!isAdmin && status === 2 && (
                       <button
                         className="m-action-btn m-action-btn--primary"
                         onClick={() => sendInvite(s.id)}
@@ -1242,7 +1806,7 @@ export default function Mentor() {
                         再次邀请
                       </button>
                     )}
-                    {status === -1 && (
+                    {!isAdmin && status === -1 && (
                       <button
                         className="m-action-btn m-action-btn--primary"
                         onClick={() => sendInvite(s.id)}
@@ -1292,7 +1856,7 @@ export default function Mentor() {
                     </motion.div>
                   )}
 
-                  {status === -1 && editingSchoolId !== s.id && (
+                  {!isAdmin && status === -1 && editingSchoolId !== s.id && (
                     <div className="m-invite-form">
                       <textarea
                         placeholder="邀请备注（选填）"
@@ -1509,7 +2073,7 @@ export default function Mentor() {
                 {students.map(s => {
                   const conn = connections[s.id];
                   const status = conn?.status ?? -1;
-                  if (status !== 1) return null;
+                  if (!isAdmin && status !== 1) return null;
                   return (
                     <option key={s.id} value={s.id}>
                       {s.full_name || '(未命名)'}
@@ -1545,6 +2109,128 @@ export default function Mentor() {
             </div>
           )}
         </div>
+      ) : activeView === 'syllabus' ? (
+        <div className="m-mentor-content">
+          {/* 学生选择器 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+            padding: '10px 14px', borderRadius: 12,
+            background: '#fff', border: '1px solid rgba(15,23,42,0.06)',
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', flexShrink: 0 }}>
+              学生
+            </span>
+            <select
+              value={picked?.id || ''}
+              onChange={(e) => {
+                const s = students.find(st => st.id === e.target.value);
+                setPicked(s || null);
+              }}
+              style={{
+                flex: 1, padding: '6px 10px', borderRadius: 8,
+                border: '1px solid #e2e8f0', background: '#fff',
+                fontSize: 13, color: '#0f172a',
+              }}
+            >
+              <option value="">— 请选择 —</option>
+              {students.map(s => {
+                const conn = connections[s.id];
+                const status = conn?.status ?? -1;
+                if (!isAdmin && status !== 1) return null;
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.full_name || '(未命名)'}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {picked ? (
+            syllabusLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
+                加载中…
+              </div>
+            ) : syllabusCourses.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {syllabusCourses.map(course => (
+                  <div key={course.id} style={{
+                    background: '#fff', borderRadius: 14,
+                    border: '1px solid rgba(15,23,42,0.06)', overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      padding: '14px 16px',
+                      borderBottom: '1px solid #f1f5f9',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                          {course.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          {course.subject || '未分类'}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: 11, color: '#94a3b8',
+                        background: '#f8fafc', padding: '3px 8px', borderRadius: 6,
+                      }}>
+                        {(course.chapters || []).length} 章
+                      </span>
+                    </div>
+                    <div style={{ padding: '6px 16px 12px' }}>
+                      {(course.chapters || []).length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8', padding: '6px 0' }}>
+                          暂无章节
+                        </div>
+                      ) : (
+                        course.chapters.map((ch, chi) => (
+                          <div key={ch.id} style={{ marginBottom: 8 }}>
+                            <div style={{
+                              fontSize: 13, fontWeight: 600, color: '#0f172a',
+                              padding: '5px 0', display: 'flex', alignItems: 'center', gap: 6,
+                            }}>
+                              <span style={{
+                                width: 18, height: 18, borderRadius: 5,
+                                background: '#f1f5f9',
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 10, fontWeight: 700, color: '#64748b', flexShrink: 0,
+                              }}>{chi + 1}</span>
+                              {ch.name}
+                            </div>
+                            {ch.units && ch.units.length > 0 && (
+                              <div style={{ paddingLeft: 24, paddingBottom: 2 }}>
+                                {ch.units.map(u => (
+                                  <div key={u.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '2px 0',
+                                  }}>
+                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#cbd5e1', flexShrink: 0 }} />
+                                    <span style={{ fontSize: 12, color: '#64748b' }}>{u.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📖</div>
+                <div style={{ fontSize: 13 }}>该学生暂未创建课程</div>
+              </div>
+            )
+          ) : (
+            <div className="m-empty-state">
+              <div className="m-empty-state__icon">📖</div>
+              <div className="m-empty-state__text">请选择一位学生</div>
+            </div>
+          )}
+        </div>
       ) : activeView === 'settings' ? (
         <div className="m-mentor-content">
           <section className="glass" style={{ padding: 20 }}>
@@ -1556,6 +2242,15 @@ export default function Mentor() {
           </section>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        variant={confirmState.variant}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+      />
     </div>
   );
 }

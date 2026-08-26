@@ -126,7 +126,21 @@ export default function Login() {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
       if (error) throw error;
 
-      const role = Number(data?.user?.user_metadata?.role) || 1;
+      // 从 profiles 表读取权威 role（signUp 时不再把 role 写入 user_metadata，
+      // 因此不能用 user_metadata.role 决定跳转，否则导师会被错误跳到 /syllabus）
+      let role = 1;
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        if (profile?.role != null) role = Number(profile.role);
+      } catch (profileErr) {
+        // profile 读取失败时降级为默认学生角色，避免阻塞登录
+        logger.warn('Login profile load failed, fallback to role=1:', profileErr);
+      }
+
       toast('登录成功', { kind: 'success' });
       const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
       nav(role >= 2 ? '/mentor' : (isMobile ? '/learning' : '/syllabus'), { replace: true });
@@ -196,11 +210,8 @@ export default function Login() {
                   setConfirmPassword('');
                   window.location.hash = '';
                 }}
-                style={{
-                  marginTop: '8px', width: '100%', padding: '8px',
-                  background: 'transparent', border: 'none',
-                  fontSize: '13px', color: '#6366f1', cursor: 'pointer'
-                }}
+                className="btn btn-ghost"
+                style={{ marginTop: '8px' }}
               >
                 返回登录
               </button>
@@ -251,8 +262,12 @@ export default function Login() {
                 style={{
                   marginTop: '8px', width: '100%', padding: '8px',
                   background: 'transparent', border: 'none',
-                  fontSize: '13px', color: '#6366f1', cursor: 'pointer'
+                  fontSize: '13px', color: 'var(--brand)', cursor: 'pointer',
+                  fontWeight: 500, fontFamily: 'inherit',
+                  transition: 'opacity 120ms ease',
                 }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
                 忘记密码？
               </button>
@@ -261,16 +276,34 @@ export default function Login() {
         )}
 
         {showReset && (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.5)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <div style={{
-              background: 'white', borderRadius: '16px', padding: '24px',
-              width: '90%', maxWidth: '320px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
-            }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#0f172a' }}>重置密码</h3>
+          <div
+            className="auth-modal-overlay"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(15,23,42,0.35)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 20, animation: 'fadeIn 180ms ease-out',
+            }}
+            onClick={() => !resetBusy && setShowReset(false)}
+          >
+            <div
+              className="auth-modal-card"
+              style={{
+                background: 'var(--glass-strong)',
+                backdropFilter: 'var(--blur-sheet)',
+                WebkitBackdropFilter: 'var(--blur-sheet)',
+                borderRadius: 20, padding: 24,
+                width: '100%', maxWidth: 340,
+                border: '1px solid var(--edge-bright)',
+                boxShadow: '0 2px 6px rgba(15,23,42,0.04), 0 18px 44px rgba(15,23,42,0.12)',
+                animation: 'authModalIn 220ms cubic-bezier(0.32,0.72,0,1)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ margin: '0 0 4px 0', fontSize: 18, fontWeight: 700, color: 'var(--text-strong)' }}>重置密码</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-soft)' }}>输入注册邮箱，我们会发送重置链接</p>
               <form onSubmit={handleReset}>
                 <div className="field">
                   <label>邮箱</label>
@@ -293,11 +326,9 @@ export default function Login() {
               </form>
               <button
                 onClick={() => setShowReset(false)}
-                style={{
-                  marginTop: '12px', width: '100%', padding: '10px',
-                  background: 'rgba(15,23,42,0.06)', border: 'none',
-                  borderRadius: '10px', fontSize: '14px', color: '#475569', cursor: 'pointer'
-                }}
+                disabled={resetBusy}
+                className="btn btn-ghost"
+                style={{ marginTop: '8px' }}
               >
                 取消
               </button>
@@ -312,12 +343,12 @@ export default function Login() {
 
         <div style={{
           marginTop: '14px', padding: '10px 12px', fontSize: '12px',
-          color: '#475569', background: 'rgba(99,102,241,0.06)',
-          border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', lineHeight: 1.55,
+          color: 'var(--text-soft)', background: 'var(--brand-soft)',
+          border: '1px solid rgba(193,39,45,0.15)', borderRadius: '10px', lineHeight: 1.55,
         }}>
-          <b style={{ color: '#4338ca' }}>🧑‍🏫 老师登录：</b>
+          <b style={{ color: 'var(--brand)' }}>🧑‍🏫 老师登录：</b>
           使用你注册时选择"我是老师"所填的邮箱和密码登录；登录后会自动进入
-          <b style={{ color: '#4338ca' }}>导师视图</b>，可下拉选择任意学生查看其 Review。
+          <b style={{ color: 'var(--brand)' }}>导师视图</b>，可下拉选择任意学生查看其 Review。
         </div>
       </div>
 

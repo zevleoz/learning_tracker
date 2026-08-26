@@ -52,16 +52,17 @@ export function useAuth() {
         .maybeSingle();
       if (!error) {
         if (data) {
-          let finalRole = data.role;
+          // 安全原则：始终信任 profiles 表的 role（数据库权威来源），
+          // 不信任 user_metadata.role（用户可自行修改 → 提权风险）
           if (metaRole && Number(metaRole) !== data.role) {
-            logger.warn('Role mismatch detected:', { 
-              user_metadata_role: metaRole, 
-              profiles_role: data.role 
+            logger.warn('Role mismatch: DB role takes precedence over user_metadata', {
+              user_metadata_role: metaRole,
+              profiles_role: data.role,
             });
-            finalRole = Number(metaRole);
           }
-          setProfile({ ...data, role: finalRole });
+          setProfile({ ...data, role: data.role });
         } else if (metaRole) {
+          // 仅当 profile 行尚未创建时（trigger 延迟），临时回退到 user_metadata
           setProfile({ id: uid, role: Number(metaRole), full_name: 'User' });
         }
       }

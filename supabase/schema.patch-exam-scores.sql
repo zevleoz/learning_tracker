@@ -62,6 +62,14 @@ create policy "exam_scores_delete_own" on public.exam_scores for delete
 using ( student_id = auth.uid() );
 
 -- ── 4. updated_at 触发器 ───────────────────────
+create or replace function public.trigger_set_timestamp()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
 drop trigger if exists set_timestamp_exam_scores on public.exam_scores;
 create trigger set_timestamp_exam_scores
 before update on public.exam_scores

@@ -14,7 +14,7 @@ export function useToasts() {
       setItems((prev) => [...prev, t]);
       setTimeout(() => {
         setItems((prev) => prev.filter((x) => x.id !== t.id));
-      }, 3500);
+      }, t.duration || 3500);
     };
     window.addEventListener(TOAST_EVENT, handler);
     return () => window.removeEventListener(TOAST_EVENT, handler);

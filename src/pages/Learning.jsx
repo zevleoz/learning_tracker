@@ -265,6 +265,215 @@ function LiquidGlassFlash({ show, variant = 'success', size = 88, duration = 500
   );
 }
 
+/* ============ MobileDatePicker：移动端触控日历日期选择器 ============ */
+const WEEK_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
+const MONTH_LABELS = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+
+function MobileDatePicker({ value, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  // 从 value 解析年月作为初始显示月份
+  const [viewYear, setViewYear] = useState(() => {
+    if (value) { const d = new Date(value + 'T00:00:00'); return d.getFullYear(); }
+    return new Date().getFullYear();
+  });
+  const [viewMonth, setViewMonth] = useState(() => {
+    if (value) { const d = new Date(value + 'T00:00:00'); return d.getMonth(); }
+    return new Date().getMonth();
+  });
+  const [dragDir, setDragDir] = useState(0);
+
+  // 打开时同步到 value 对应的月份
+  function handleOpen() {
+    if (disabled) return;
+    if (value) {
+      const d = new Date(value + 'T00:00:00');
+      setViewYear(d.getFullYear());
+      setViewMonth(d.getMonth());
+    }
+    setOpen(true);
+  }
+
+  function prevMonth() {
+    setViewMonth(m => { if (m === 0) { setViewYear(y => y - 1); return 11; } return m - 1; });
+  }
+  function nextMonth() {
+    setViewMonth(m => { if (m === 11) { setViewYear(y => y + 1); return 0; } return m + 1; });
+  }
+
+  // 生成本月日期网格
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay(); // 0=周日
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const selectedStr = value || '';
+
+  function selectDay(day) {
+    const m = String(viewMonth + 1).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    onChange(`${viewYear}-${m}-${d}`);
+    setOpen(false);
+  }
+
+  // 滑动手势结束判断
+  function onDragEnd(_, info) {
+    if (info.offset.x < -60) { nextMonth(); }
+    else if (info.offset.x > 60) { prevMonth(); }
+    setDragDir(0);
+  }
+
+  return (
+    <>
+      {/* 触发器：日期显示条 */}
+      <button
+        type="button"
+        onClick={handleOpen}
+        disabled={disabled}
+        className="input input-strong"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          minHeight: 44, cursor: disabled ? 'not-allowed' : 'pointer',
+          textAlign: 'left', fontFamily: 'inherit',
+        }}
+      >
+        <span style={{ fontSize: 14, color: value ? '#0f172a' : '#94a3b8' }}>
+          {value || '选择日期…'}
+        </span>
+        <span style={{ fontSize: 16, color: '#94a3b8' }}>📅</span>
+      </button>
+
+      {createPortal(
+        <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setOpen(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1200,
+              background: 'rgba(15,23,42,0.45)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)',
+              display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            }}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', stiffness: 360, damping: 36 }}
+              onClick={(e) => e.stopPropagation()}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.3}
+              onDragEnd={onDragEnd}
+              style={{
+                width: '100%', maxWidth: 440,
+                background: '#fff',
+                borderRadius: '20px 20px 0 0',
+                boxShadow: '0 -12px 40px rgba(0,0,0,0.15)',
+                paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+                touchAction: 'pan-y',
+              }}
+            >
+              {/* 抓手条 */}
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
+                <div style={{ width: 36, height: 4, borderRadius: 2, background: '#cbd5e1' }} />
+              </div>
+
+              {/* 月份导航 */}
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 20px 12px',
+              }}>
+                <button type="button" onClick={prevMonth}
+                  style={{ background: 'none', border: 'none', fontSize: 22, color: '#475569', cursor: 'pointer', padding: '8px 12px', minHeight: 44 }}
+                >‹</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                  {viewYear} 年 {MONTH_LABELS[viewMonth]}
+                </div>
+                <button type="button" onClick={nextMonth}
+                  style={{ background: 'none', border: 'none', fontSize: 22, color: '#475569', cursor: 'pointer', padding: '8px 12px', minHeight: 44 }}
+                >›</button>
+              </div>
+
+              {/* 星期标题 */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+                padding: '0 12px',
+                marginBottom: 4,
+              }}>
+                {WEEK_LABELS.map(w => (
+                  <div key={w} style={{
+                    textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#94a3b8',
+                    padding: '4px 0',
+                  }}>{w}</div>
+                ))}
+              </div>
+
+              {/* 日期网格 */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: 2, padding: '0 12px 8px',
+              }}>
+                {cells.map((day, i) => {
+                  if (day === null) return <div key={i} style={{ height: 44 }} />;
+                  const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const isSelected = dateStr === selectedStr;
+                  const isToday = dateStr === todayStr;
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => selectDay(day)}
+                      style={{
+                        height: 44,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        borderRadius: '50%',
+                        fontSize: 15,
+                        fontWeight: isSelected ? 700 : 400,
+                        background: isSelected ? '#0f172a' : 'transparent',
+                        color: isSelected ? '#fff' : '#334155',
+                        border: isToday && !isSelected ? '1.5px solid #94a3b8' : '1.5px solid transparent',
+                        cursor: 'pointer',
+                        transition: 'all 100ms ease',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 确认按钮 */}
+              <div style={{ padding: '4px 20px 4px' }}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  style={{
+                    width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 600,
+                    border: 'none', borderRadius: 12, background: '#f1f5f9',
+                    color: '#475569', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >确定</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
+  );
+}
+
 /* ============ 页面主体 ============ */
 export default function LearningPage() {
   const { user } = useAuth();
@@ -311,6 +520,15 @@ export default function LearningPage() {
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e) => setIsMobile(e.matches);
+    handler(mq);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
   const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
@@ -579,6 +797,19 @@ export default function LearningPage() {
     }
     setScoreSaving(true);
     try {
+      // 预检：exam_scores 表是否存在
+      const { error: preCheckErr } = await supabase
+        .from('exam_scores')
+        .select('id')
+        .limit(1);
+      if (preCheckErr) {
+        const preMsg = friendlyErr(preCheckErr, '成绩数据表异常');
+        logger.error('[saveScore] pre-check failed:', JSON.stringify(preCheckErr, null, 2));
+        toast(preMsg, { kind: 'error', duration: 6000 });
+        triggerFlash('failure', 92, 450);
+        return;
+      }
+
       const payload = {
         student_id: user.id,
         course_id: scoreModalCourseId,
@@ -606,9 +837,9 @@ export default function LearningPage() {
       closeScoreModal();
       await loadScores();
     } catch (e) {
-      logger.error('saveScore failed:', e);
+      logger.error('[saveScore] failed:', JSON.stringify(e, null, 2));
       const msg = friendlyErr(e, '保存失败');
-      toast(msg, { kind: 'error' });
+      toast(msg, { kind: 'error', duration: 6000 });
       triggerFlash('failure', 92, 450);
     } finally {
       setScoreSaving(false);
@@ -1372,10 +1603,14 @@ export default function LearningPage() {
               <div className="three-col three-col-stay">
                 <div className="field">
                   <label>日期</label>
-                  <input type="date" className="input input-strong"
-                    value={dateStr}
-                    onChange={(e) => setDateStr(e.target.value)}
-                    disabled={busy} />
+                  {isMobile ? (
+                    <MobileDatePicker value={dateStr} onChange={setDateStr} disabled={busy} />
+                  ) : (
+                    <input type="date" className="input input-strong"
+                      value={dateStr}
+                      onChange={(e) => setDateStr(e.target.value)}
+                      disabled={busy} />
+                  )}
                 </div>
                 <div className="field">
                   <label>开始</label>
@@ -1949,14 +2184,22 @@ export default function LearningPage() {
                   <div style={{
                     fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
                   }}>考试日期 <span style={{ color: '#ef4444' }}>*</span></div>
-                  <input
-                    type="date"
-                    value={scoreForm.exam_date}
-                    onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
-                    className="input input-strong"
-                    style={{ fontSize: 13 }}
-                    disabled={scoreSaving}
-                  />
+                  {isMobile ? (
+                    <MobileDatePicker
+                      value={scoreForm.exam_date}
+                      onChange={(v) => setScoreForm({ ...scoreForm, exam_date: v })}
+                      disabled={scoreSaving}
+                    />
+                  ) : (
+                    <input
+                      type="date"
+                      value={scoreForm.exam_date}
+                      onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
+                      className="input input-strong"
+                      style={{ fontSize: 13 }}
+                      disabled={scoreSaving}
+                    />
+                  )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                   <div>

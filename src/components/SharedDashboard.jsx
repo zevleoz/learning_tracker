@@ -371,7 +371,7 @@ function StreakBlock({ sessions = [] }) {
           <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>天</div>
           {stats.current >= 7 && (
             <div style={{ fontSize: '10px', color: '#10b981', marginTop: '8px', fontWeight: 600 }}>
-              🎉 太棒了！连续一周！
+              太棒了！连续一周！
             </div>
           )}
         </div>
@@ -1022,7 +1022,7 @@ function SuggestionsBlock({ sessions = [] }) {
           padding: '20px',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: '14px', color: '#10b981', fontWeight: 600, marginBottom: '4px' }}>🎉 表现不错！</div>
+          <div style={{ fontSize: '14px', color: '#10b981', fontWeight: 600, marginBottom: '4px' }}>表现不错！</div>
           <div style={{ fontSize: '12px', color: '#64748b' }}>继续保持当前的学习节奏</div>
         </div>
       </SectionShell>

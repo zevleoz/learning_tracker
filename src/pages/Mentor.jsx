@@ -677,7 +677,7 @@ export default function Mentor() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <strong>⚠️ 邀请系统未就绪</strong>
+              <strong>邀请系统未就绪</strong>
               <div>{deployCheck.message}</div>
             </motion.div>
           )}
@@ -750,7 +750,6 @@ export default function Mentor() {
                             textAlign: 'center', padding: '40px 20px',
                             color: '#94a3b8', fontSize: 13,
                           }}>
-                            <div style={{ fontSize: 28, marginBottom: 8 }}>👥</div>
                             {isAdmin ? '暂无学生' : '暂无已连接学生'}
                             <div style={{ fontSize: 11, marginTop: 4 }}>
                               {isAdmin ? '暂未注册学生账号' : '从右侧搜索并邀请学生'}
@@ -1029,7 +1028,6 @@ export default function Mentor() {
                         color: '#94a3b8', fontSize: 13, gridColumn: '1/-1',
                       }}
                     >
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
                       未找到匹配的学生
                     </motion.div>
                   )}
@@ -1111,7 +1109,7 @@ export default function Mentor() {
                                   marginBottom: 12,
                                 }}>
                                   <div style={{ fontWeight: 600, marginBottom: 4, color: '#4338ca' }}>
-                                    💡 详细周度复盘请前往「数据分析」页
+                                    详细周度复盘请前往「数据分析」页
                                   </div>
                                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
                                     当前在学生管理页仅显示简要摘要
@@ -1380,7 +1378,6 @@ export default function Mentor() {
                 )
               ) : (
                 <div className="mentor-empty-state" style={{ padding: 60 }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
                     请选择一位学生
                   </div>
@@ -1544,7 +1541,6 @@ export default function Mentor() {
                   </div>
                 ) : (
                   <div className="mentor-empty-state" style={{ padding: 40 }}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>📖</div>
                     <div>该学生暂未创建课程</div>
                     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
                       学生可以在学生端的「课表」页面添加课程
@@ -1553,7 +1549,6 @@ export default function Mentor() {
                 )
               ) : (
                 <div className="mentor-empty-state" style={{ padding: 60 }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
                     请选择一位学生
                   </div>
@@ -1641,7 +1636,7 @@ export default function Mentor() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#7f1d1d' }}>⚠️ 邀请系统未就绪</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#7f1d1d' }}>邀请系统未就绪</div>
               <div style={{ marginTop: 4, fontSize: 12, color: '#991b1b' }}>{deployCheck.message}</div>
             </motion.div>
           )}
@@ -1878,7 +1873,6 @@ export default function Mentor() {
             })}
             {filteredStudents.length === 0 && (
               <div className="m-empty-state">
-                <div className="m-empty-state__icon">📋</div>
                 <div className="m-empty-state__text">暂无学生</div>
               </div>
             )}
@@ -2104,7 +2098,6 @@ export default function Mentor() {
             )
           ) : (
             <div className="m-empty-state">
-              <div className="m-empty-state__icon">📊</div>
               <div className="m-empty-state__text">请选择一位学生</div>
             </div>
           )}
@@ -2220,13 +2213,11 @@ export default function Mentor() {
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📖</div>
                 <div style={{ fontSize: 13 }}>该学生暂未创建课程</div>
               </div>
             )
           ) : (
             <div className="m-empty-state">
-              <div className="m-empty-state__icon">📖</div>
               <div className="m-empty-state__text">请选择一位学生</div>
             </div>
           )}

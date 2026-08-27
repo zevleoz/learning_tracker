@@ -40,7 +40,7 @@ class ErrorBoundary extends Component {
       return (
         <div className="error-boundary">
           <div className="error-boundary__content">
-            <div className="error-boundary__icon">⚠️</div>
+            <div className="error-boundary__icon"></div>
             <h2 className="error-boundary__title">页面加载出错</h2>
             <p className="error-boundary__message">
               抱歉，页面加载时出现了问题。请检查网络连接后重试。

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pencil, Trash2 } from 'lucide-react';
@@ -102,20 +102,61 @@ function fmtRecentDate(iso, timeStr) {
 /* ============ 渐变吸附式滑轨 GlassRail ============ */
 function GlassRail({ steps, idx, onChange, disabled, labelFn }) {
   const n = steps.length;
+  const trackRef = useRef(null);
+  const draggingRef = useRef(false);
+
   // 吸附点百分比（首尾留一点空间让 thumb 不贴边）
   const pct = (i) => {
     if (n === 1) return 50;
     return (i / (n - 1)) * 100;
   };
   const label = (labelFn || ((s) => s.label))(steps[idx]);
+
+  // 把 pointer 坐标转换为 step index
+  function pointerToStep(clientX) {
+    const el = trackRef.current;
+    if (!el) return idx;
+    const rect = el.getBoundingClientRect();
+    // 轨道有效范围：padding 20px 两侧
+    const usableLeft = rect.left + 20;
+    const usableWidth = rect.width - 40;
+    if (usableWidth <= 0) return idx;
+    let ratio = (clientX - usableLeft) / usableWidth;
+    ratio = Math.max(0, Math.min(1, ratio));
+    return Math.round(ratio * (n - 1));
+  }
+
+  function onPointerDown(e) {
+    if (disabled) return;
+    try { e.target.setPointerCapture(e.pointerId); } catch {}
+    draggingRef.current = true;
+    onChange(pointerToStep(e.clientX));
+  }
+  function onPointerMove(e) {
+    if (!draggingRef.current || disabled) return;
+    onChange(pointerToStep(e.clientX));
+  }
+  function onPointerUp(e) {
+    draggingRef.current = false;
+    try { e.target.releasePointerCapture(e.pointerId); } catch {}
+  }
+
   return (
     <div className="glass-rail">
-      <div className="glass-rail-track">
+      <div
+        className="glass-rail-track"
+        ref={trackRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={{ touchAction: 'none' }}
+      >
         {/* 吸附点 */}
         <div className="glass-rail-steps">
           {steps.map((_, i) => <span key={i} style={{ opacity: i === idx ? 1 : 0.55 }} />)}
         </div>
-        {/* 隐藏的原生 input（用来接收滑动事件） */}
+        {/* 隐藏的原生 input（键盘无障碍用，pointer 已由 track 接管） */}
         <input
           type="range"
           min={0}
@@ -265,215 +306,6 @@ function LiquidGlassFlash({ show, variant = 'success', size = 88, duration = 500
   );
 }
 
-/* ============ MobileDatePicker：移动端触控日历日期选择器 ============ */
-const WEEK_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
-const MONTH_LABELS = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
-
-function MobileDatePicker({ value, onChange, disabled }) {
-  const [open, setOpen] = useState(false);
-  // 从 value 解析年月作为初始显示月份
-  const [viewYear, setViewYear] = useState(() => {
-    if (value) { const d = new Date(value + 'T00:00:00'); return d.getFullYear(); }
-    return new Date().getFullYear();
-  });
-  const [viewMonth, setViewMonth] = useState(() => {
-    if (value) { const d = new Date(value + 'T00:00:00'); return d.getMonth(); }
-    return new Date().getMonth();
-  });
-  const [dragDir, setDragDir] = useState(0);
-
-  // 打开时同步到 value 对应的月份
-  function handleOpen() {
-    if (disabled) return;
-    if (value) {
-      const d = new Date(value + 'T00:00:00');
-      setViewYear(d.getFullYear());
-      setViewMonth(d.getMonth());
-    }
-    setOpen(true);
-  }
-
-  function prevMonth() {
-    setViewMonth(m => { if (m === 0) { setViewYear(y => y - 1); return 11; } return m - 1; });
-  }
-  function nextMonth() {
-    setViewMonth(m => { if (m === 11) { setViewYear(y => y + 1); return 0; } return m + 1; });
-  }
-
-  // 生成本月日期网格
-  const firstDay = new Date(viewYear, viewMonth, 1).getDay(); // 0=周日
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const selectedStr = value || '';
-
-  function selectDay(day) {
-    const m = String(viewMonth + 1).padStart(2, '0');
-    const d = String(day).padStart(2, '0');
-    onChange(`${viewYear}-${m}-${d}`);
-    setOpen(false);
-  }
-
-  // 滑动手势结束判断
-  function onDragEnd(_, info) {
-    if (info.offset.x < -60) { nextMonth(); }
-    else if (info.offset.x > 60) { prevMonth(); }
-    setDragDir(0);
-  }
-
-  return (
-    <>
-      {/* 触发器：日期显示条 */}
-      <button
-        type="button"
-        onClick={handleOpen}
-        disabled={disabled}
-        className="input input-strong"
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          minHeight: 44, cursor: disabled ? 'not-allowed' : 'pointer',
-          textAlign: 'left', fontFamily: 'inherit',
-        }}
-      >
-        <span style={{ fontSize: 14, color: value ? '#0f172a' : '#94a3b8' }}>
-          {value || '选择日期…'}
-        </span>
-        <span style={{ fontSize: 16, color: '#94a3b8' }}>📅</span>
-      </button>
-
-      {createPortal(
-        <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setOpen(false)}
-            style={{
-              position: 'fixed', inset: 0, zIndex: 1200,
-              background: 'rgba(15,23,42,0.45)',
-              backdropFilter: 'blur(4px)',
-              WebkitBackdropFilter: 'blur(4px)',
-              display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-            }}
-          >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 360, damping: 36 }}
-              onClick={(e) => e.stopPropagation()}
-              drag="x"
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={0.3}
-              onDragEnd={onDragEnd}
-              style={{
-                width: '100%', maxWidth: 440,
-                background: '#fff',
-                borderRadius: '20px 20px 0 0',
-                boxShadow: '0 -12px 40px rgba(0,0,0,0.15)',
-                paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
-                touchAction: 'pan-y',
-              }}
-            >
-              {/* 抓手条 */}
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
-                <div style={{ width: 36, height: 4, borderRadius: 2, background: '#cbd5e1' }} />
-              </div>
-
-              {/* 月份导航 */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '8px 20px 12px',
-              }}>
-                <button type="button" onClick={prevMonth}
-                  style={{ background: 'none', border: 'none', fontSize: 22, color: '#475569', cursor: 'pointer', padding: '8px 12px', minHeight: 44 }}
-                >‹</button>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
-                  {viewYear} 年 {MONTH_LABELS[viewMonth]}
-                </div>
-                <button type="button" onClick={nextMonth}
-                  style={{ background: 'none', border: 'none', fontSize: 22, color: '#475569', cursor: 'pointer', padding: '8px 12px', minHeight: 44 }}
-                >›</button>
-              </div>
-
-              {/* 星期标题 */}
-              <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-                padding: '0 12px',
-                marginBottom: 4,
-              }}>
-                {WEEK_LABELS.map(w => (
-                  <div key={w} style={{
-                    textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#94a3b8',
-                    padding: '4px 0',
-                  }}>{w}</div>
-                ))}
-              </div>
-
-              {/* 日期网格 */}
-              <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 2, padding: '0 12px 8px',
-              }}>
-                {cells.map((day, i) => {
-                  if (day === null) return <div key={i} style={{ height: 44 }} />;
-                  const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  const isSelected = dateStr === selectedStr;
-                  const isToday = dateStr === todayStr;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => selectDay(day)}
-                      style={{
-                        height: 44,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        borderRadius: '50%',
-                        fontSize: 15,
-                        fontWeight: isSelected ? 700 : 400,
-                        background: isSelected ? '#0f172a' : 'transparent',
-                        color: isSelected ? '#fff' : '#334155',
-                        border: isToday && !isSelected ? '1.5px solid #94a3b8' : '1.5px solid transparent',
-                        cursor: 'pointer',
-                        transition: 'all 100ms ease',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* 确认按钮 */}
-              <div style={{ padding: '4px 20px 4px' }}>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  style={{
-                    width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 600,
-                    border: 'none', borderRadius: 12, background: '#f1f5f9',
-                    color: '#475569', cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >确定</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        </AnimatePresence>,
-        document.body
-      )}
-    </>
-  );
-}
-
 /* ============ 页面主体 ============ */
 export default function LearningPage() {
   const { user } = useAuth();
@@ -520,15 +352,6 @@ export default function LearningPage() {
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const handler = (e) => setIsMobile(e.matches);
-    handler(mq);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
   const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
@@ -1280,7 +1103,6 @@ export default function LearningPage() {
               textAlign: 'center', padding: '50px 24px',
               color: '#94a3b8', fontSize: 13, lineHeight: 1.7,
             }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📘</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
                 还没有校内课程
               </div>
@@ -1535,7 +1357,7 @@ export default function LearningPage() {
       <div className="glass-sheet record-sheet">
         {editingSessionId && (
           <div className="edit-indicator">
-            <span className="edit-indicator-icon">✏️</span>
+            <span className="edit-indicator-icon">编辑</span>
             <span className="edit-indicator-text">编辑中</span>
             <button className="edit-indicator-close" onClick={onCancelEdit}>✕</button>
           </div>
@@ -1548,7 +1370,6 @@ export default function LearningPage() {
           </div>
         ) : courses.length === 0 ? (
           <div className="empty-state" style={{ padding: '40px 20px' }}>
-            <div className="empty-state-icon">📚</div>
             <h3>还没有课程</h3>
             <p>需要先创建课程大纲，才能记录学习行为。</p>
             <a href="/syllabus" className="btn btn-primary btn-sm" style={{ marginTop: 12, textDecoration: 'none' }}>
@@ -1603,14 +1424,10 @@ export default function LearningPage() {
               <div className="three-col three-col-stay">
                 <div className="field">
                   <label>日期</label>
-                  {isMobile ? (
-                    <MobileDatePicker value={dateStr} onChange={setDateStr} disabled={busy} />
-                  ) : (
-                    <input type="date" className="input input-strong"
-                      value={dateStr}
-                      onChange={(e) => setDateStr(e.target.value)}
-                      disabled={busy} />
-                  )}
+                  <input type="date" className="input input-strong"
+                    value={dateStr}
+                    onChange={(e) => setDateStr(e.target.value)}
+                    disabled={busy} />
                 </div>
                 <div className="field">
                   <label>开始</label>
@@ -2184,22 +2001,14 @@ export default function LearningPage() {
                   <div style={{
                     fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
                   }}>考试日期 <span style={{ color: '#ef4444' }}>*</span></div>
-                  {isMobile ? (
-                    <MobileDatePicker
-                      value={scoreForm.exam_date}
-                      onChange={(v) => setScoreForm({ ...scoreForm, exam_date: v })}
-                      disabled={scoreSaving}
-                    />
-                  ) : (
-                    <input
-                      type="date"
-                      value={scoreForm.exam_date}
-                      onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
-                      className="input input-strong"
-                      style={{ fontSize: 13 }}
-                      disabled={scoreSaving}
-                    />
-                  )}
+                  <input
+                    type="date"
+                    value={scoreForm.exam_date}
+                    onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
+                    className="input input-strong"
+                    style={{ fontSize: 13 }}
+                    disabled={scoreSaving}
+                  />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                   <div>

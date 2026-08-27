@@ -74,7 +74,7 @@ export default function Review() {
   if (loadError) {
     return (
       <div className="empty-state" style={{ padding: '40px 16px' }}>
-        <div className="empty-state-icon">⚠️</div>
+        <div className="empty-state-icon">⚠</div>
         <h3>加载失败</h3>
         <p>{loadError}</p>
         <button
@@ -89,7 +89,7 @@ export default function Review() {
   if (sessions.length === 0) {
     return (
       <div className="empty-state" style={{ padding: '40px 16px' }}>
-        <div className="empty-state-icon">📊</div>
+        <div className="empty-state-icon"></div>
         <h3>还没有学习记录</h3>
         <p>去「记录」页面记录第一次学习，这里会自动生成数据分析。</p>
         <a href="/learning" className="btn btn-primary btn-sm" style={{ marginTop: 12, textDecoration: 'none' }}>

@@ -9,7 +9,7 @@ export function LoadingState({ message = '加载中…' }) {
   );
 }
 
-export function EmptyState({ icon = '📋', title = '暂无数据', description = '' }) {
+export function EmptyState({ icon = '', title = '暂无数据', description = '' }) {
   return (
     <div className="status-state status-state--empty">
       <div className="status-state__icon">{icon}</div>
@@ -24,7 +24,7 @@ export function ErrorState({ error, onRetry, message = '操作失败' }) {
   
   return (
     <div className="status-state status-state--error">
-      <div className="status-state__icon">⚠️</div>
+      <div className="status-state__icon"></div>
       <div className="status-state__title">发生错误</div>
       <div className="status-state__description">{errorMessage}</div>
       {onRetry && (
@@ -39,7 +39,7 @@ export function ErrorState({ error, onRetry, message = '操作失败' }) {
 export function NetworkErrorState({ onRetry }) {
   return (
     <div className="status-state status-state--error">
-      <div className="status-state__icon">📡</div>
+      <div className="status-state__icon"></div>
       <div className="status-state__title">网络连接异常</div>
       <div className="status-state__description">请检查网络连接后重试</div>
       {onRetry && (

@@ -355,7 +355,7 @@ export default function Syllabus() {
         </div>
       ) : loadError ? (
         <div className="empty-state">
-          <div className="empty-state-icon">⚠️</div>
+          <div className="empty-state-icon">⚠</div>
           <h3>加载失败</h3>
           <p>{loadError}</p>
           <button
@@ -404,7 +404,7 @@ export default function Syllabus() {
 
           {courses.length === 0 && (
             <div className="empty-state">
-              <div className="empty-state-icon">📖</div>
+              <div className="empty-state-icon"></div>
               <h3>还没有任何课程</h3>
               <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
             </div>
@@ -1184,7 +1184,7 @@ function DesktopTree({
 
             {myCourses.length === 0 && sharedCourses.length === 0 && (
               <div className="empty-state">
-                <div className="empty-state-icon">📖</div>
+                <div className="empty-state-icon"></div>
                 <h3>还没有任何课程</h3>
                 <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
               </div>

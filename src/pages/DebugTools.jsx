@@ -204,10 +204,10 @@ export default function DebugTools() {
         append(`已插入 ${inserted}/${rows.length} 条…`)
       }
 
-      append('完成！回到 /review 页面查看效果 🎉')
+      append('完成！回到 /review 页面查看效果')
     } catch (err) {
       console.error(err)
-      append('❌ 错误：' + (err.message || JSON.stringify(err)))
+      append('错误：' + (err.message || JSON.stringify(err)))
     } finally {
       setBusy(false)
     }
@@ -227,7 +227,7 @@ export default function DebugTools() {
       if (error) throw error
       append('已软删除全部学习记录')
     } catch (err) {
-      append('❌ ' + err.message)
+      append(err.message)
     } finally {
       setBusy(false)
     }
@@ -238,7 +238,7 @@ export default function DebugTools() {
   // =============================================================
   return (
     <div style={{ padding: '20px 16px 140px', maxWidth: 760, margin: '0 auto', fontFamily: 'ui-sans-serif, system-ui, sans-serif', color: '#0f172a' }}>
-      <h2 style={{ marginTop: 0 }}>🧪 Review 调试工具</h2>
+      <h2 style={{ marginTop: 0 }}>Review 调试工具</h2>
       <p style={{ color: '#64748b', fontSize: 13 }}>
         {user ? `已登录：${user.email} (${user.id.slice(0, 8)}…)` : '未登录，请先在 /login 或 /signup 登录。'}
       </p>
@@ -254,7 +254,7 @@ export default function DebugTools() {
             opacity: busy ? 0.7 : 1,
           }}
         >
-          {busy ? '处理中…' : '📥 生成 60 天假学习记录（6 科目 · 含客观评估）'}
+          {busy ? '处理中…' : '生成 60 天假学习记录（6 科目 · 含客观评估）'}
         </button>
         <button
           onClick={clearAll}
@@ -265,7 +265,7 @@ export default function DebugTools() {
             borderRadius: 10, cursor: 'pointer',
           }}
         >
-          🗑 清空我的学习记录
+          清空我的学习记录
         </button>
       </div>
 
@@ -273,7 +273,7 @@ export default function DebugTools() {
       {/* Letter Grade 不显示的诊断 */}
       {/* ============================================================ */}
       <div style={{ background: '#f1f5f9', borderRadius: 16, padding: 20, marginBottom: 24 }}>
-        <h3 style={{ marginTop: 0, fontSize: 15 }}>🔎 Letter Grade 诊断</h3>
+        <h3 style={{ marginTop: 0, fontSize: 15 }}>Letter Grade 诊断</h3>
 
         <div style={{ fontSize: 13, lineHeight: 1.7, color: '#334155' }}>
           {Object.keys(objAggregate).length === 0 ? (
@@ -301,7 +301,7 @@ export default function DebugTools() {
         </div>
 
         <div style={{ fontSize: 12, color: '#475569', marginTop: 16, lineHeight: 1.7 }}>
-          <b>📌 常见原因：</b>
+          <b>常见原因：</b>
           <ol style={{ paddingLeft: 20, margin: '6px 0' }}>
             <li><code>eval_type</code> 存的是 <code>字符串 "2"</code> / 数字 <code>2</code> / 其他枚举值？前端现在用 <code>Number(eval_type) === 2</code> 宽松比对。</li>
             <li><code>score</code> 为 <code>null</code> 或 0 —— 只有非空 score 才会计入平均分。</li>

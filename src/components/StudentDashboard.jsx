@@ -271,7 +271,7 @@ export default function StudentDashboard({ sessions = [] }) {
   if (!sessions || sessions.length === 0) {
     return (
       <div style={{ padding: 32, textAlign: 'center' }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
+        <div style={{ fontSize: 28, marginBottom: 8 }}></div>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 4 }}>暂无学习记录</div>
         <div style={{ fontSize: 12, color: '#94a3b8' }}>去「记录」页添加学习记录后，数据将在此展示</div>
       </div>
@@ -287,7 +287,7 @@ export default function StudentDashboard({ sessions = [] }) {
           setShowCalendar={setShowCalendar} setCustomRange={setCustomRange} setPresetId={setPresetId}
         />
         <div style={{ padding: 32, textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>📅</div>
+          <div style={{ fontSize: 28, marginBottom: 8 }}></div>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 4 }}>该时段暂无记录</div>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>试试切换其他时间范围</div>
         </div>

@@ -1456,7 +1456,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
         </div>
       ) : error ? (
         <div className="mentor-intelligence__error">
-          <span>⚠️ {error}</span>
+          <span>{error}</span>
           <button onClick={() => loadSessions(selectedStudent?.id)} className="mentor-intelligence__retry-btn">
             重试
           </button>

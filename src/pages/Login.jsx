@@ -346,7 +346,7 @@ export default function Login() {
           color: 'var(--text-soft)', background: 'var(--brand-soft)',
           border: '1px solid rgba(193,39,45,0.15)', borderRadius: '10px', lineHeight: 1.55,
         }}>
-          <b style={{ color: 'var(--brand)' }}>🧑‍🏫 老师登录：</b>
+          <b style={{ color: 'var(--brand)' }}>老师登录：</b>
           使用你注册时选择"我是老师"所填的邮箱和密码登录；登录后会自动进入
           <b style={{ color: 'var(--brand)' }}>导师视图</b>，可下拉选择任意学生查看其 Review。
         </div>

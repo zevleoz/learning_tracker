@@ -997,7 +997,7 @@ select.input-strong {
   height: 34px;
 }
 
-/* 隐藏原生 range（与 thumb-wrap 同范围，left/right 20px） */
+/* 隐藏原生 range（键盘无障碍用，pointer 已由 track 接管） */
 .glass-rail input[type=range] {
   position: absolute;
   left: 20px; right: 20px; top: 0; bottom: 0;
@@ -1009,6 +1009,7 @@ select.input-strong {
   background: transparent;
   cursor: pointer;
   border: 0;
+  pointer-events: none;
 }
 .glass-rail input[type=range]::-webkit-slider-runnable-track {
   background: transparent;

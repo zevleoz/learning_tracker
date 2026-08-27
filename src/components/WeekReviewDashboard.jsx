@@ -137,7 +137,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
         background: 'rgba(255,255,255,0.5)', borderRadius: 16,
         border: '1px solid rgba(15,23,42,0.06)',
       }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+        <div style={{ fontSize: 28, marginBottom: 8 }}></div>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
           {studentName} 暂无学习记录
         </div>

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ── 日历工具 ──
@@ -25,10 +26,9 @@ function isSameMonth(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
-// 生成 42 格月历网格（周一为首日）
 function getMonthGrid(monthFirst) {
   const first = new Date(monthFirst);
-  const dow = first.getDay(); // 0=Sun, 1=Mon…
+  const dow = first.getDay();
   const offset = dow === 0 ? 6 : dow - 1;
   const gridStart = new Date(first);
   gridStart.setDate(first.getDate() - offset);
@@ -51,6 +51,10 @@ function fmtMonthLabel(d) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月`;
 }
 
+function fmtDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // ── 单月日历 ──
 function MonthGrid({
   monthFirst,
@@ -62,11 +66,15 @@ function MonthGrid({
   onDateClick,
   onDateHover,
   onLeaveGrid,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  cellHeight,
+  isMobile,
 }) {
   const cells = useMemo(() => getMonthGrid(monthFirst), [monthFirst]);
   const today = startOfDay(new Date());
 
-  // 预览区间（有 start 且无 end 时，用 hoverDate 作为临时终点）
   const previewEnd = selEnd || hoverDate;
   const rangeStart = (selStart && previewEnd)
     ? (selStart <= previewEnd ? selStart : previewEnd)
@@ -79,19 +87,18 @@ function MonthGrid({
     if (!rangeStart || !rangeEnd) return false;
     return d >= rangeStart && d <= rangeEnd;
   }
-  function isRangeStart(d) {
-    return rangeStart && isSameDay(d, rangeStart);
-  }
-  function isRangeEnd(d) {
-    return rangeEnd && isSameDay(d, rangeEnd);
-  }
-  function isDisabled(d) {
-    return d > maxD || d < minD;
-  }
+  function isRangeStart(d) { return rangeStart && isSameDay(d, rangeStart); }
+  function isRangeEnd(d) { return rangeEnd && isSameDay(d, rangeEnd); }
+  function isDisabled(d) { return d > maxD || d < minD; }
 
   return (
-    <div onMouseLeave={onLeaveGrid} style={{ userSelect: 'none' }}>
-      {/* 星期表头 */}
+    <div
+      onMouseLeave={onLeaveGrid}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      style={{ userSelect: 'none', touchAction: isMobile ? 'none' : 'auto' }}
+    >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
         {DAY_LABELS.map(d => (
           <div key={d} style={{
@@ -100,7 +107,6 @@ function MonthGrid({
           }}>{d}</div>
         ))}
       </div>
-      {/* 日期网格 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
         {cells.map((d, i) => {
           const inMonth = isSameMonth(d, monthFirst);
@@ -111,18 +117,15 @@ function MonthGrid({
           const isEdge = isStart || isEnd;
           const isTodayCell = isToday(d);
 
-          // 连续区间色带效果：左圆角 / 右圆角
-          const isLeftEdge = isStart;
-          const isRightEdge = isEnd;
-
           return (
             <div
               key={i}
+              data-date={fmtDateKey(d)}
               onClick={() => !disabled && onDateClick(d)}
               onMouseEnter={() => !disabled && onDateHover(d)}
               style={{
                 position: 'relative',
-                height: 36,
+                height: cellHeight,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -133,38 +136,31 @@ function MonthGrid({
                   : middle
                     ? 'rgba(79,70,229,0.12)'
                     : 'transparent',
-                // 左侧圆角延伸（区间中间左边缘）
-                borderTopLeftRadius: (!isEdge && middle && isSameDay(d, rangeStart)) ? '50%' : undefined,
-                borderBottomLeftRadius: (!isEdge && middle && isSameDay(d, rangeStart)) ? '50%' : undefined,
               }}
             >
-              {/* 区间色带背景层 */}
               {middle && !isEdge && (
                 <div style={{
                   position: 'absolute', inset: 0,
                   background: 'rgba(79,70,229,0.12)',
                 }} />
               )}
-              {/* 左端半圆延伸 */}
-              {isLeftEdge && rangeEnd && !isSameDay(rangeStart, rangeEnd) && (
+              {isStart && rangeEnd && !isSameDay(rangeStart, rangeEnd) && (
                 <div style={{
                   position: 'absolute', right: '50%', top: 0, bottom: 0,
                   width: '50%', background: 'rgba(79,70,229,0.12)',
-                  borderTopLeftRadius: 0, borderBottomLeftRadius: 0,
                 }} />
               )}
-              {/* 右端半圆延伸 */}
-              {isRightEdge && rangeStart && !isSameDay(rangeStart, rangeEnd) && (
+              {isEnd && rangeStart && !isSameDay(rangeStart, rangeEnd) && (
                 <div style={{
                   position: 'absolute', left: '50%', top: 0, bottom: 0,
                   width: '50%', background: 'rgba(79,70,229,0.12)',
-                  borderTopRightRadius: 0, borderBottomRightRadius: 0,
                 }} />
               )}
 
               <span style={{
                 position: 'relative', zIndex: 1,
-                fontSize: 13, fontWeight: isEdge ? 700 : 500,
+                fontSize: isMobile ? 15 : 13,
+                fontWeight: isEdge ? 700 : 500,
                 color: isEdge
                   ? '#fff'
                   : disabled
@@ -177,7 +173,6 @@ function MonthGrid({
                 {d.getDate()}
               </span>
 
-              {/* 今日标记 */}
               {isTodayCell && !isEdge && (
                 <div style={{
                   position: 'absolute', inset: 2,
@@ -215,6 +210,8 @@ export default function DateRangeCalendar({
   const [selEnd, setSelEnd] = useState(end ? startOfDay(end) : null);
   const [hoverDate, setHoverDate] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef(null);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -225,6 +222,7 @@ export default function DateRangeCalendar({
   }, []);
 
   const nextMonth = addMonths(viewMonth, 1);
+  const cellHeight = isMobile ? 44 : 36;
 
   function handleDateClick(date) {
     if (date > maxD || date < minD) return;
@@ -250,25 +248,68 @@ export default function DateRangeCalendar({
     }
   }
 
-  // 预览区间标签
+  // ── 触控滑动选区间 ──
+  function handleTouchStart(e) {
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cell = el?.closest?.('[data-date]');
+    if (!cell) return;
+    const dateKey = cell.getAttribute('data-date');
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (date > maxD || date < minD) return;
+    dragStartRef.current = date;
+    setSelStart(date);
+    setSelEnd(null);
+    setHoverDate(date);
+    setIsDragging(true);
+  }
+
+  function handleTouchMove(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cell = el?.closest?.('[data-date]');
+    if (!cell) return;
+    const dateKey = cell.getAttribute('data-date');
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (date > maxD || date < minD) return;
+    setHoverDate(date);
+  }
+
+  function handleTouchEnd() {
+    if (!isDragging) return;
+    const end = hoverDate || dragStartRef.current;
+    const s = selStart <= end ? selStart : end;
+    const e = selStart <= end ? end : selStart;
+    setSelStart(s);
+    setSelEnd(e);
+    setHoverDate(null);
+    setIsDragging(false);
+    dragStartRef.current = null;
+    // 不立即调 onChange：让用户看到选中的区间，按「确定」按钮确认
+  }
+
   const previewEnd = selEnd || hoverDate;
   const rangeLabel = (selStart && previewEnd)
     ? `${selStart.getMonth() + 1}/${selStart.getDate()} - ${previewEnd.getMonth() + 1}/${previewEnd.getDate()}`
     : selStart
       ? `${selStart.getMonth() + 1}/${selStart.getDate()} — 选择结束日期`
-      : '选择起始日期';
+      : isMobile ? '按住日期并滑动选择区间' : '选择起始日期';
 
-  // 渲染双月或单月
   const showDual = !isMobile && nextMonth <= addMonths(new Date(), 0);
 
-  return (
+  const calendarContent = (
     <div style={{
       background: '#fff',
-      borderRadius: 12,
-      border: '1px solid rgba(15,23,42,0.08)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+      borderRadius: isMobile ? '20px 20px 0 0' : 12,
+      border: isMobile ? 'none' : '1px solid rgba(15,23,42,0.08)',
+      boxShadow: isMobile ? '0 -12px 40px rgba(0,0,0,0.15)' : '0 8px 32px rgba(0,0,0,0.08)',
       padding: 16,
-      maxWidth: showDual ? 640 : 320,
+      paddingBottom: isMobile ? 'calc(16px + env(safe-area-inset-bottom))' : 16,
+      maxWidth: showDual ? 640 : 360,
       width: '100%',
     }}>
       {/* 顶部栏 */}
@@ -295,7 +336,7 @@ export default function DateRangeCalendar({
         )}
       </div>
 
-      {/* 月份导航（单月模式） */}
+      {/* 月份导航 */}
       {isMobile ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 8 }}>
           <button
@@ -359,6 +400,11 @@ export default function DateRangeCalendar({
               onDateClick={handleDateClick}
               onDateHover={handleDateHover}
               onLeaveGrid={() => setHoverDate(null)}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              cellHeight={cellHeight}
+              isMobile={isMobile}
             />
           </motion.div>
         </AnimatePresence>
@@ -373,11 +419,71 @@ export default function DateRangeCalendar({
             onDateClick={handleDateClick}
             onDateHover={handleDateHover}
             onLeaveGrid={() => setHoverDate(null)}
+            cellHeight={cellHeight}
+            isMobile={isMobile}
           />
         )}
       </div>
+
+      {/* 移动端确认按钮 */}
+      {isMobile && (
+        <div style={{ padding: '12px 4px 0' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (selStart && selEnd) onChange?.(selStart, selEnd);
+              onClose?.();
+            }}
+            style={{
+              width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 600,
+              border: 'none', borderRadius: 12, background: '#4F46E5',
+              color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >确定</button>
+        </div>
+      )}
     </div>
   );
+
+  // 移动端：底部弹出 sheet
+  if (isMobile) {
+    return createPortal(
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={onClose}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1200,
+            background: 'rgba(15,23,42,0.45)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', stiffness: 360, damping: 36 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 抓手条 */}
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 0' }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: '#cbd5e1' }} />
+            </div>
+            {calendarContent}
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>,
+      document.body
+    );
+  }
+
+  // 桌面端：内联展开
+  return calendarContent;
 }
 
 const navBtn = {

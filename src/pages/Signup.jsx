@@ -116,13 +116,13 @@ export default function Signup() {
           return;
         }
         // 提权成功：signOut 后重新登录，确保 profile 和 JWT 刷新
-        toast('老师账号已创建 🎉\n请重新登录以激活导师权限。', { kind: 'success' });
+        toast('老师账号已创建\n请重新登录以激活导师权限。', { kind: 'success' });
         await supabase.auth.signOut();
         nav('/login', { replace: true });
         return;
       }
 
-      toast('账号已创建 🎉\n开始添加你的课程大纲吧！', { kind: 'success' });
+      toast('账号已创建\n开始添加你的课程大纲吧！', { kind: 'success' });
       nav('/syllabus', { replace: true });
     } catch (err) {
       logger.error('signup error:', err);

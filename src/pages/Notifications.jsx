@@ -142,7 +142,7 @@ export default function Notifications() {
       }
       // 乐观更新本地状态，避免完全依赖 realtime 回流
       setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status } : c));
-      toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据 🎉' : '已拒绝邀请', { kind: 'success' });
+      toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据' : '已拒绝邀请', { kind: 'success' });
     } finally {
       setBusyId(null);
     }
@@ -194,7 +194,7 @@ export default function Notifications() {
 
       {!loading && initialLoaded && pending.length === 0 && accepted.length === 0 && (
         <div className="empty-state" style={{ marginTop: 16 }}>
-          <div className="empty-state-icon">📨</div>
+          <div className="empty-state-icon"></div>
           <h3>还没有邀请</h3>
           <p>老师邀请你后，你将在这里看到并选择接受或拒绝。</p>
         </div>

@@ -199,58 +199,69 @@ function LiquidGlassFlash({ show, variant = 'success', size = 88, duration = 500
   }, [show]); // eslint-disable-line
   if (!show && !visible) return null;
   const isSuccess = variant === 'success';
+  // 用全屏 flex 容器保证任何分辨率/横屏/软键盘弹出时都严格居中
+  // dvh = 动态视口高度，随 iOS Safari 地址栏收起/展开实时更新（vh 是固定值会偏上）
   return (
-    <motion.div
-      key={animKey}
-      initial={{ opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 1.05 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+    <div
       style={{
         position: 'fixed',
-        top: '50%', left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: size, height: size,
-        borderRadius: Math.round(size * 0.26),
-        background: 'rgba(255,255,255,0.78)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: `1px solid ${isSuccess ? 'rgba(148,163,184,0.55)' : 'rgba(254,202,202,0.9)'}`,
-        boxShadow: '0 24px 60px rgba(15,23,42,0.18)',
+        inset: 0,
+        width: '100vw',
+        height: '100dvh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         zIndex: 1500,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
         pointerEvents: 'none',
       }}
     >
-      {isSuccess ? (
-        <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
-          <motion.path
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.28, ease: 'easeOut' }}
-            d="M14 27 L23 36 L39 18"
-            stroke="#0f172a"
-            strokeWidth="4.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : (
-        <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
-          <motion.g
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.28, ease: 'easeOut' }}
-            stroke="#0f172a"
-            strokeWidth="4.5"
-            strokeLinecap="round"
-          >
-            <line x1="16" y1="16" x2="36" y2="36" />
-            <line x1="36" y1="16" x2="16" y2="36" />
-          </motion.g>
-        </svg>
-      )}
-    </motion.div>
+      <motion.div
+        key={animKey}
+        initial={{ opacity: 0, scale: 0.85 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 1.05 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+        style={{
+          width: size, height: size,
+          borderRadius: Math.round(size * 0.26),
+          background: 'rgba(255,255,255,0.78)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: `1px solid ${isSuccess ? 'rgba(148,163,184,0.55)' : 'rgba(254,202,202,0.9)'}`,
+          boxShadow: '0 24px 60px rgba(15,23,42,0.18)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {isSuccess ? (
+          <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
+            <motion.path
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              d="M14 27 L23 36 L39 18"
+              stroke="#0f172a"
+              strokeWidth="4.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ) : (
+          <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
+            <motion.g
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              stroke="#0f172a"
+              strokeWidth="4.5"
+              strokeLinecap="round"
+            >
+              <line x1="16" y1="16" x2="36" y2="36" />
+              <line x1="36" y1="16" x2="16" y2="36" />
+            </motion.g>
+          </svg>
+        )}
+      </motion.div>
+    </div>
   );
 }
 
@@ -527,29 +538,55 @@ export default function LearningPage() {
   }
   function friendlyErr(e, fallback = '保存失败') {
     let msg = (e && e.message) || fallback;
-    if (msg.includes('row-level security')) msg = '权限不足：您只能操作自己的记录。';
+    const code = e && e.code;
+    // 常见 Supabase / Postgres 错误 → 中文友好提示（移动端用户一眼懂）
+    if (msg.includes('row-level security')) return '权限不足：您只能操作自己的记录。';
+    if (/relation.*exam_scores.*does not exist/i.test(msg)) return '成绩表未创建：请先在 Supabase SQL Editor 执行 schema.patch-exam-scores.sql 补丁。';
+    if (/invalid input syntax for type uuid/i.test(msg)) return '课程信息无效，请返回课程列表重新打开此页面。';
+    if (/foreign key constraint.*course_id/i.test(msg) || /FK.*courses/i.test(msg)) return '关联的课程不存在，可能已被删除。';
+    if (/value too long.*varchar\(64\)/i.test(msg) || code === '22001') return '考试名称太长（最多 64 个字符）。';
+    if (/numeric field overflow/i.test(msg) || code === '22003') return '分数超出范围，请输入 0–100。';
+    if (/not null.*constraint/i.test(msg) || code === '23502') {
+      if (/exam_name/.test(msg)) return '请填写考试名称。';
+      if (/exam_date/.test(msg)) return '请选择考试日期。';
+      if (/student_id/.test(msg)) return '登录状态失效，请重新登录。';
+      if (/course_id/.test(msg)) return '请先选择课程。';
+      return '必填项缺失，请检查后重试。';
+    }
+    if (code) msg = `${fallback}（${code}）`;
     return msg;
   }
   async function saveScore() {
     const { exam_name, exam_date, score, grade_label, notes } = scoreForm;
-    if (!exam_name.trim()) { toast('请填写考试名称', { kind: 'error' }); return; }
+    if (!scoreModalCourseId) { toast('课程无效，请返回重试', { kind: 'error' }); return; }
+    if (!exam_name || !exam_name.trim()) { toast('请填写考试名称', { kind: 'error' }); return; }
     if (!exam_date) { toast('请选择考试日期', { kind: 'error' }); return; }
-    const scoreNum = (score !== '' && score != null) ? Number(score) : null;
-    const hasGrade = scoreNum != null || (grade_label && grade_label.trim());
-    if (!hasGrade) { toast('请至少填写分数或评级一项', { kind: 'error' }); return; }
-    if (scoreNum != null && (Number.isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100)) {
-      toast('分数需在 0–100 之间', { kind: 'error' }); return;
+    const trimmedName = exam_name.trim();
+    if (trimmedName.length > 64) { toast('考试名称过长（最多 64 字）', { kind: 'error' }); return; }
+    let scoreNum = null;
+    if (score !== '' && score != null && String(score).trim() !== '') {
+      scoreNum = Number(score);
+      if (Number.isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100) {
+        toast('分数需在 0–100 之间', { kind: 'error' }); return;
+      }
+      // Postgres numeric(5,2)：保留两位，超出截断避免溢出
+      scoreNum = Math.round(scoreNum * 100) / 100;
+    }
+    const trimmedGrade = grade_label ? grade_label.trim() : '';
+    if (trimmedGrade && trimmedGrade.length > 8) { toast('评级最长 8 个字符', { kind: 'error' }); return; }
+    if (scoreNum == null && !trimmedGrade) {
+      toast('请至少填写分数或评级一项', { kind: 'error' }); return;
     }
     setScoreSaving(true);
     try {
       const payload = {
         student_id: user.id,
         course_id: scoreModalCourseId,
-        exam_name: exam_name.trim(),
+        exam_name: trimmedName,
         exam_date,
         score: scoreNum,
-        grade_label: grade_label.trim() || null,
-        notes: notes.trim() || null,
+        grade_label: trimmedGrade || null,
+        notes: notes ? notes.trim() || null : null,
       };
       if (scoreModalEditing) {
         const { error } = await supabase
@@ -570,7 +607,8 @@ export default function LearningPage() {
       await loadScores();
     } catch (e) {
       logger.error('saveScore failed:', e);
-      toast(friendlyErr(e, '保存失败'), { kind: 'error' });
+      const msg = friendlyErr(e, '保存失败');
+      toast(msg, { kind: 'error' });
       triggerFlash('failure', 92, 450);
     } finally {
       setScoreSaving(false);

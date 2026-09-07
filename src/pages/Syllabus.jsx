@@ -53,7 +53,7 @@ export default function Syllabus() {
           .from('courses')
           .select(`
             id, name, subject, source, course_type, created_by,
-            chapters:chapters(id, name, order_idx, units(id, name, order_idx))
+            chapters:chapters(id, name, order_idx, deleted_at, units(id, name, order_idx, deleted_at))
           `)
           .is('deleted_at', null)
           .order('created_at', { ascending: false });
@@ -61,15 +61,18 @@ export default function Syllabus() {
         if (error) throw error;
 
         // RLS 已在学校维度过滤可见课程；前端只需区分"我创建的"和"同校共享的"
+        // 嵌套的章节/单元无法在 URL 里过滤，取回后在前端过滤已软删除的项
         const sorted = (cs || []).map((c) => ({
           ...c,
           _isOwn: c.created_by === user.id,
           chapters: (c.chapters || [])
+            .filter((ch) => !ch.deleted_at)
             .slice()
             .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
             .map((ch) => ({
               ...ch,
               units: (ch.units || [])
+                .filter((u) => !u.deleted_at)
                 .slice()
                 .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
             }))
@@ -237,13 +240,19 @@ export default function Syllabus() {
   }
 
   async function doDeleteCourse(courseId) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('courses')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', courseId);
+      .eq('id', courseId)
+      .select('id');
     if (error) {
       logger.error('deleteCourse failed:', error);
       return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
+    }
+    // 0 行受影响 = 被 RLS 拦截或数据不存在，不能当作删除成功
+    if (!data || data.length === 0) {
+      logger.error('deleteCourse: 0 rows affected (可能被 RLS 拦截)', { courseId });
+      return toast('删除未生效（没有权限或数据不存在），请刷新页面重试', { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.filter(c => c.id !== courseId));
@@ -263,13 +272,18 @@ export default function Syllabus() {
   }
 
   async function doDeleteChapter(chapterId, courseId) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('chapters')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', chapterId);
+      .eq('id', chapterId)
+      .select('id');
     if (error) {
       logger.error('deleteChapter failed:', error);
       return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
+    }
+    if (!data || data.length === 0) {
+      logger.error('deleteChapter: 0 rows affected (可能被 RLS 拦截)', { chapterId });
+      return toast('删除未生效（没有权限或数据不存在），请刷新页面重试', { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).filter(ch => ch.id !== chapterId) } : c));
@@ -289,13 +303,18 @@ export default function Syllabus() {
   }
 
   async function doDeleteUnit(unitId, chapterId, courseId) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('units')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', unitId);
+      .eq('id', unitId)
+      .select('id');
     if (error) {
       logger.error('deleteUnit failed:', error);
       return toast(friendlyError(error, '删除失败，请稍后再试'), { kind: 'error' });
+    }
+    if (!data || data.length === 0) {
+      logger.error('deleteUnit: 0 rows affected (可能被 RLS 拦截)', { unitId });
+      return toast('删除未生效（没有权限或数据不存在），请刷新页面重试', { kind: 'error' });
     }
     toast('已删除', { kind: 'success' });
     setCourses(prev => prev.map(c => c.id === courseId ? { ...c, chapters: (c.chapters || []).map(ch => ch.id === chapterId ? { ...ch, units: (ch.units || []).filter(u => u.id !== unitId) } : ch) } : c));

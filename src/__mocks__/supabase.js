@@ -137,24 +137,42 @@ function createMockQueryBuilder(tableName) {
       };
     },
 
-    async update(data) {
+    update(data) {
       trackCall('update', tableName, data);
-      const table = mockTables[tableName] || [];
-      const updated = table.map(row => {
-        let matches = true;
-        for (const filter of this.filters) {
-          if (filter.type === 'eq' && row[filter.field] !== filter.value) matches = false;
-        }
-        return matches ? { ...row, ...data } : row;
-      });
-      mockTables[tableName] = updated;
-      return { data: updated.filter(row => {
-        let matches = true;
-        for (const filter of this.filters) {
-          if (filter.type === 'eq' && row[filter.field] !== filter.value) matches = false;
-        }
-        return matches;
-      }), error: null };
+      const filters = [];
+      const builder = {
+        eq(field, value) {
+          filters.push({ type: 'eq', field, value });
+          return builder;
+        },
+
+        match(conditions) {
+          Object.entries(conditions).forEach(([field, value]) => {
+            builder.eq(field, value);
+          });
+          return builder;
+        },
+
+        select() {
+          return Promise.resolve(builder.__run());
+        },
+
+        then(resolve) {
+          return Promise.resolve(builder.__run()).then(resolve);
+        },
+
+        __run() {
+          const table = mockTables[tableName] || [];
+          const matches = (row) => filters.every(
+            (f) => f.type !== 'eq' || row[f.field] === f.value
+          );
+          mockTables[tableName] = table.map(
+            (row) => (matches(row) ? { ...row, ...data } : row)
+          );
+          return { data: (mockTables[tableName] || []).filter(matches), error: null };
+        },
+      };
+      return builder;
     },
 
     async delete() {

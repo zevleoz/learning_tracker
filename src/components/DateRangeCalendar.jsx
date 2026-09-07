@@ -197,6 +197,7 @@ export default function DateRangeCalendar({
   onClose,
   maxDate,
   minDate,
+  isMobileOverride,
 }) {
   const maxD = maxDate ? startOfDay(maxDate) : startOfDay(new Date());
   const minD = minDate ? startOfDay(minDate) : new Date(maxD.getFullYear() - 1, maxD.getMonth(), maxD.getDate());
@@ -214,12 +215,18 @@ export default function DateRangeCalendar({
   const dragStartRef = useRef(null);
 
   useEffect(() => {
+    // 导师端传入 isMobileOverride 时跟随其手机检测结果（双条件检测）
+    // 学员端不传该 prop，保持原有 767px 平板自适应
+    if (isMobileOverride !== undefined) {
+      setIsMobile(isMobileOverride);
+      return;
+    }
     const mq = window.matchMedia('(max-width: 767px)');
     const handler = (e) => setIsMobile(e.matches);
     handler(mq);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
-  }, []);
+  }, [isMobileOverride]);
 
   const nextMonth = addMonths(viewMonth, 1);
   const cellHeight = isMobile ? 44 : 36;

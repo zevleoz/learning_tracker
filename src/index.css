@@ -6187,21 +6187,6 @@ textarea::placeholder { color: #9ca3af; }
   font-size: 14px;
 }
 
-@media (max-width: 768px) {
-  .ma-overview__stats {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .ma-grid-2 {
-    grid-template-columns: 1fr;
-  }
-  .ma-behavior {
-    grid-template-columns: 1fr;
-  }
-  .ma-behavior__stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 /* ================================================================
    新增样式：学生概览卡片改进
    ================================================================ */

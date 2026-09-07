@@ -74,7 +74,9 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
+    // 导师端周历：仅真实手机（触屏 + 无 hover + ≤480px）走移动版
+    // 桌面窄窗口、iPad 一律走桌面版，移除原 767px 平板自适应
+    const mq = window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 480px)');
     const handler = (e) => setIsMobile(e.matches);
     handler(mq);
     mq.addEventListener('change', handler);
@@ -232,6 +234,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
               setShowCustomPicker(false);
             }}
             onClose={() => setShowCustomPicker(false)}
+            isMobileOverride={isMobile}
           />
         </motion.div>
       )}

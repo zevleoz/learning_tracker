@@ -394,7 +394,7 @@ export default function LearningPage() {
 
       const { data, error } = await supabase
         .from('courses')
-        .select('id, name, subject, course_type, created_by, chapters(id, name, units(id, name))')
+        .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
       if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
@@ -404,8 +404,9 @@ export default function LearningPage() {
         return true;
       }).map(c => ({
         ...c,
-        chapters: (c.chapters || []).sort((a,b)=>a.order_idx-b.order_idx)
-          .map(ch => ({ ...ch, units: (ch.units || []).sort((x,y)=>x.order_idx-y.order_idx) })),
+        chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
+          .sort((a,b)=>a.order_idx-b.order_idx)
+          .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
       }));
       setCourses(list);
       if (list.length) setCourseId(list[0].id);

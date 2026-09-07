@@ -154,9 +154,9 @@ export default function Mentor() {
   }, [sub]);
 
   useEffect(() => {
-    // 老师端默认桌面布局；仅在 iPhone 宽度（≤480px）时切换到移动端布局
-    // iPad（768px+）走桌面端，符合导师在大屏上工作的场景
-    const mq = window.matchMedia('(max-width: 480px)');
+    // 导师端：仅真实手机（触屏 + 无 hover + ≤480px）才走移动版
+    // 桌面窗口无论多窄、iPad 等大屏一律走桌面版
+    const mq = window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 480px)');
     const handler = (e) => setIsMobile(e.matches);
     handler(mq);
     mq.addEventListener('change', handler);
@@ -442,7 +442,7 @@ export default function Mentor() {
       .from('courses')
       .select(`
         id, name, subject, source, course_type, created_by,
-        chapters:chapters(id, name, order_idx, units:units(id, name, order_idx))
+        chapters:chapters(id, name, order_idx, deleted_at, units:units(id, name, order_idx, deleted_at))
       `)
       .is('deleted_at', null)
       .eq('created_by', picked.id)
@@ -456,11 +456,13 @@ export default function Mentor() {
           const sorted = (data || []).map(c => ({
             ...c,
             chapters: (c.chapters || [])
+              .filter(ch => !ch.deleted_at)
               .slice()
               .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
               .map(ch => ({
                 ...ch,
                 units: (ch.units || [])
+                  .filter(u => !u.deleted_at)
                   .slice()
                   .sort((a, b) => (a.order_idx || 0) - (b.order_idx || 0))
               }))

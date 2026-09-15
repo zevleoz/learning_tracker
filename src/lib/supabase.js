@@ -19,24 +19,23 @@ if (import.meta.env.PROD && SUPABASE_URL.includes('localhost')) {
   console.error('  请立即在 Vercel Project Settings 中配置正确的环境变量。');
 }
 
+// 临时禁用 BroadcastChannel，阻止 Supabase 跨标签页同步 session。
+// 否则两个标签页共享同一 storageKey 时，一个标签页登录会广播覆盖另一个。
+const _BroadcastChannel = globalThis.BroadcastChannel;
+globalThis.BroadcastChannel = undefined;
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     // 每个标签页独立 session：admin 标签页与学生标签页互不覆盖。
     // sessionStorage 在标签页存活期间保留（含刷新），关闭标签页即销毁。
+    // 不读 localStorage，避免跨标签页 session 泄漏。
     storageKey: 'mentor-app-auth',
     storage: {
-      getItem: (key) => {
-        return sessionStorage.getItem(key) ?? localStorage.getItem(key);
-      },
-      setItem: (key, value) => {
-        sessionStorage.setItem(key, value);
-      },
-      removeItem: (key) => {
-        sessionStorage.removeItem(key);
-        localStorage.removeItem(key);
-      },
+      getItem: (key) => sessionStorage.getItem(key),
+      setItem: (key, value) => sessionStorage.setItem(key, value),
+      removeItem: (key) => sessionStorage.removeItem(key),
     },
   },
   schema: 'public',
@@ -49,6 +48,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     }
   }
 });
+
+// 恢复 BroadcastChannel，避免影响应用其他可能用到它的逻辑。
+// Supabase 客户端已在上方创建完毕，此后不再使用它做 session 同步。
+globalThis.BroadcastChannel = _BroadcastChannel;
 
 export async function safeQuery(promise, errorMsg = '操作失败') {
   try {

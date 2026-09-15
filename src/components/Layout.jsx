@@ -246,13 +246,18 @@ export default function Layout() {
     };
   }, [finalNavItems, location.pathname, nav]);
 
-  const isMentorDesktop = !isMobile && location.pathname === '/mentor';
+  // 导师/管理员路由永远走桌面版，不受窗口宽度影响。
+  // 避免窄桌面窗口（480–767px）触发移动端外壳包裹桌面版内容的混合 UI。
+  const isMentorRoute = location.pathname === '/mentor';
+  const effectiveIsMobile = isMentorRoute ? false : isMobile;
+
+  const isMentorDesktop = !effectiveIsMobile && isMentorRoute;
   if (isMentorDesktop) {
     return <Outlet />;
   }
 
   /* ========= 移动端：顶部极简 + 底部浮动 pill ========= */
-  if (isMobile) {
+  if (effectiveIsMobile) {
     return (
       <div className="page-container">
         <header className="m-topbar">

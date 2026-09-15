@@ -10,6 +10,9 @@ let mockTables = {
   teacher_student_connections: [],
 };
 
+let mockRpcResponses = {};        // per-RPC-name override: { [rpcName]: { data, error } }
+let mockRpcDefault = { data: null, error: null };  // fallback for any RPC
+
 const callHistory = [];
 
 function resetMocks() {
@@ -20,6 +23,8 @@ function resetMocks() {
     learning_sessions: [],
     teacher_student_connections: [],
   };
+  mockRpcResponses = {};
+  mockRpcDefault = { data: null, error: null };
   callHistory.length = 0;
 }
 
@@ -342,6 +347,12 @@ const supabase = {
     return createMockQueryBuilder(tableName);
   },
 
+  rpc(name, args = {}) {
+    trackCall('rpc', name, args);
+    const response = mockRpcResponses[name] || mockRpcDefault;
+    return Promise.resolve(response);
+  },
+
   channel(name) {
     return {
       on(event, options, callback) {
@@ -366,6 +377,8 @@ const supabase = {
   __setAuthState: (state) => { mockAuthState = state; },
   __setTableData: (tableName, data) => { mockTables[tableName] = data; },
   __getTableData: (tableName) => mockTables[tableName],
+  __setRpcResponse: (name, response) => { mockRpcResponses[name] = response; },
+  __setRpcDefault: (response) => { mockRpcDefault = response; },
 };
 
 export { supabase };

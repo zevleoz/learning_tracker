@@ -138,6 +138,9 @@ export default function Mentor() {
   const [classStats, setClassStats] = useState({});
   const [editingSchoolId, setEditingSchoolId] = useState(null);
   const [editingSchoolValue, setEditingSchoolValue] = useState('');
+  const [editingAliasId, setEditingAliasId] = useState(null);
+  const [editingAliasValue, setEditingAliasValue] = useState('');
+  const [deleteBusyId, setDeleteBusyId] = useState(null);  // 永久删除 per-student busy
   const [inviteBusyId, setInviteBusyId] = useState(null);  // 发送/撤回邀请 per-student busy
   const [isLoading, setIsLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -248,7 +251,7 @@ export default function Mentor() {
         .limit(500),
       supabase
         .from('teacher_student_connections')
-        .select('id, student_id, status, note, created_at, updated_at')
+        .select('id, student_id, status, note, mentor_alias, created_at, updated_at')
         .eq('teacher_id', teacherId),
       supabase
         .from('profiles')
@@ -635,6 +638,78 @@ export default function Mentor() {
     }
   }
 
+  // 保存学生别名（仅当前导师可见，存于 teacher_student_connections.mentor_alias）
+  // 空字符串清除别名。Mirrors saveSchoolName 的 RPC 模式。
+  async function saveStudentAlias(studentId, newAlias) {
+    const trimmed = (newAlias || '').trim();
+    try {
+      const { error } = await supabase.rpc('update_student_alias', {
+        p_student_id: studentId,
+        p_alias: trimmed,
+      });
+      if (error) throw error;
+      setConnections((prev) => {
+        const cur = prev[studentId];
+        if (!cur) return prev;
+        return { ...prev, [studentId]: { ...cur, mentor_alias: trimmed || null, updated_at: new Date().toISOString() } };
+      });
+      setEditingAliasId(null);
+      setEditingAliasValue('');
+      toast(trimmed ? '备注名已更新' : '备注名已清除', { kind: 'success' });
+    } catch (err) {
+      logger.error('saveStudentAlias failed:', err);
+      toast(`更新失败：${err.message}`, { kind: 'error' });
+    }
+  }
+
+  // 永久删除学生（admin only）。从 auth.users 真删，级联删除所有相关数据。
+  function deleteStudent(studentId) {
+    if (!isAdmin) return;
+    const s = students.find((x) => x.id === studentId);
+    if (!s) return;
+    if (deleteBusyId) return;
+    const displayName = connections[studentId]?.mentor_alias || s.full_name || '该学生';
+    setConfirmState({
+      open: true,
+      title: '永久删除学生',
+      message: `确定永久删除「${displayName}」吗？此操作不可恢复，将同时删除该学生的学习记录、连接、反馈等所有数据。请确认你删除的是测试账号。`,
+      confirmLabel: '永久删除',
+      variant: 'danger',
+      onConfirm: () => {
+        setConfirmState((st) => ({ ...st, open: false }));
+        doDeleteStudent(studentId);
+      },
+    });
+  }
+
+  async function doDeleteStudent(studentId) {
+    if (!isAdmin) return;
+    setDeleteBusyId(studentId);
+    try {
+      const { data, error } = await supabase.rpc('delete_student', {
+        p_student_id: studentId,
+      });
+      if (error) throw error;
+      // 本地立即移除，避免等待重拉的延迟感
+      setStudents((prev) => prev.filter((s) => s.id !== studentId));
+      setConnections((prev) => {
+        const next = { ...prev };
+        delete next[studentId];
+        return next;
+      });
+      if (picked?.id === studentId) setPicked(null);
+      toast('学生已永久删除', { kind: 'success' });
+      // 重拉一次，刷新统计与左侧列表
+      try { await loadData(user.id, isAdmin); } catch (_) {}
+      logger.log('delete_student rpc returned:', data);
+    } catch (err) {
+      logger.error('deleteStudent failed:', err);
+      toast(`删除失败：${err.message}`, { kind: 'error' });
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }
+
   const stats = useMemo(() => {
     const invited = Object.values(connections).filter((c) => c.status === 0).length;
     const connected = Object.values(connections).filter((c) => c.status === 1).length;
@@ -645,10 +720,13 @@ export default function Mentor() {
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       const name = s.full_name || '';
-      const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
-      
+      const alias = connections[s.id]?.mentor_alias || '';
+      const q = searchQuery.toLowerCase();
+      const matchesSearch =
+        name.toLowerCase().includes(q) || alias.toLowerCase().includes(q);
+
       const matchesSchool = filterSchool === 'all' || s.school_name === filterSchool;
-      
+
       const conn = connections[s.id];
       let matchesFilter = true;
       if (filterStatus === 'connected') matchesFilter = conn?.status === 1;
@@ -703,21 +781,32 @@ export default function Mentor() {
                 </div>
               </motion.div>
 
-              {/* ====== 左右分屏布局 ====== */}
-              <motion.div 
+              {/* ====== 动态布局 ======
+                  未选中学生：单列全宽（搜索 + 卡片网格）
+                  选中学生：两列（左侧搜索+学生列表，右侧详情）*/}
+              <motion.div
                 className="mentor-split-layout"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1, duration: 0.3 }}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '320px 1fr',
-                  gap: 20,
+                  gridTemplateColumns: picked ? '320px 1fr' : '0px 1fr',
+                  gap: picked ? 20 : 0,
                   minHeight: 500,
+                  transition: 'grid-template-columns 0.35s cubic-bezier(0.4, 0, 0.2, 1), gap 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
               >
-                {/* ── 左侧：已连接学生 ── */}
-                <div style={{
+                {/* ── 左侧栏：仅在选中学生时显示（搜索 + 学生列表，搜索始终可用） ── */}
+                <AnimatePresence initial={false}>
+                {picked && (
+                <motion.div
+                  key="left-sidebar"
+                  initial={{ opacity: 0, x: -24 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -24 }}
+                  transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                  style={{
                   background: '#fff',
                   borderRadius: 16,
                   border: '1px solid rgba(15,23,42,0.06)',
@@ -725,9 +814,9 @@ export default function Mentor() {
                   display: 'flex', flexDirection: 'column',
                 }}>
                   <div style={{
-                    padding: '16px 18px 12px',
+                    padding: '14px 16px 10px',
                     borderBottom: '1px solid #f1f5f9',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    display: 'flex', flexDirection: 'column', gap: 8,
                   }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
@@ -738,6 +827,52 @@ export default function Mentor() {
                           ? `${students.length} 位学生`
                           : `${Object.values(connections).filter(c => c.status === 1).length} 位已连接`}
                       </div>
+                    </div>
+                    {/* 搜索 + 筛选（选中学生后也能搜索） */}
+                    <input
+                      type="text"
+                      placeholder="搜索学生…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{
+                        padding: '7px 10px', fontSize: 12,
+                        border: '1px solid #e2e8f0', borderRadius: 8,
+                        background: '#fff', color: '#0f172a',
+                        outline: 'none', width: '100%',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <select
+                        value={filterSchool}
+                        onChange={(e) => setFilterSchool(e.target.value)}
+                        style={{
+                          flex: 1, padding: '6px 8px', fontSize: 11,
+                          border: '1px solid #e2e8f0', borderRadius: 8,
+                          background: '#fff', color: '#0f172a',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="all">所有学校</option>
+                        {schools.map((school) => (
+                          <option key={school} value={school}>{school}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        style={{
+                          flex: 1, padding: '6px 8px', fontSize: 11,
+                          border: '1px solid #e2e8f0', borderRadius: 8,
+                          background: '#fff', color: '#0f172a',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="all">全部状态</option>
+                        <option value="connected">已连接</option>
+                        <option value="invited">邀请中</option>
+                        <option value="rejected">已拒绝</option>
+                        <option value="uninvited">未邀请</option>
+                      </select>
                     </div>
                   </div>
                   <div style={{ overflowY: 'auto', flex: 1, padding: '8px 10px' }}>
@@ -762,6 +897,8 @@ export default function Mentor() {
                       return sorted.map((s) => {
                         const isActive = picked?.id === s.id;
                         const conn = connections[s.id];
+                        const alias = conn?.mentor_alias || '';
+                        const displayName = alias || s.full_name || '(未命名)';
                         return (
                           <motion.div
                             key={s.id}
@@ -789,21 +926,21 @@ export default function Mentor() {
                                 fontSize: 14, fontWeight: 700, color: '#475569',
                                 flexShrink: 0,
                               }}>
-                                {(s.full_name || '?').charAt(0).toUpperCase()}
+                                {(displayName || '?').charAt(0).toUpperCase()}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{
                                   fontSize: 13, fontWeight: 600, color: '#0f172a',
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}>
-                                  {s.full_name || '(未命名)'}
+                                  {displayName}
                                 </div>
                                 <div style={{
                                   fontSize: 11, color: '#94a3b8',
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                   marginTop: 2,
                                 }}>
-                                  {s.school_name || '-'} · 已连接
+                                  {alias ? `本名：${s.full_name || '-'}` : `${s.school_name || '-'} · 已连接`}
                                 </div>
                               </div>
                             </div>
@@ -812,18 +949,30 @@ export default function Mentor() {
                       });
                     })()}
                   </div>
-                </div>
+                </motion.div>
+                )}
+                </AnimatePresence>
 
-                {/* ── 右侧：全部学生（搜索/连接） ── */}
+                {/* ── 右侧：未选中时显示搜索+卡片网格；选中时显示学生详情 ── */}
                 <div style={{
+                  gridColumn: '2',
                   background: '#fff',
                   borderRadius: 16,
                   border: '1px solid rgba(15,23,42,0.06)',
                   overflow: 'hidden',
                   display: 'flex', flexDirection: 'column',
                   minHeight: 500,
-                  position: 'relative',
                 }}>
+                  <AnimatePresence mode="wait" initial={false}>
+                  {!picked ? (
+                  <motion.div
+                    key="right-grid"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                  >
                   <div style={{
                     padding: '16px 18px 12px',
                     borderBottom: '1px solid #f1f5f9',
@@ -891,16 +1040,18 @@ export default function Mentor() {
                     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
                     gap: 10,
                   }}>
-                    <AnimatePresence>
-                      {filteredStudents.map((s, index) => {
+                      {filteredStudents.map((s) => {
                             const conn = connections[s.id];
                             const status = conn?.status ?? -1;
+                            const alias = conn?.mentor_alias || '';
+                            const isDeleting = deleteBusyId === s.id;
+                            const isAliasEditing = editingAliasId === s.id;
+                            // 别名优先；无别名回退到真实名
+                            const displayName = alias || s.full_name || '(未命名)';
                             return (
                               <motion.div
                                 key={s.id}
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.03, duration: 0.2 }}
+                                onClick={() => setPicked(s)}
                                 style={{
                                   padding: '14px 16px',
                                   borderRadius: 12,
@@ -908,6 +1059,8 @@ export default function Mentor() {
                                   background: '#fff',
                                   display: 'flex', flexDirection: 'column', gap: 8,
                                   transition: 'all 160ms ease',
+                                  opacity: isDeleting ? 0.55 : 1,
+                                  cursor: 'pointer',
                                 }}
                                 whileHover={{
                                   borderColor: 'rgba(15,23,42,0.12)',
@@ -924,37 +1077,56 @@ export default function Mentor() {
                                     fontSize: 15, fontWeight: 700, color: '#475569',
                                     flexShrink: 0,
                                   }}>
-                                    {(s.full_name || '?').charAt(0).toUpperCase()}
+                                    {(displayName || '?').charAt(0).toUpperCase()}
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{
-                                      fontSize: 13, fontWeight: 600, color: '#0f172a',
-                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                      display: 'flex', alignItems: 'center', gap: 6,
+                                      minWidth: 0,
                                     }}>
-                                      {s.full_name || '(未命名)'}
+                                      <div style={{
+                                        fontSize: 13, fontWeight: 600, color: '#0f172a',
+                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                        minWidth: 0,
+                                      }}>
+                                        {displayName}
+                                      </div>
+                                      {alias && (
+                                        <span style={{
+                                          fontSize: 9, fontWeight: 600, color: '#475569',
+                                          padding: '1px 5px', borderRadius: 4,
+                                          background: 'rgba(148,163,184,0.15)',
+                                          flexShrink: 0,
+                                        }}>备注</span>
+                                      )}
                                     </div>
                                     <div style={{
                                       fontSize: 11, color: '#94a3b8',
                                       marginTop: 2,
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                     }}>
-                                      {s.school_name || '-'}
+                                      {alias ? `本名：${s.full_name || '-'}` : (s.school_name || '-')}
                                     </div>
                                   </div>
                                 </div>
                                 {/* Status + Actions */}
                                 <div style={{
                                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                  marginTop: 4,
+                                  marginTop: 4, gap: 6,
                                 }}>
                                   <span style={{
                                     fontSize: 11, fontWeight: 600,
                                     color: status === 1 ? '#0f172a' : status === 0 ? '#64748b' : '#94a3b8',
                                     padding: '3px 8px', borderRadius: 6,
                                     background: status === 1 ? 'rgba(15,23,42,0.06)' : 'rgba(148,163,184,0.1)',
+                                    flexShrink: 0,
                                   }}>
                                     {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
                                   </span>
-                                  <div style={{ display: 'flex', gap: 6 }}>
+                                  <div style={{
+                                    display: 'flex', gap: 6, flexWrap: 'wrap',
+                                    justifyContent: 'flex-end', marginTop: 2,
+                                  }}>
                                     {!isAdmin && status === -1 && (
                                       <button
                                         onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
@@ -1000,24 +1172,88 @@ export default function Mentor() {
                                       >再次邀请</button>
                                     )}
                                     {!isAdmin && status === 1 && (
-                                      <>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
-                                          style={{
-                                            padding: '5px 10px', fontSize: 11, fontWeight: 500,
-                                            border: '1px solid #e2e8f0', borderRadius: 6,
-                                            background: '#fff', color: '#64748b',
-                                            cursor: 'pointer', fontFamily: 'inherit',
-                                          }}
-                                        >断开</button>
-                                      </>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
+                                        style={{
+                                          padding: '5px 10px', fontSize: 11, fontWeight: 500,
+                                          border: '1px solid #e2e8f0', borderRadius: 6,
+                                          background: '#fff', color: '#64748b',
+                                          cursor: 'pointer', fontFamily: 'inherit',
+                                        }}
+                                      >断开</button>
+                                    )}
+                                    {/* 别名按钮：status === 1（含 admin 自动连接）可编辑别名 */}
+                                    {status === 1 && !isAliasEditing && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingAliasId(s.id);
+                                          setEditingAliasValue(alias);
+                                        }}
+                                        style={{
+                                          padding: '5px 10px', fontSize: 11, fontWeight: 500,
+                                          border: '1px solid #e2e8f0', borderRadius: 6,
+                                          background: '#fff', color: '#475569',
+                                          cursor: 'pointer', fontFamily: 'inherit',
+                                        }}
+                                      >{alias ? '改备注' : '备注名'}</button>
+                                    )}
+                                    {/* 删除按钮：admin only */}
+                                    {isAdmin && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (isDeleting) return;
+                                          deleteStudent(s.id);
+                                        }}
+                                        disabled={isDeleting}
+                                        style={{
+                                          padding: '5px 10px', fontSize: 11, fontWeight: 600,
+                                          border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6,
+                                          background: 'rgba(239,68,68,0.08)', color: '#b91c1c',
+                                          cursor: isDeleting ? 'not-allowed' : 'pointer',
+                                          fontFamily: 'inherit',
+                                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        }}
+                                      >{isDeleting ? '删除中…' : '删除'}</button>
                                     )}
                                   </div>
                                 </div>
+                                {/* 内联别名编辑器：复用 .m-school-edit / .m-school-input 样式 */}
+                                {isAliasEditing && (
+                                  <motion.div
+                                    className="m-school-edit"
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                  >
+                                    <input
+                                      type="text"
+                                      placeholder="输入备注名（留空清除）"
+                                      value={editingAliasValue}
+                                      onChange={(e) => setEditingAliasValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(s.id, editingAliasValue); }
+                                        if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
+                                      }}
+                                      autoFocus
+                                      className="m-school-input"
+                                    />
+                                    <div className="m-school-edit__actions">
+                                      <button
+                                        className="m-action-btn"
+                                        onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
+                                      >取消</button>
+                                      <button
+                                        className="m-action-btn m-action-btn--primary"
+                                        onClick={() => saveStudentAlias(s.id, editingAliasValue)}
+                                      >保存</button>
+                                    </div>
+                                  </motion.div>
+                                )}
                               </motion.div>
                             );
                           })}
-                    </AnimatePresence>
                   </div>
 
                   {filteredStudents.length === 0 && (
@@ -1033,20 +1269,19 @@ export default function Mentor() {
                       未找到匹配的学生
                     </motion.div>
                   )}
-
-                {/* ── 详情面板（选中学生时覆盖显示） ── */}
-                <AnimatePresence>
-                  {picked && (
+                  </motion.div>
+                  ) : (
                     <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
+                      key="right-detail"
+                      initial={{ opacity: 0, x: 16 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 16 }}
+                      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                       style={{
-                        position: 'absolute', inset: 0,
                         background: '#fff',
                         display: 'flex', flexDirection: 'column',
-                        zIndex: 10,
+                        flex: 1,
+                        minHeight: 0,
                       }}
                     >
                       <div style={{
@@ -1055,11 +1290,79 @@ export default function Mentor() {
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         flexShrink: 0,
                       }}>
-                        <div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>学习数据</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                            {picked.full_name || '学生'}
-                          </div>
+                          {editingAliasId === picked.id ? (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input
+                                type="text"
+                                placeholder="输入备注名（留空清除）"
+                                value={editingAliasValue}
+                                onChange={(e) => setEditingAliasValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(picked.id, editingAliasValue); }
+                                  if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
+                                }}
+                                autoFocus
+                                style={{
+                                  padding: '5px 8px', fontSize: 13,
+                                  border: '1px solid #c7d2fe', borderRadius: 6,
+                                  background: '#fff', color: '#0f172a',
+                                  outline: 'none', flex: '1 1 160px', minWidth: 0,
+                                }}
+                              />
+                              <button
+                                onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
+                                style={{
+                                  padding: '5px 10px', fontSize: 11, fontWeight: 600,
+                                  border: '1px solid #e2e8f0', borderRadius: 6,
+                                  background: '#fff', color: '#64748b',
+                                  cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                              >取消</button>
+                              <button
+                                onClick={() => saveStudentAlias(picked.id, editingAliasValue)}
+                                style={{
+                                  padding: '5px 10px', fontSize: 11, fontWeight: 600,
+                                  border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6,
+                                  background: 'rgba(99,102,241,0.1)', color: '#4f46e5',
+                                  cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                              >保存</button>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                                  {connections[picked.id]?.mentor_alias || picked.full_name || '学生'}
+                                </div>
+                                {connections[picked.id]?.mentor_alias && (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 600, color: '#6366f1',
+                                    background: 'rgba(99,102,241,0.1)', padding: '1px 6px',
+                                    borderRadius: 4, flexShrink: 0,
+                                  }}>备注</span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setEditingAliasId(picked.id);
+                                    setEditingAliasValue(connections[picked.id]?.mentor_alias || '');
+                                  }}
+                                  style={{
+                                    padding: '3px 8px', fontSize: 11, fontWeight: 600,
+                                    border: '1px solid #e2e8f0', borderRadius: 6,
+                                    background: '#fff', color: '#64748b',
+                                    cursor: 'pointer', fontFamily: 'inherit',
+                                  }}
+                                >{connections[picked.id]?.mentor_alias ? '改备注' : '备注名'}</button>
+                              </div>
+                              {connections[picked.id]?.mentor_alias && picked.full_name && (
+                                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                  本名：{picked.full_name}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                         <button
                           onClick={() => setPicked(null)}
@@ -1068,6 +1371,7 @@ export default function Mentor() {
                             background: '#f8fafc', border: 'none', cursor: 'pointer',
                             fontSize: 14, color: '#64748b',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flexShrink: 0, marginLeft: 8,
                           }}
                         >✕</button>
                       </div>

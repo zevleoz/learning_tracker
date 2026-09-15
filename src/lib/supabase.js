@@ -20,7 +20,25 @@ if (import.meta.env.PROD && SUPABASE_URL.includes('localhost')) {
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    // 每个标签页独立 session：admin 标签页与学生标签页互不覆盖。
+    // sessionStorage 在标签页存活期间保留（含刷新），关闭标签页即销毁。
+    storageKey: 'mentor-app-auth',
+    storage: {
+      getItem: (key) => {
+        return sessionStorage.getItem(key) ?? localStorage.getItem(key);
+      },
+      setItem: (key, value) => {
+        sessionStorage.setItem(key, value);
+      },
+      removeItem: (key) => {
+        sessionStorage.removeItem(key);
+        localStorage.removeItem(key);
+      },
+    },
+  },
   schema: 'public',
   global: {
     fetch: (url, options = {}) => {

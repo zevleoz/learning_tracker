@@ -1440,18 +1440,30 @@ export default function Mentor() {
                                   ))}
                                 </div>
 
-                                <button
-                                  onClick={() => setActiveView('analytics')}
-                                  style={{
-                                    width: '100%', marginTop: 12,
-                                    padding: '10px 14px', borderRadius: 10, border: 'none',
-                                    background: '#0f172a', color: 'white',
-                                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                                    fontFamily: 'inherit',
-                                  }}
-                                >
-                                  前往数据分析 →
-                                </button>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                  <button
+                                    onClick={() => setActiveView('analytics')}
+                                    style={{
+                                      flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none',
+                                      background: '#0f172a', color: 'white',
+                                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                      fontFamily: 'inherit',
+                                    }}
+                                  >
+                                    前往数据分析 →
+                                  </button>
+                                  <button
+                                    onClick={() => setActiveView('syllabus')}
+                                    style={{
+                                      flex: 1, padding: '10px 14px', borderRadius: 10,
+                                      border: '1px solid #e2e8f0', background: '#fff',
+                                      color: '#0f172a', fontSize: 13, fontWeight: 600,
+                                      cursor: 'pointer', fontFamily: 'inherit',
+                                    }}
+                                  >
+                                    前往课表 →
+                                  </button>
+                                </div>
                               </>
                             ) : (
                               <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>

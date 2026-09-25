@@ -177,10 +177,10 @@ export default function Notifications() {
   const confirmInvite = confirmTarget ? invites.find((c) => c.id === confirmTarget) : null;
 
   return (
-    <div style={{ padding: '16px 16px 120px', maxWidth: 760, margin: '0 auto', fontSize: 13, color: '#334155' }}>
-      <header>
-        <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>邀请通知</h1>
-        <p style={{ color: '#64748b', margin: 0 }}>
+    <div className="notif-page" style={{ fontSize: 13, color: '#334155' }}>
+      <header className="page-title">
+        <h1>邀请通知</h1>
+        <p>
           当你的老师邀请你加入时，他们可以在接受后查看你的学习数据、Review、得分。
         </p>
       </header>
@@ -270,7 +270,7 @@ function Section({ title, count, hint, children }) {
         <span style={{ fontSize: 12, color: '#94a3b8' }}>{count}</span>
       </div>
       {hint && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>{hint}</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+      <div className="notif-list">{children}</div>
     </section>
   );
 }

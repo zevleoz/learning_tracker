@@ -128,6 +128,7 @@ export default function Syllabus() {
     }
     toast('课程已创建', { kind: 'success' });
     setCourses((prev) => [{ ...created, _isOwn: true, chapters: [] }, ...prev]);
+    return created.id;
   }
 
   /* ===== 添加章节 ===== */
@@ -965,7 +966,7 @@ const inputStyle = {
   color: 'var(--text-strong)'
 };
 
-/* ============ 桌面端：现代化课程管理视图 ============ */
+/* ============ 桌面端：主从双栏课程管理视图 ============ */
 function DesktopTree({
   myCourses, sharedCourses, loading, schoolName,
   onAddCourse, onAddChapter, onAddUnit,
@@ -976,13 +977,50 @@ function DesktopTree({
   const [addingCourse, setAddingCourse] = useState(false);
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseType, setNewCourseType] = useState(1);
+  const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState(null);
 
-  function handleAddCourse() {
+  const allCourses = [...myCourses, ...sharedCourses];
+  // 选中课程解析：优先 selectedId；从未选中或所选课程被删除时回退到第一门
+  const selectedCourse = allCourses.find((c) => c.id === selectedId) || allCourses[0] || null;
+
+  // 搜索只过滤左栏列表，不影响右栏选中课程的展示
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (c) => !q || c.name.toLowerCase().includes(q);
+  const visibleMy = myCourses.filter(matchesQuery);
+  const visibleShared = sharedCourses.filter(matchesQuery);
+
+  async function handleAddCourse() {
     if (!newCourseName.trim()) return;
-    onAddCourse({ name: newCourseName, courseType: newCourseType });
+    const newId = await onAddCourse({ name: newCourseName, courseType: newCourseType });
+    if (newId) setSelectedId(newId);
     setNewCourseName('');
     setNewCourseType(1);
     setAddingCourse(false);
+  }
+
+  function renderCourseItem(c, { shared = false } = {}) {
+    const active = selectedCourse?.id === c.id;
+    return (
+      <button
+        key={c.id}
+        type="button"
+        className={'syll-course-item' + (active ? ' is-active' : '')}
+        onClick={() => setSelectedId(c.id)}
+      >
+        <span className="syll-course-name">{c.name}</span>
+        <span className="syll-course-meta">
+          {shared ? (
+            <span className="pill gold">同校共享</span>
+          ) : (
+            <span className={'pill ' + (c.course_type === 2 ? 'gold' : 'red')}>
+              {c.course_type === 2 ? '校外课程' : '校内课程'}
+            </span>
+          )}
+          <span className="syll-course-count">{c.chapters?.length || 0} 个章节</span>
+        </span>
+      </button>
+    );
   }
 
   return (
@@ -997,219 +1035,163 @@ function DesktopTree({
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', alignItems: 'center' }}>
-          {addingCourse ? (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <input
-                type="text"
-                value={newCourseName}
-                onChange={(e) => setNewCourseName(e.target.value)}
-                placeholder="课程名称"
-                autoFocus
-                style={{
-                  padding: '10px 14px',
-                  fontSize: '14px',
-                  border: '1px solid rgba(0,0,0,0.12)',
-                  borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.8)',
-                  outline: 'none',
-                  fontFamily: 'inherit',
-                  width: '200px',
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddCourse();
-                  if (e.key === 'Escape') setAddingCourse(false);
-                }}
-              />
-              <div style={{ display: 'flex', gap: '10px', width: '240px' }}>
-                <button
-                  onClick={() => setNewCourseType(1)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    borderRadius: '10px',
-                    border: '2px solid',
-                    borderColor: newCourseType === 1 ? '#10b981' : '#e2e8f0',
-                    background: newCourseType === 1 ? '#ecfdf5' : '#ffffff',
-                    color: newCourseType === 1 ? '#059669' : '#64748b',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all 150ms ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
+        <div className="syll-layout">
+          {/* 左栏：搜索 / 新增 / 课程列表 */}
+          <aside className="syll-sidebar">
+            <input
+              type="text"
+              className="syll-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索课程…"
+            />
+
+            {addingCourse ? (
+              <div className="syll-add-form">
+                <input
+                  type="text"
+                  className="syll-search"
+                  value={newCourseName}
+                  onChange={(e) => setNewCourseName(e.target.value)}
+                  placeholder="课程名称"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddCourse();
+                    if (e.key === 'Escape') setAddingCourse(false);
                   }}
-                >
-                  <span style={{
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '5px',
-                    border: '2px solid',
-                    borderColor: newCourseType === 1 ? '#10b981' : '#cbd5e1',
-                    background: newCourseType === 1 ? '#10b981' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    {newCourseType === 1 && <span style={{ color: 'white', fontSize: '10px', fontWeight: 'bold' }}>✓</span>}
-                  </span>
-                  校内课程
-                </button>
-                <button
-                  onClick={() => setNewCourseType(2)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    borderRadius: '10px',
-                    border: '2px solid',
-                    borderColor: newCourseType === 2 ? '#f59e0b' : '#e2e8f0',
-                    background: newCourseType === 2 ? '#fffbeb' : '#ffffff',
-                    color: newCourseType === 2 ? '#d97706' : '#64748b',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all 150ms ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '5px',
-                    border: '2px solid',
-                    borderColor: newCourseType === 2 ? '#f59e0b' : '#cbd5e1',
-                    background: newCourseType === 2 ? '#f59e0b' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    {newCourseType === 2 && <span style={{ color: 'white', fontSize: '10px', fontWeight: 'bold' }}>✓</span>}
-                  </span>
-                  校外课程
-                </button>
+                />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setNewCourseType(1)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      borderRadius: '10px',
+                      border: '2px solid',
+                      borderColor: newCourseType === 1 ? '#10b981' : '#e2e8f0',
+                      background: newCourseType === 1 ? '#ecfdf5' : '#ffffff',
+                      color: newCourseType === 1 ? '#059669' : '#64748b',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'all 150ms ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    校内课程
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCourseType(2)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      borderRadius: '10px',
+                      border: '2px solid',
+                      borderColor: newCourseType === 2 ? '#f59e0b' : '#e2e8f0',
+                      background: newCourseType === 2 ? '#fffbeb' : '#ffffff',
+                      color: newCourseType === 2 ? '#d97706' : '#64748b',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'all 150ms ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    校外课程
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={handleAddCourse}
+                    className="btn btn-primary btn-sm"
+                    style={{ flex: 1 }}
+                  >确认</button>
+                  <button
+                    onClick={() => { setAddingCourse(false); setNewCourseName(''); }}
+                    className="btn btn-ghost btn-sm"
+                    style={{ flex: 1 }}
+                  >取消</button>
+                </div>
               </div>
+            ) : (
               <button
-                onClick={handleAddCourse}
+                onClick={() => setAddingCourse(true)}
                 className="btn btn-primary"
-              >确认</button>
-              <button
-                onClick={() => { setAddingCourse(false); setNewCourseName(''); }}
-                className="btn btn-ghost"
-              >取消</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setAddingCourse(true)}
-              className="btn btn-primary"
-            >
-              + 添加新课程
-            </button>
-          )}
-        </div>
-
-        {loading ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">⏳</div>
-            <h3>加载中…</h3>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: '20px' }}>
-            {myCourses.length > 0 && (
-              <div>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'var(--text-muted)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                }}>
-                  <span>我创建的课程</span>
-                  <span style={{
-                    fontSize: '11px',
-                    background: 'rgba(255,255,255,0.5)',
-                    padding: '2px 8px',
-                    borderRadius: '999px',
-                    color: 'var(--text-soft)',
-                  }}>{myCourses.length}</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  {myCourses.map((c) => (
-                    <DesktopCourseCard
-                      key={c.id}
-                      course={c}
-                      canEdit
-                      onAddChapter={onAddChapter}
-                      onAddUnit={onAddUnit}
-                      onUpdateCourse={onUpdateCourse}
-                      onDeleteCourse={onDeleteCourse}
-                      onUpdateChapter={onUpdateChapter}
-                      onDeleteChapter={onDeleteChapter}
-                      onUpdateUnit={onUpdateUnit}
-                      onDeleteUnit={onDeleteUnit}
-                    />
-                  ))}
-                </div>
-              </div>
+                style={{ width: '100%' }}
+              >
+                + 添加新课程
+              </button>
             )}
 
-            {sharedCourses.length > 0 && (
-              <div>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'var(--text-muted)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                }}>
-                  <span>同校共享课程</span>
-                  <span style={{
-                    fontSize: '11px',
-                    background: 'rgba(255,255,255,0.5)',
-                    padding: '2px 8px',
-                    borderRadius: '999px',
-                    color: 'var(--text-soft)',
-                  }}>{sharedCourses.length}</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  {sharedCourses.map((c) => (
-                    <DesktopCourseCard
-                      key={c.id}
-                      course={c}
-                      shared
-                      onAddChapter={onAddChapter}
-                      onAddUnit={onAddUnit}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            {!loading && (
+              <>
+                {visibleMy.length > 0 && (
+                  <div className="syll-course-group">
+                    <div className="syll-side-label">
+                      <span>我创建的课程</span>
+                      <span className="count">{visibleMy.length}</span>
+                    </div>
+                    {visibleMy.map((c) => renderCourseItem(c))}
+                  </div>
+                )}
 
-            {myCourses.length === 0 && sharedCourses.length === 0 && (
+                {visibleShared.length > 0 && (
+                  <div className="syll-course-group">
+                    <div className="syll-side-label">
+                      <span>同校共享课程</span>
+                      <span className="count">{visibleShared.length}</span>
+                    </div>
+                    {visibleShared.map((c) => renderCourseItem(c, { shared: true }))}
+                  </div>
+                )}
+
+                {allCourses.length > 0 && visibleMy.length === 0 && visibleShared.length === 0 && (
+                  <div className="syll-no-match">没有匹配「{query.trim()}」的课程</div>
+                )}
+              </>
+            )}
+          </aside>
+
+          {/* 右栏：选中课程的章节-单元树 */}
+          <div className="syll-detail">
+            {loading ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">⏳</div>
+                <h3>加载中…</h3>
+              </div>
+            ) : allCourses.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-state-icon"></div>
                 <h3>还没有任何课程</h3>
-                <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
+                <p>点击左侧 "添加新课程" 创建第一个课程吧！</p>
+              </div>
+            ) : selectedCourse ? (
+              <DesktopCourseCard
+                key={selectedCourse.id}
+                course={selectedCourse}
+                canEdit={selectedCourse._isOwn}
+                shared={!selectedCourse._isOwn}
+                onAddChapter={onAddChapter}
+                onAddUnit={onAddUnit}
+                onUpdateCourse={onUpdateCourse}
+                onDeleteCourse={onDeleteCourse}
+                onUpdateChapter={onUpdateChapter}
+                onDeleteChapter={onDeleteChapter}
+                onUpdateUnit={onUpdateUnit}
+                onDeleteUnit={onDeleteUnit}
+              />
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-icon">☰</div>
+                <h3>请选择左侧课程</h3>
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

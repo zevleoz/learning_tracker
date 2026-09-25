@@ -160,19 +160,19 @@ function SectionLabel({ children }) {
   );
 }
 
-function StatBlock({ label, value, color }) {
+function StatBlock({ label, value, color, large = false }) {
   return (
     <div style={{
-      padding: '12px 14px',
+      padding: large ? '16px 18px' : '12px 14px',
       borderRadius: 10,
       background: '#f8fafc',
       border: '1px solid rgba(15,23,42,0.04)',
     }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginBottom: 4, letterSpacing: '0.01em' }}>
+      <div style={{ fontSize: large ? 11 : 10, fontWeight: 600, color: '#94a3b8', marginBottom: 4, letterSpacing: '0.01em' }}>
         {label}
       </div>
       <div style={{
-        fontSize: 18, fontWeight: 700, color,
+        fontSize: large ? 24 : 18, fontWeight: 700, color,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: 1.2,
       }}>
         {value}
@@ -187,13 +187,22 @@ export default function StudentDashboard({ sessions = [] }) {
   const [customRange, setCustomRange] = useState(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const handler = (e) => setIsMobile(e.matches);
-    handler(mq);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    const mqMobile = window.matchMedia('(max-width: 767px)');
+    const mqDesktop = window.matchMedia('(min-width: 1024px)');
+    const handler = () => {
+      setIsMobile(mqMobile.matches);
+      setIsDesktop(mqDesktop.matches);
+    };
+    handler();
+    mqMobile.addEventListener('change', handler);
+    mqDesktop.addEventListener('change', handler);
+    return () => {
+      mqMobile.removeEventListener('change', handler);
+      mqDesktop.removeEventListener('change', handler);
+    };
   }, []);
 
   const range = customRange || getPresetRange(presetId) || getPresetRange('week');
@@ -280,7 +289,7 @@ export default function StudentDashboard({ sessions = [] }) {
 
   if (filteredSessions.length === 0) {
     return (
-      <div style={{ paddingBottom: 112 }}>
+      <div style={{ paddingBottom: isMobile ? 112 : 0 }}>
         <Toolbar
           presetId={presetId} customRange={customRange} rangeLabel={rangeLabel}
           onPreset={handlePreset} showCalendar={showCalendar}
@@ -298,7 +307,7 @@ export default function StudentDashboard({ sessions = [] }) {
   const streakColor = stats.currentStreak >= 7 ? '#10B981' : stats.currentStreak >= 3 ? '#EA580C' : '#64748b';
 
   return (
-    <div style={{ paddingBottom: 112, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ paddingBottom: isMobile ? 112 : 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* ── 时间筛选栏 ── */}
       <Toolbar
         presetId={presetId} customRange={customRange} rangeLabel={rangeLabel}
@@ -309,18 +318,26 @@ export default function StudentDashboard({ sessions = [] }) {
       {/* ── Hero 总览 ── */}
       <Card delay={0.02}>
         <SectionLabel>学习总览 · {rangeLabel}</SectionLabel>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBlock label="总时长" value={fmtMins(stats.total)} color="#0f172a" />
-          <StatBlock label="日均时长" value={fmtMins(stats.dailyAvg)} color="#0f172a" />
-          <StatBlock label="活跃天数" value={`${stats.activeDays}天`} color="#4F46E5" />
-          <StatBlock label="连续学习" value={`${stats.currentStreak}天`} color={streakColor} />
+        <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? 'repeat(4, minmax(0, 1fr))' : '1fr 1fr', gap: isDesktop ? 12 : 8 }}>
+          <StatBlock label="总时长" value={fmtMins(stats.total)} color="#0f172a" large={isDesktop} />
+          <StatBlock label="日均时长" value={fmtMins(stats.dailyAvg)} color="#0f172a" large={isDesktop} />
+          <StatBlock label="活跃天数" value={`${stats.activeDays}天`} color="#4F46E5" large={isDesktop} />
+          <StatBlock label="连续学习" value={`${stats.currentStreak}天`} color={streakColor} large={isDesktop} />
         </div>
       </Card>
+
+      {/* ── 桌面双栏：左=趋势+学科分析，右=最近记录；移动端 display:contents 保持单列 ── */}
+      <div style={isDesktop
+        ? { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 12, alignItems: 'start' }
+        : { display: 'contents' }}>
+        <div style={isDesktop
+          ? { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }
+          : { display: 'contents' }}>
 
       {/* ── 每日学习时长趋势 ── */}
       <Card delay={0.04}>
         <SectionLabel>每日学习时长</SectionLabel>
-        <div style={{ height: 180 }}>
+        <div style={{ height: isDesktop ? 320 : 180 }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={dailyChartData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
               <defs>
@@ -331,7 +348,7 @@ export default function StudentDashboard({ sessions = [] }) {
               </defs>
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 9, fill: '#94a3b8' }}
+                tick={{ fontSize: isDesktop ? 11 : 9, fill: '#94a3b8' }}
                 axisLine={{ stroke: '#e2e8f0' }}
                 tickLine={false}
                 interval={dailyChartData.length > 20 ? Math.floor(dailyChartData.length / 8) : 0}
@@ -416,6 +433,11 @@ export default function StudentDashboard({ sessions = [] }) {
         </Card>
       )}
 
+        </div>
+        <div style={isDesktop
+          ? { position: 'sticky', top: 80, minWidth: 0 }
+          : { display: 'contents' }}>
+
       {/* ── 最近记录 ── */}
       {stats.recentSessions.length > 0 && (
         <Card delay={0.08}>
@@ -462,6 +484,9 @@ export default function StudentDashboard({ sessions = [] }) {
           </div>
         </Card>
       )}
+
+        </div>
+      </div>
     </div>
   );
 }

@@ -339,6 +339,7 @@ export default function LearningPage() {
   const [objIdx, setObjIdx] = useState(9);        // 默认 B+；展开即给默认值
   const [objDeferred, setObjDeferred] = useState(false); // 默认"现在填写"
   const [isObjNA, setIsObjNA] = useState(false);  // 客观不适用 (N/A)
+  const [editHadGrade, setEditHadGrade] = useState(false); // 被编辑记录原本是否有客观评价
 
   /* --- 备注 --- */
   const [notes, setNotes] = useState('');
@@ -763,8 +764,10 @@ export default function LearningPage() {
         return;
       }
 
-      const hasObjective = !objDeferred && (isObjNA || objIdx !== null);
-      const gradeLabelValue = isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null);
+      const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
+      const gradeLabelValue = category === 3
+        ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
+        : null;
       const payload = {
         student_id: user.id,
         course_id: courseId,
@@ -841,6 +844,7 @@ export default function LearningPage() {
     setEndStr(String(r.end_time || '').slice(0, 5));
     setCategory(r.category || 1);
     setFormValue(r.form || '');
+    setEditHadGrade(!!r.grade_label);
     // 主观：始终回显
     const subjIdxLoaded = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
     setSubjIdx(subjIdxLoaded >= 0 ? subjIdxLoaded : 3);
@@ -857,7 +861,7 @@ export default function LearningPage() {
     } else {
       setIsObjNA(false);
       setObjIdx(9);
-      setObjDeferred(false);  // 编辑时也默认"现在填写"，让学生看到滑轨
+      setObjDeferred(true);  // 无客观评价时默认稍后补充，避免保存时注入默认 B+
     }
     setNotes(r.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -876,6 +880,7 @@ export default function LearningPage() {
     setObjDeferred(false);
     setIsObjNA(false);
     setNotes('');
+    setEditHadGrade(false);
   }
 
   async function onSaveEdit() {
@@ -920,8 +925,10 @@ export default function LearningPage() {
         return;
       }
 
-      const hasObjective = !objDeferred && (isObjNA || objIdx !== null);
-      const gradeLabelValue = isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null);
+      const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
+      const gradeLabelValue = category === 3
+        ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
+        : null;
       const payload = {
         course_id: courseId,
         chapter_id: chapterId || null,
@@ -966,6 +973,7 @@ export default function LearningPage() {
         .limit(10);
       setRecent(data || []);
       setEditingSessionId(null);
+      setEditHadGrade(false);
       await loadPending();
     } catch (err) {
       let msg = err.message || '保存失败';
@@ -1054,6 +1062,23 @@ export default function LearningPage() {
   }
 
   /* ========== JSX ========== */
+  // 备注块：桌面下非练习类时嵌入主观评估右侧（rec-row 第二格），练习类时独占一行
+  const notesBlock = (
+    <div className="rec-block">
+      <div className="rec-label">备注</div>
+      <textarea
+        rows="2"
+        className="input input-strong"
+        placeholder={category === 3 && !objDeferred
+          ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
+          : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        disabled={busy}
+      />
+    </div>
+  );
+
   return (
     <>
     <div className="learn-wrap animate-fade-in">
@@ -1116,7 +1141,7 @@ export default function LearningPage() {
               </a>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="scores-grid">
               {scoreCourses.map(c => {
                 const scores = examScores.filter(s => s.course_id === c.id);
                 return (
@@ -1354,6 +1379,8 @@ export default function LearningPage() {
         </div>
       )}
 
+      {/* ====== 表单卡片 + 最近记录（桌面双栏容器）====== */}
+      <div className="learn-cols">
       {/* ====== 表单卡片 ====== */}
       <div className="glass-sheet record-sheet">
         {editingSessionId && (
@@ -1474,7 +1501,8 @@ export default function LearningPage() {
               </div>
             </div>
 
-            {/* ---- 3) 学习行为类别 ---- */}
+            {/* ---- 3) 学习行为类别 + 4) 学习行为形式（桌面并排） ---- */}
+            <div className="rec-row">
             <div className="rec-block">
               <div className="rec-label">学习行为类别</div>
               <div className="btn-row">
@@ -1491,7 +1519,6 @@ export default function LearningPage() {
               </div>
             </div>
 
-            {/* ---- 4) 学习行为形式 ---- */}
             <div className="rec-block">
               <div className="rec-label">学习行为形式</div>
               {!addingCustom ? (
@@ -1525,8 +1552,10 @@ export default function LearningPage() {
                 </div>
               )}
             </div>
+            </div>
 
-            {/* ---- 5) 主观评估（必填）---- */}
+            {/* ---- 5) 主观评估 + 5b) 客观评估（桌面并排） ---- */}
+            <div className="rec-row">
             <div className="rec-block">
               <div className="rec-label">
                 主观评估
@@ -1540,8 +1569,8 @@ export default function LearningPage() {
               />
             </div>
 
-            {/* ---- 5b) 客观评估（仅练习类，可选/可滞后）---- */}
-            {category === 3 && (
+            {/* ---- 5b) 客观评估（仅练习类）；非练习时第二格放备注（桌面并排省一行） ---- */}
+            {category === 3 ? (
               <div className="rec-block">
                 <div className="rec-label">
                   客观评估
@@ -1584,6 +1613,21 @@ export default function LearningPage() {
                       fontFamily: 'inherit',
                     }}
                   >稍后补充</button>
+                  <button
+                    type="button"
+                    onClick={() => { setObjDeferred(false); setIsObjNA(true); }}
+                    disabled={busy}
+                    style={{
+                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
+                      background: isObjNA ? '#fff' : 'transparent',
+                      color: isObjNA ? '#0f172a' : '#94a3b8',
+                      boxShadow: isObjNA ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
+                      transition: 'all 160ms ease',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >N/A 不适用</button>
                 </div>
                 {!objDeferred && (
                   <>
@@ -1631,29 +1675,6 @@ export default function LearningPage() {
                         </div>
                       ))}
                     </div>
-                    {/* NA: 与正常分值轻微区分（灰色描边 + 斜体）*/}
-                    <button
-                      type="button"
-                      onClick={() => setIsObjNA(!isObjNA)}
-                      disabled={busy}
-                      style={{
-                        marginTop: 10,
-                        width: '100%',
-                        padding: '10px 14px',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        fontStyle: 'italic',
-                        border: isObjNA ? '1.5px solid #94a3b8' : '1px solid #e2e8f0',
-                        borderRadius: 10,
-                        background: isObjNA ? '#f1f5f9' : '#f8fafc',
-                        color: '#64748b',
-                        cursor: busy ? 'not-allowed' : 'pointer',
-                        transition: 'all 160ms ease',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      {isObjNA ? '✓ Not Applicable（不适用）' : 'Not Applicable（不适用）'}
-                    </button>
                   </>
                 )}
                 {objDeferred && (
@@ -1664,25 +1685,19 @@ export default function LearningPage() {
                     fontSize: 12, color: '#64748b',
                   }}>
                     已选择稍后补充。可在顶部「待补填」标签页一键补填客观评价。
+                    {editingSessionId && editHadGrade && (
+                      <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
+                        保存后将清除原有客观评价，记录回到待补填。
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-
-            {/* ---- 6) 备注 ---- */}
-            <div className="rec-block">
-              <div className="rec-label">备注</div>
-              <textarea
-                rows="3"
-                className="input input-strong"
-                placeholder={category === 3 && !objDeferred
-                  ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
-                  : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                disabled={busy}
-              />
+            ) : notesBlock}
             </div>
+
+            {/* ---- 6) 备注（练习类时独占一行；非练习已嵌入上行右侧） ---- */}
+            {category === 3 && notesBlock}
 
             {/* ---- 提交 ---- */}
             {editingSessionId ? (
@@ -1740,7 +1755,7 @@ export default function LearningPage() {
                         主观：{SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label || '-'}
                       </span>
                     )}
-                    {r.grade_label && (
+                    {r.category === 3 && r.grade_label && (
                       <span className="record-tag record-tag--eval"
                         style={r.grade_label === 'N/A' ? { color: '#94a3b8', fontStyle: 'italic' } : undefined}>
                         客观：{r.grade_label}
@@ -1784,6 +1799,7 @@ export default function LearningPage() {
             ))}
           </div>
         )}
+      </div>
       </div>
       </>
       )}

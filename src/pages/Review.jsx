@@ -100,7 +100,7 @@ export default function Review() {
   }
 
   return (
-    <div style={{ padding: '0 16px', paddingBottom: '112px' }}>
+    <div>
       <StudentDashboard sessions={sessions} />
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
+import { updateWorkspace } from '../lib/e4Store.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import { ReviewDashboard } from '../components/SharedDashboard.jsx';
@@ -214,19 +215,28 @@ export default function Mentor() {
         // 必须从 profiles 表读取权威 role（user_metadata 不再包含 role，
         // 否则导师会被误判为学生并重定向，导致无法进入导师页面）
         let role = 1;
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, default_workspace')
           .eq('id', u.id)
           .maybeSingle();
+        if (profileError) {
+          // 读取失败时不要误把学生分支的跳转套到导师身上，提示重试即可
+          toast('账号信息加载失败，请刷新重试', { kind: 'error' });
+          return;
+        }
         if (profile?.role != null) role = Number(profile.role);
 
         if (role < 2) {
           toast('仅老师账号可访问导师页面', { kind: 'error' });
-          nav('/syllabus', { replace: true });
+          nav('/', { replace: true });
           return;
         }
         setUser(u);
+        // 记住上次打开的工作区：下次登录直接落到一表人才
+        if (profile?.default_workspace !== 'tracker') {
+          updateWorkspace(u.id, 'tracker').catch(() => {});
+        }
         const admin = role >= 3;
         setIsAdmin(admin);
         await loadData(u.id, admin);

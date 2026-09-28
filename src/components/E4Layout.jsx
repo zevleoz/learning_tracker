@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../lib/useAuth.js';
-import { listE4Students } from '../lib/e4Store.js';
+import { listE4Students, updateWorkspace } from '../lib/e4Store.js';
 import { getRecentStudents, subscribeRecent } from '../lib/e4Recent.js';
 import WorkspaceSwitch from './WorkspaceSwitch.jsx';
 import logoColor from '../logo/logo_color.png';
@@ -198,6 +198,13 @@ export default function E4Layout() {
 
   useEffect(() => subscribeRecent(() => setRecent(getRecentStudents())), []);
   useEffect(() => { setRecent(getRecentStudents()); }, [location.pathname]);
+
+  // 记住上次打开的工作区：下次登录直接落到 E4
+  useEffect(() => {
+    if (profile?.id && profile.default_workspace !== 'e4') {
+      updateWorkspace(profile.id, 'e4').catch(() => {});
+    }
+  }, [profile?.id, profile?.default_workspace]);
 
   useEffect(() => {
     function onKey(e) {

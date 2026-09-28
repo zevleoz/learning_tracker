@@ -8,6 +8,7 @@ import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
 import MentorAnalyticsPage from './MentorAnalytics.jsx';
 import ProfileEditor from '../components/ProfileEditor.jsx';
+import WorkspacePreference from '../components/WorkspacePreference.jsx';
 import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
 import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
@@ -1889,6 +1890,7 @@ export default function Mentor() {
                 <h1 className="mentor-page-title">账号设置</h1>
                 <p className="mentor-page-subtitle">管理你的导师账号资料</p>
               </div>
+              <WorkspacePreference />
               <ProfileEditor
                 mode="inline"
                 forceSchool={false}

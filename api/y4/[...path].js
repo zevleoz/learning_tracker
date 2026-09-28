@@ -1,0 +1,43 @@
+// 同源 Y4 代理：浏览器只请求 /api/y4/*，
+// Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
+import { Y4_API_BASE, forwardViaFetch, jsonError } from '../../api-lib/y4-forward.mjs';
+
+export const config = {
+  // e4-protocol 端点实时调用 AI，实测 10-30 秒
+  maxDuration: 60,
+};
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ ok: false, error: '仅支持 GET 请求' });
+    return;
+  }
+
+  const apiKey = process.env.Y4_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ ok: false, error: '服务端未配置 Y4_API_KEY' });
+    return;
+  }
+
+  const parts = req.query.path;
+  const subpath = Array.isArray(parts) ? parts.join('/') : parts || '';
+  const search = req.url.includes('?') ? `?${req.url.slice(req.url.indexOf('?') + 1)}` : '';
+
+  try {
+    const result = await forwardViaFetch({
+      base: process.env.Y4_API_BASE || Y4_API_BASE,
+      apiKey,
+      subpath,
+      search,
+    });
+    res.status(result.status);
+    res.setHeader('Content-Type', result.contentType);
+    if (result.cacheControl) res.setHeader('Cache-Control', result.cacheControl);
+    res.send(result.body);
+  } catch (err) {
+    const e = jsonError(502, `无法连接 Y4 服务：${err.message || 'network error'}`);
+    res.status(e.status);
+    res.setHeader('Content-Type', e.contentType);
+    res.send(e.body);
+  }
+}

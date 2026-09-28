@@ -3,6 +3,7 @@ import logoRed from '../logo/logo_red.png';
 import logoColor from '../logo/logo_color.png';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SlideUp } from './animations';
+import WorkspaceSwitch from './WorkspaceSwitch.jsx';
 
 function IconUsers() {
   return (
@@ -148,6 +149,7 @@ export default function MentorLayout({ children, activeView = 'students', onView
         </nav>
 
         <div className="mentor-sidebar-footer">
+          <WorkspaceSwitch target="e4" className="mentor-workspace-switch" />
           <motion.div
             className="mentor-sidebar-user"
             initial={{ opacity: 0, y: 10 }}

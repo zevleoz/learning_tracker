@@ -54,7 +54,6 @@ function PageShell({
       {/* 底部三列页脚 */}
       <footer className="e4-page-footer">
         <span className="e4-foot-brand">{REPORT_STATIC.brandKicker}</span>
-        <span className="e4-foot-template">模拟案例模板</span>
         <span className="e4-foot-page">{pageIndex} / {TOTAL_PAGES}</span>
       </footer>
     </section>
@@ -144,7 +143,6 @@ export default function FirstReportPrint({
           <strong>保密说明</strong>
           <span>{S.confidentiality}</span>
         </div>
-        <p className="e4-cover-foot">模拟说明　学生姓名、访谈内容、学校表现及行动方案均为虚构；Y4 数据依据所提供的最新版结构化协议，用于展示报告模板。</p>
       </PageShell>
 
       {/* ---------------- 02 如何阅读 ---------------- */}

@@ -37,8 +37,7 @@ export function paginateUnits(units, pageInnerHeightPx, safetyPx = 0) {
     const rowsTotal = rows.reduce((a, b) => a + b, 0);
     const headH = Math.max(0, h - rowsTotal);
 
-    // 整表放得下：当前页或新页直接放
-    if (h <= usable && curHeight + h > usable) flush();
+    // 整表放得下当前页：直接放；否则按行拆分填满当前页
     if (h <= usable && curHeight + h <= usable) {
       cur.push({ id: u.id, kind: 'table', start: 0, end: rows.length });
       curHeight += h;

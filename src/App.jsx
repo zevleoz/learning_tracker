@@ -18,6 +18,7 @@ import E4IntakePage from './pages/e4/E4IntakePage.jsx';
 import E4StudentDetailPage from './pages/e4/E4StudentDetailPage.jsx';
 import E4ReportBuilderPage from './pages/e4/E4ReportBuilderPage.jsx';
 import E4PrepPage from './pages/e4/E4PrepPage.jsx';
+import E4ProgressPage from './pages/e4/E4ProgressPage.jsx';
 import E4PrintPreview from './pages/e4/E4PrintPreview.jsx';
 
 // DebugTools 只在开发环境加载，避免生产 bundle 包含数据操作工具
@@ -90,8 +91,10 @@ export default function App() {
             <Route path="/e4/students/:studentId" element={<E4StudentDetailPage />} />
             <Route path="/e4/students/:studentId/new-first" element={<E4ReportBuilderPage />} />
             <Route path="/e4/students/:studentId/new-prep" element={<E4PrepPage />} />
+            <Route path="/e4/students/:studentId/new-progress" element={<E4ProgressPage />} />
             <Route path="/e4/reports/:reportId/build" element={<E4ReportBuilderPage />} />
             <Route path="/e4/prep/:reportId" element={<E4PrepPage />} />
+            <Route path="/e4/progress/:reportId" element={<E4ProgressPage />} />
           </Route>
           {/* 打印预览为页内浮层（PrintPreviewModal），不再有独立路由 */}
         </Route>

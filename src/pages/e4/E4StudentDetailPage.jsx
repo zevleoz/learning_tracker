@@ -9,6 +9,7 @@ import Y4LinkModal from '../../components/e4/Y4LinkModal.jsx';
 import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
 import PrepPrint from '../../components/e4/PrepPrint.jsx';
 import FirstReportPrint from '../../components/e4/FirstReportPrint.jsx';
+import ProgressPrint from '../../components/e4/ProgressPrint.jsx';
 
 function IconBack() {
   return (
@@ -83,9 +84,13 @@ export default function E4StudentDetailPage() {
 
   // 打印预览：浮层直接打开，不跳路由；内容缺失时提示
   function openPrintPreview(r) {
-    const ready = r.report_type === 'prep' ? !!r.form_data?.prepRows : !!r.form_data?.sections;
+    const ready = r.report_type === 'prep'
+      ? !!r.form_data?.prepRows
+      : r.report_type === 'progress'
+        ? !!r.form_data?.cover
+        : !!r.form_data?.sections;
     if (!ready) {
-      toast(r.report_type === 'prep' ? '会前准备内容尚未生成' : '报告内容尚未生成', { kind: 'error' });
+      toast('报告内容尚未生成', { kind: 'error' });
       return;
     }
     setPrintTarget(r);
@@ -197,7 +202,7 @@ export default function E4StudentDetailPage() {
           <span className="e4-summary-label">分析报告</span>
         </div>
         <div className="e4-summary-cell">
-          <span className="e4-summary-value">{progressReports.length === 0 ? '暂未开放' : progressReports.length}</span>
+          <span className="e4-summary-value">{progressReports.length}</span>
           <span className="e4-summary-label">过程报告</span>
         </div>
         <div className="e4-summary-cell">
@@ -336,12 +341,20 @@ export default function E4StudentDetailPage() {
       <section className="e4-report-section">
         <div className="e4-info-card-head">
           <h2>过程中报告</h2>
-          <span className="e4-coming-soon-badge">即将推出</span>
+          <button
+            type="button"
+            className="e4-btn-primary"
+            disabled={!student.tracker_profile_id}
+            onClick={() => nav(`/e4/students/${student.id}/new-progress`)}
+            title={student.tracker_profile_id ? '' : '请先关联一表人才学生'}
+          >
+            生成过程报告
+          </button>
         </div>
 
         {progressReports.length === 0 && (
           <p className="e4-card-hint">
-            基于一表人才追踪数据生成的过程性学习力反馈；当前版本暂未开放。
+            基于一表人才追踪数据生成的过程性学习力反馈，自动填入记录覆盖、时长、学科结构与自主占比，其余由导师完善。
           </p>
         )}
 
@@ -356,11 +369,11 @@ export default function E4StudentDetailPage() {
                   </span>
                 </span>
                 <span className="e4-report-meta">
-                  {r.meeting_date ? `会议 ${r.meeting_date} · ` : ''}{r.report_date ? `报告 ${r.report_date}` : '日期未填写'}
+                  {r.report_date ? `报告 ${r.report_date}` : '日期未填写'}{r.created_at ? ` · 创建于 ${String(r.created_at).slice(0, 10)}` : ''}
                 </span>
               </div>
               <div className="e4-report-row-actions">
-                <button type="button" className="e4-btn-mini" onClick={() => nav(`/e4/reports/${r.id}/build`)}>
+                <button type="button" className="e4-btn-mini" onClick={() => nav(`/e4/progress/${r.id}`)}>
                   {r.status === 'final' ? '查看 / 编辑' : '继续编辑'}
                 </button>
                 <button type="button" className="e4-btn-mini" onClick={() => openPrintPreview(r)}>
@@ -417,7 +430,9 @@ export default function E4StudentDetailPage() {
         title={
           printTarget?.report_type === 'prep'
             ? `${printTarget.form_data?.prepCover?.studentName || student?.display_name || '学生'} · 首次学习力会议会前准备`
-            : `${printTarget?.form_data?.cover?.studentName || '学生'} · 首次学习力分析报告`
+            : printTarget?.report_type === 'progress'
+              ? `${printTarget.form_data?.cover?.studentName || '学生'} · 过程学习力报告`
+              : `${printTarget?.form_data?.cover?.studentName || '学生'} · 首次学习力分析报告`
         }
         badge={
           printTarget && printTarget.report_type !== 'prep' && printTarget.status === 'final' ? (
@@ -427,6 +442,8 @@ export default function E4StudentDetailPage() {
       >
         {printTarget?.report_type === 'prep' ? (
           <PrepPrint report={printTarget} />
+        ) : printTarget?.report_type === 'progress' ? (
+          <ProgressPrint report={printTarget} />
         ) : printTarget ? (
           <FirstReportPrint report={printTarget} />
         ) : null}

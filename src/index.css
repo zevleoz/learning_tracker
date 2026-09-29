@@ -8073,6 +8073,18 @@ textarea::placeholder { color: #9ca3af; }
 }
 .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
 
+/* ---- 自适应分页（AutoPages） ---- */
+.e4-pg-measure {
+  position: absolute;
+  visibility: hidden;
+  left: -9999px;
+  top: 0;
+  width: 178mm; /* 纸内宽：210mm − 左右各 16mm */
+  pointer-events: none;
+}
+/* 单元包裹：flow-root 收拢子级外边距，保证测量与按页渲染高度一致 */
+.e4-pg-unit { display: flow-root; }
+
 /* 章节条：细实线分隔（参考图是细线不是虚线） */
 .e4-chapter-strip {
   position: absolute;
@@ -8435,6 +8447,7 @@ textarea::placeholder { color: #9ca3af; }
   #root { position: static; z-index: auto; min-height: 0; }
 
   .no-print { display: none !important; }
+  .e4-pg-measure { display: none !important; }
 
   .e4-print-doc {
     width: 210mm !important;
@@ -12980,3 +12993,274 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   opacity: 0.55;
   stroke-width: 2;
 }
+
+/* ================================================================
+   过程报告（progress）：纸张内容（ProgressPrint）+ 新建流程 + 工作台
+   ================================================================ */
+
+/* ---- 封面信息表：标签 | 内容，0.5pt 发丝分隔 ---- */
+.e4-progress-cover-table {
+  margin: 0 auto 12mm;
+  max-width: 150mm;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+  color: #1F2937;
+}
+.e4-progress-cover-table td {
+  border-bottom: 0.5pt solid #e2e8f0;
+  padding: 3.5mm 4mm;
+  text-align: left;
+  vertical-align: baseline;
+}
+.e4-progress-cover-table tr:last-child td { border-bottom: none; }
+.e4-progress-cover-label {
+  color: var(--e4-red);
+  font-size: 8.5pt;
+  font-weight: 600;
+  width: 30mm;
+  white-space: nowrap;
+}
+.e4-progress-period { display: inline-flex; align-items: center; gap: 2.5mm; }
+.e4-progress-period-sep { color: #94a3b8; margin: 0 1mm; }
+
+/* ---- 通用提示条（阅读提示 / 数据说明 / 判断原则 等） ---- */
+.e4-progress-note {
+  font-size: 8.5pt;
+  color: #475569;
+  line-height: 1.7;
+  border-left: 2pt solid var(--e4-red);
+  background: var(--e4-red-bg);
+  padding: 3mm 4mm;
+  margin: 4mm 0 0;
+}
+.e4-progress-note strong { color: var(--e4-red); font-weight: 700; margin-right: 1.5mm; }
+
+/* ---- P3 关键数据四格 ---- */
+.e4-progress-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3mm;
+  margin-bottom: 4mm;
+}
+.e4-progress-summary-cell {
+  border: 0.5pt solid #e2e8f0;
+  padding: 3.5mm 4mm;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5mm;
+}
+.e4-progress-summary-label { font-size: 8pt; color: #64748b; }
+.e4-progress-summary-cell .e4-doc-field-value { font-size: 11pt; font-weight: 650; color: #0f172a; }
+
+/* ---- P3 学习日历（月视图热力格） ---- */
+.e4-calendar { margin-bottom: 4mm; }
+.e4-calendar-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1.5mm;
+  margin-bottom: 1.5mm;
+}
+.e4-calendar-weekdays { margin-bottom: 1mm; }
+.e4-calendar-wd { font-size: 7.5pt; color: #94a3b8; text-align: center; }
+.e4-calendar-cell {
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 1px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  line-height: 1;
+}
+.e4-calendar-cell.is-blank { background: transparent; }
+.e4-calendar-num { font-size: 7.5pt; color: #475569; font-variant-numeric: tabular-nums; }
+.e4-calendar-dur { font-size: 6.5pt; font-weight: 600; color: #1e293b; white-space: nowrap; }
+.e4-calendar-cell.is-weekend .e4-calendar-num { color: #94a3b8; }
+.e4-calendar-cell.is-level-0 { background: #f8fafc; }
+.e4-calendar-cell.is-level-0 .e4-calendar-dur { color: #94a3b8; font-weight: 500; }
+.e4-calendar-cell.is-level-1 { background: #dbeafe; }
+.e4-calendar-cell.is-level-2 { background: #93c5fd; }
+.e4-calendar-cell.is-level-3 { background: #3b82f6; }
+.e4-calendar-cell.is-level-4 { background: #1d4ed8; }
+.e4-calendar-cell.is-level-3 .e4-calendar-num,
+.e4-calendar-cell.is-level-4 .e4-calendar-num { color: #fff; }
+.e4-calendar-cell.is-level-3 .e4-calendar-dur,
+.e4-calendar-cell.is-level-4 .e4-calendar-dur { color: #fff; }
+.e4-calendar-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1mm;
+  font-size: 7.5pt;
+  color: #94a3b8;
+  margin-top: 1.5mm;
+}
+.e4-calendar-legend .e4-calendar-cell { width: 12px; height: 12px; min-height: 0; padding: 0; border-radius: 3px; }
+.e4-calendar-empty {
+  font-size: 9pt;
+  color: #94a3b8;
+  text-align: center;
+  padding: 10mm 0;
+  border: 0.5pt dashed #cbd5e1;
+}
+
+/* ---- 观察长文框 ---- */
+.e4-progress-observation {
+  border: 0.5pt solid #e2e8f0;
+  padding: 3mm 4mm;
+  min-height: 22mm;
+}
+.e4-progress-observation .e4-doc-field { width: 100%; }
+.e4-progress-observation .e4-doc-field-edit {
+  width: 100%;
+  min-height: 20mm;
+}
+
+/* ---- 分学科表格列与堆叠 ---- */
+.e4-progress-subject .col-subject { width: 14%; }
+.e4-progress-subject tbody td.col-subject { font-weight: 600; color: #1F2937; }
+.e4-progress-subject .col-time { width: 20%; }
+.e4-progress-subject .col-struct { width: 32%; }
+.e4-progress-subject .col-quality { width: 32%; }
+.e4-progress-table .col-label { width: 26%; font-weight: 600; color: #1F2937; vertical-align: middle; }
+.e4-progress-table thead .col-label { color: #fff; }
+.e4-progress-table .col-ops { width: 30px; text-align: center; vertical-align: middle; }
+.e4-cell-stack { display: flex; flex-direction: column; gap: 1.5mm; }
+.e4-cell-stack .e4-doc-field-value { font-size: 9.5pt; }
+.e4-cell-stack .e4-doc-field-value:first-child { font-weight: 600; color: #1F2937; }
+.e4-cell-stack .e4-doc-field-value + .e4-doc-field-value { color: #64748b; font-size: 8.5pt; }
+.e4-subject-name { font-weight: 600; color: #1F2937; }
+
+/* ---- P5 自主性比例条 ---- */
+.e4-progress-autonomy .col-subject { width: 20%; }
+.e4-autonomy-cell { display: flex; align-items: center; gap: 4mm; width: 100%; }
+.e4-autonomy-bar {
+  flex: 1;
+  height: 7px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.e4-autonomy-bar i { display: block; height: 100%; background: #2563EB; border-radius: 3px; }
+.e4-autonomy-text { min-width: 16mm; font-size: 9.5pt; color: #334155; text-align: right; }
+
+/* ---- P6 情绪表 ---- */
+.e4-progress-emotion .col-subject { width: 14%; }
+.e4-progress-emotion tbody td.col-subject { font-weight: 600; color: #1F2937; }
+
+/* ---- P7 E4 模块综合判断 ---- */
+.e4-progress-modules .col-module { width: 22%; vertical-align: middle; }
+.e4-progress-modules .col-status { width: 20%; vertical-align: middle; }
+.e4-module-en {
+  display: block;
+  font-size: 8pt;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.e4-module-cn { font-size: 11pt; font-weight: 650; color: #0f172a; }
+.e4-progress-modules td.col-module.tint-red .e4-module-en { color: var(--e4-red); }
+.e4-progress-modules td.col-module.tint-orange .e4-module-en { color: var(--e4-orange); }
+.e4-progress-modules td.col-module.tint-teal .e4-module-en { color: var(--e4-teal); }
+.e4-progress-modules td.col-module.tint-blue .e4-module-en { color: var(--e4-blue); }
+
+.e4-progress-status { font-weight: 600; }
+.e4-progress-status.is-static { display: inline-flex; align-items: center; gap: 6px; }
+.e4-progress-status.is-static i {
+  width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; flex: none;
+}
+.e4-progress-status.is-static.tint-red { color: var(--e4-red); }
+.e4-progress-status.is-static.tint-red i { background: var(--e4-red); }
+.e4-progress-status.is-static.tint-orange { color: var(--e4-orange); }
+.e4-progress-status.is-static.tint-orange i { background: var(--e4-orange); }
+.e4-progress-status.is-static.tint-teal { color: var(--e4-teal); }
+.e4-progress-status.is-static.tint-teal i { background: var(--e4-teal); }
+.e4-progress-status.is-static.tint-gray { color: var(--e4-gray); }
+.e4-progress-status.is-static.tint-gray i { background: var(--e4-gray); }
+
+.e4-progress-status-opts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.e4-progress-status-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  font-size: 9pt;
+  color: #64748b;
+  border: 0.5pt solid #e2e8f0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.e4-progress-status-opt i { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; flex: none; }
+.e4-progress-status-opt i.tint-red { background: var(--e4-red); }
+.e4-progress-status-opt i.tint-orange { background: var(--e4-orange); }
+.e4-progress-status-opt i.tint-teal { background: var(--e4-teal); }
+.e4-progress-status-opt i.tint-gray { background: var(--e4-gray); }
+.e4-progress-status-opt:hover { background: #f8fafc; color: #0f172a; }
+.e4-progress-status-opt.is-on { background: #f1f5f9; border-color: #cbd5e1; color: #0f172a; font-weight: 600; }
+
+/* ---- P8 阶段原则 ---- */
+.e4-progress-principle {
+  border-left: 2pt solid var(--e4-red);
+  background: var(--e4-red-bg);
+  padding: 3mm 4mm;
+  margin-top: 4mm;
+  font-size: 9pt;
+  color: #475569;
+  line-height: 1.75;
+}
+.e4-progress-principle strong { color: var(--e4-red); font-weight: 700; margin-right: 1.5mm; }
+
+/* ---- 新建流程：复盘周期字段 ---- */
+.e4-progress-period-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.e4-progress-period-label { font-size: 13px; font-weight: 600; color: #1F2937; }
+.e4-progress-period-field input[type='date'] {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1F2937;
+}
+.e4-progress-period-field-sep { color: #94a3b8; font-size: 13px; }
+
+/* ---- 工作台布局：左预览右指引（复用 prep 面板外壳） ---- */
+.e4-dashboard .e4-progress-page { max-width: none; }
+.e4-dashboard .e4-progress-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  align-items: start;
+}
+.e4-dashboard .e4-progress-preview { min-width: 0; }
+.e4-dashboard .e4-progress-preview .e4-print-page {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.e4-progress-guide-list { padding: 6px 18px 18px; }
+.e4-progress-guide-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--e4-line);
+}
+.e4-progress-guide-row:last-child { border-bottom: none; }
+.e4-progress-guide-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.e4-progress-guide-dot i { display: block; width: 100%; height: 100%; border-radius: 50%; background: currentColor; }
+.e4-progress-guide-dot.tint-red { color: var(--e4-red); }
+.e4-progress-guide-dot.tint-orange { color: var(--e4-orange); }
+.e4-progress-guide-dot.tint-teal { color: var(--e4-teal); }
+.e4-progress-guide-dot.tint-blue { color: var(--e4-blue); }
+.e4-progress-guide-name { font-size: 12.5px; font-weight: 600; color: var(--e4-ink); white-space: nowrap; }
+.e4-progress-guide-hint { flex: 1; font-size: 11px; color: var(--e4-ink-3); line-height: 1.5; }
+.e4-progress-guide-done { font-size: 10px; color: #7FA67E; white-space: nowrap; }
+.e4-progress-guide-row.is-done .e4-progress-guide-name { color: var(--e4-ink-3); }

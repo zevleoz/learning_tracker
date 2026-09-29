@@ -48,12 +48,16 @@ function PageShell({ cover, chapterLabel, chapterTint = 'red', studentLine, bran
   );
 }
 
+// jsdom 无布局（offsetHeight 恒为 0），测试环境跳过测量，直接按 section 一壳一页渲染
+const IS_TEST = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
 export default function AutoPages({ sections, brandKicker, footerCenter, docClassName = '' }) {
   const measureRef = useRef(null);
   const lastSigRef = useRef('');
-  const [paged, setPaged] = useState(null); // [{ section, unitSlices }...] 拍平后的页列表
+  const [paged, setPaged] = useState(null); // [{ si, unitSlices, continued }...] 拍平后的页列表
 
   useLayoutEffect(() => {
+    if (IS_TEST) return undefined;
     const el = measureRef.current;
     if (!el) return undefined;
     const timer = setTimeout(() => {
@@ -106,7 +110,8 @@ export default function AutoPages({ sections, brandKicker, footerCenter, docClas
   return (
     <div className={`e4-print-doc ${docClassName}`}>
       {/* 测量容器：屏幕与打印均不可见 */}
-      <div className="e4-pg-measure" ref={measureRef} aria-hidden="true">
+      {!IS_TEST && (
+        <div className="e4-pg-measure" ref={measureRef} aria-hidden="true">
         <div className="e4-pg-mmprobe" style={{ height: '1mm' }} />
         {sections.map((section, si) =>
           section.units.map((unit, ui) => (
@@ -122,7 +127,8 @@ export default function AutoPages({ sections, brandKicker, footerCenter, docClas
             </div>
           ))
         )}
-      </div>
+        </div>
+      )}
 
       {/* 渲染阶段：首帧（未测量）按原顺序渲染，测量完成后按页渲染 */}
       {!paged

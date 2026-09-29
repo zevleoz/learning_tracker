@@ -165,6 +165,26 @@ export async function createPrepReport({ e4StudentId, createdBy, protocolMd, for
   return data;
 }
 
+export async function createProgressReport({ e4StudentId, createdBy, formData, reportDate }) {
+  const data = await unwartch(
+    supabase
+      .from('e4_reports')
+      .insert({
+        e4_student_id: e4StudentId,
+        report_type: 'progress',
+        status: 'draft',
+        report_date: reportDate || null,
+        form_data: formData || {},
+        created_by: createdBy,
+      })
+      .select()
+      .single(),
+    '创建过程报告'
+  );
+  await syncNextMeetingFromForm(e4StudentId, formData);
+  return data;
+}
+
 export async function updateReport(id, patch) {
   const data = await unwartch(
     supabase.from('e4_reports').update(patch).eq('id', id).select().single(),

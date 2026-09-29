@@ -18,9 +18,9 @@ export const PREP_DIMENSIONS = {
     short: 'Energy',
     title: 'Energy 身心能量',
     en: 'PHYSICAL RESOURCES FOR LEARNING',
-    intro: '最新版Y4协议对Energy提供一条模块级判断。该判断在第三列只展示一次；六项排查问题用于准备会议追问，不代表Y4已经分别作出六个结论。',
+    intro: 'Y4协议对Energy提供一条模块级整体判断，展示在表格上方；每行第三列为协议中对应的单项评级，未涉及的行留空，用于准备会议追问。',
     tint: 'orange',
-    moduleLevel: true, // 模块级判断：打印时第三列合并为一个单元格
+    moduleLevel: true, // 模块级总述：判断全文在表格上方展示一次，第三列按行显示对应评级
   },
   E3: {
     code: 'E3',
@@ -99,13 +99,13 @@ export const PREP_ROWS = [
   { id: 'emo-sensitive', dim: 'E1', label: '高敏感内耗', aliases: ['高敏感'], ask: '错误或他人评价是否被反复思考并影响后续学习' },
   { id: 'emo-depressed', dim: 'E1', label: '不开心状态', aliases: ['不开心'], ask: '近期是否持续缺少兴趣或愉快感，并影响日常学习' },
   { id: 'emo-security', dim: 'E1', label: '安全感', aliases: ['安全感'], ask: '面对变化和不确定时是否过度需要稳定与确认' },
-  // ---- Energy（模块级判断）----
-  { id: 'ene-sleep', dim: 'E2', label: '睡眠与恢复', ask: '作息、入睡、夜间醒来、早晨清醒度及周末节律' },
-  { id: 'ene-diet', dim: 'E2', label: '饮食与营养', ask: '早饭、正餐、饥饿或餐后困倦是否影响状态' },
-  { id: 'ene-exercise', dim: 'E2', label: '运动情况', ask: '运动频率、强度及运动后恢复情况' },
+  // ---- Energy（模块级总述 + 按行 EVAL 评级）----
+  { id: 'ene-sleep', dim: 'E2', label: '睡眠与恢复', evalMatch: '睡眠习惯', ask: '作息、入睡、夜间醒来、早晨清醒度及周末节律' },
+  { id: 'ene-diet', dim: 'E2', label: '饮食与营养', evalMatch: '饮食习惯', ask: '早饭、正餐、饥饿或餐后困倦是否影响状态' },
+  { id: 'ene-exercise', dim: 'E2', label: '运动情况', evalMatch: '运动习惯', ask: '运动频率、强度及运动后恢复情况' },
   { id: 'ene-daytime', dim: 'E2', label: '日间精力', ask: '一天中最清醒和最困倦的时段及课堂表现' },
   { id: 'ene-window', dim: 'E2', label: '学习时段与复习资源', ask: '放学后可用时间及精力较好时段的实际分配' },
-  { id: 'ene-other', dim: 'E2', label: '其他身体因素', ask: '疼痛、视力、用药或其他身体情况是否影响学习' },
+  { id: 'ene-other', dim: 'E2', label: '其他身体因素', evalMatch: '躯体外貌', ask: '疼痛、视力、用药或其他身体情况是否影响学习' },
   // ---- Engine ----
   { id: 'eng-input', dim: 'E3', label: '信息输入基本功能', aliases: ['信息输入'], ask: '是否漏听、漏看关键信息；什么呈现方式更容易理解' },
   { id: 'eng-storage', dim: 'E3', label: '信息存储基本功能', aliases: ['信息存储'], ask: '学后保留和提取情况；怎样复习时记得更牢' },
@@ -143,6 +143,7 @@ const emptySubject = () => ({ subject: '', clues: '', types: [], followUp: '' })
 export function buildPrepDraft(protocol, student = {}) {
   const prepRows = {};
   for (const code of PREP_DIMENSION_ORDER) prepRows[code] = [];
+  const moduleJudgments = {};
 
   for (const row of PREP_ROWS) {
     const dimData = protocol?.dimensions?.[row.dim];
@@ -156,9 +157,20 @@ export function buildPrepDraft(protocol, student = {}) {
       meetingNote: '',
     };
     if (PREP_DIMENSIONS[row.dim].moduleLevel) {
-      // E2：整条模块级判断，打印时合并展示一次
-      base.verdict = dimData?.block?.verdict || '';
-      base.verdictText = dimData?.block?.judgment || '';
+      // E2：模块级判断全文存到 moduleJudgments（表格上方展示一次）；
+      // 每行 verdictText 为协议中对应的单项 EVAL 评级，无对应指标则留空
+      if (!moduleJudgments[row.dim]) {
+        moduleJudgments[row.dim] = {
+          verdict: dimData?.block?.verdict || '',
+          text: dimData?.block?.judgment || '',
+        };
+      }
+      if (row.evalMatch) {
+        const ev = (dimData?.block?.evals || []).find((e) => e.metric.includes(row.evalMatch));
+        if (ev) {
+          base.verdictText = `${ev.metric} ${ev.value}${ev.note ? `（${ev.note}）` : ''}`.trim();
+        }
+      }
     } else {
       const q = matchPrepQuestion(row, dimData?.questions);
       if (q) {
@@ -190,6 +202,7 @@ export function buildPrepDraft(protocol, student = {}) {
     })),
     subjects: Array.from({ length: 6 }, emptySubject),
     growthMap: null, // { fileName, uploadedAt } 成长地图 PDF 引用（AI 提取后续接入）
+    moduleJudgments, // 模块级判断（如 E2）：{ verdict, text }，表格上方展示
     prepRows,
   };
 }

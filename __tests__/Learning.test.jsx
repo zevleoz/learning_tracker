@@ -67,8 +67,10 @@ describe('Learning Component', () => {
     // 加载完成后自动选中第一个课程
     expect(selects[0].value).toBe('course-1');
 
-    // 时间区：1 个日期 + 2 个时间输入
-    expect(document.querySelectorAll('input[type="date"]').length).toBe(1);
+    // 时间区：1 个日期选择器（shadcn 日历弹层触发按钮）+ 2 个时间输入
+    expect(
+      document.querySelectorAll('button[aria-haspopup="dialog"][aria-expanded]').length
+    ).toBe(1);
     expect(document.querySelectorAll('input[type="time"]').length).toBe(2);
   });
 

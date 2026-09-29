@@ -1,5 +1,6 @@
 // E4 平台数据访问层（Supabase）。RLS 已限定仅导师/管理员可读写。
 import { supabase } from './supabase.js';
+import { prepMeetingPatch } from './e4MeetingSync.js';
 
 export class E4StoreError extends Error {}
 
@@ -94,6 +95,22 @@ async function syncNextMeetingFromForm(e4StudentId, formData) {
   } catch {}
 }
 
+// 会前准备保存后把会议日期同步到学生档案：待办事项从「待安排」变为已排期。
+// 仅当学生仍处于 first 阶段时更新；已进入 progress 阶段不被会前日期覆盖。
+async function syncPrepMeetingDate(e4StudentId, formData) {
+  if (!e4StudentId) return;
+  try {
+    const { data: student } = await supabase
+      .from('e4_students')
+      .select('next_meeting_date, next_meeting_type')
+      .eq('id', e4StudentId)
+      .maybeSingle();
+    const patch = prepMeetingPatch(formData, student);
+    if (!patch) return;
+    await supabase.from('e4_students').update(patch).eq('id', e4StudentId);
+  } catch {}
+}
+
 export async function createFirstReport({ e4StudentId, createdBy, protocolMd, formData }) {
   const data = await unwartch(
     supabase
@@ -125,7 +142,7 @@ export async function getReport(id) {
 // ---- 会前准备（report_type='prep'，复用 e4_reports）----
 
 export async function createPrepReport({ e4StudentId, createdBy, protocolMd, formData }) {
-  return unwartch(
+  const data = await unwartch(
     supabase
       .from('e4_reports')
       .insert({
@@ -141,6 +158,8 @@ export async function createPrepReport({ e4StudentId, createdBy, protocolMd, for
       .single(),
     '创建会前准备'
   );
+  await syncPrepMeetingDate(e4StudentId, formData);
+  return data;
 }
 
 export async function updateReport(id, patch) {
@@ -150,6 +169,8 @@ export async function updateReport(id, patch) {
   );
   if (patch?.form_data && ['first', 'progress'].includes(data?.report_type)) {
     await syncNextMeetingFromForm(data.e4_student_id, patch.form_data);
+  } else if (patch?.form_data && data?.report_type === 'prep') {
+    await syncPrepMeetingDate(data.e4_student_id, patch.form_data);
   }
   return data;
 }

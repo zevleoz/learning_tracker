@@ -1,7 +1,10 @@
 // 可编辑最终文档的区域原子。
-// 点击静态值就地切换成对应控件：text/long 用 auto-grow 输入，judgment 弹四态菜单，date 用日期输入。
+// 点击静态值就地切换成对应控件：text/long 用 auto-grow 输入，judgment 弹四态菜单，date 用 shadcn 日历弹层。
 // blur、Cmd/Ctrl+Enter 提交；Esc 取消。不使用 contentEditable 直绑，避免光标跳动与 HTML 注入。
 import { useEffect, useRef, useState } from 'react';
+import { Calendar as CalendarIcon } from 'lucide-react';
+import { format, isValid, parseISO } from 'date-fns';
+import DatePicker from '../ui/date-picker.jsx';
 import { JUDGMENT_STATES } from '../../lib/e4ReportTemplate.js';
 
 const JUDGMENT_DOT = {
@@ -130,18 +133,24 @@ export default function DocField({
       )}
       {editing ? (
         type === 'date' ? (
-          <input
-            ref={(el) => { if (el) el.focus(); }}
-            type="date"
-            className="e4-doc-field-edit"
-            value={draft}
-            autoFocus
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => commit(draft)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
-              if (e.key === 'Enter') { e.preventDefault(); commit(draft); }
-            }}
+          <DatePicker
+            value={draft || ''}
+            defaultOpen
+            clearable
+            boundary={document.body}
+            placeholder="选择日期"
+            onChange={(v) => commit(v)}
+            onOpenChange={(o) => { if (!o) setEditing(false); }}
+            trigger={
+              <button type="button" className="e4-doc-field-edit e4-doc-date-trigger">
+                <CalendarIcon className="e4-doc-date-icon" />
+                {draft && isValid(parseISO(draft)) ? (
+                  format(parseISO(draft), 'yyyy年MM月dd日')
+                ) : (
+                  <span className="e4-doc-field-placeholder">选择日期</span>
+                )}
+              </button>
+            }
           />
         ) : (
           <AutoGrow

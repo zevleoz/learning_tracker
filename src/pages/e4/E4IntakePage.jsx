@@ -93,7 +93,8 @@ export default function E4IntakePage() {
     setChosen(c);
     setBareMode(false);
     setInfo({
-      display_name: name.trim() || c.name,
+      // 选中 Y4 学生后以 Y4 里的真实姓名为准（用户可能只输了首字母/别名）
+      display_name: c.name || name.trim(),
       gender: c.gender || '',
       grade: c.grade || '',
       school: c.school || '',
@@ -249,11 +250,12 @@ export default function E4IntakePage() {
                         {exactMatch && exactMatch.id === c.id && <em className="e4-intake-exact">精确匹配</em>}
                       </span>
                       <span className="e4-y4-meta">
-                        {[c.gender, c.grade, c.school].filter(Boolean).join(' · ') || '性别年级学校未填写'}
+                        {[c.gender, c.grade, c.school].filter(Boolean).join(' · ') || '年级学校未填写'}
                       </span>
                     </div>
                     <span className="e4-y4-side">
-                      {c.report_count > 0 ? `${c.report_count} 份报告` : '暂无报告'}
+                      <strong>{c.report_count > 0 ? `${c.report_count} 份报告` : '暂无报告'}</strong>
+                      {c.latest_report_date && <em>最新 {c.latest_report_date}</em>}
                     </span>
                   </button>
                 ))}
@@ -297,7 +299,7 @@ export default function E4IntakePage() {
                 <input value={info.display_name} onChange={setInfoField('display_name')} maxLength={100} />
               </label>
               <label className="e4-field">
-                <span>性别{chosen ? '（已从 Y4 带出，可改）' : ''}</span>
+                <span>性别{info.gender ? '（已从 Y4 带出，可改）' : ''}</span>
                 <select value={info.gender} onChange={setInfoField('gender')}>
                   <option value="">未填写</option>
                   <option value="男">男</option>
@@ -305,11 +307,11 @@ export default function E4IntakePage() {
                 </select>
               </label>
               <label className="e4-field">
-                <span>年级{chosen ? '（已从 Y4 带出，可改）' : ''}</span>
+                <span>年级{info.grade ? '（已从 Y4 带出，可改）' : ''}</span>
                 <input value={info.grade} onChange={setInfoField('grade')} maxLength={30} />
               </label>
               <label className="e4-field e4-field-full">
-                <span>学校{chosen ? '（已从 Y4 带出，可改）' : ''}</span>
+                <span>学校{info.school ? '（已从 Y4 带出，可改）' : ''}</span>
                 <input value={info.school} onChange={setInfoField('school')} maxLength={100} />
               </label>
             </div>

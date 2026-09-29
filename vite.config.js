@@ -1,27 +1,16 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import https from 'node:https';
-import dns from 'node:dns/promises';
 import { fileURLToPath } from 'node:url';
+import { Y4_API_BASE, forwardViaFetch } from './api-lib/y4-forward.mjs';
 
 // ----------------------------------------------------------------
 // 本地开发用 Y4 代理（生产环境由 Vercel Function api/y4/[...path].js 承担）
 //
-// 背景：当前本地网络对 report.p4learning-ark.app 的 SNI 会重置连接，
-// 因此这里直连解析到的 IP、不发送域名 SNI，并带上正确的 Host 头。
-// 云端 Vercel 网络无此问题，Serverless Function 直接正常 fetch。
+// 上游自 2026-09-26 起迁移到 Cloudflare Tunnel 域名
+// （report.p4learning-ark.app），必须通过域名 + 正常 SNI 访问；
+// 旧的「直连 IP + 不发 SNI」方案对 Cloudflare 已不可用。
+// 与线上共用 api-lib/y4-forward.mjs 的转发实现。
 // ----------------------------------------------------------------
-const Y4_HOST = 'report.p4learning-ark.app';
-let ipCache = { ip: null, at: 0 };
-
-async function resolveUpstreamIp(env) {
-  if (env.Y4_DIRECT_IP) return env.Y4_DIRECT_IP;
-  const now = Date.now();
-  if (ipCache.ip && now - ipCache.at < 5 * 60 * 1000) return ipCache.ip;
-  const records = await dns.resolve4(Y4_HOST);
-  ipCache = { ip: records[0], at: now };
-  return records[0];
-}
 
 function y4DevProxy(env) {
   return {
@@ -40,40 +29,16 @@ function y4DevProxy(env) {
         const subpath = decodeURIComponent(qIndex >= 0 ? req.url.slice(1, qIndex) : req.url.slice(1));
         const search = qIndex >= 0 ? req.url.slice(qIndex) : '';
 
-        Promise.resolve()
-          .then(() => resolveUpstreamIp(env))
-          .then(
-            (ip) =>
-              new Promise((resolve, reject) => {
-                const upstreamReq = https.request(
-                  {
-                    hostname: ip,
-                    port: 443,
-                    path: `/api/v1/${subpath}${search}`,
-                    method: 'GET',
-                    servername: '', // 不发送域名 SNI
-                    headers: {
-                      Host: Y4_HOST,
-                      Authorization: `Bearer ${apiKey}`,
-                      Accept: req.headers.accept || '*/*',
-                    },
-                    rejectUnauthorized: false,
-                  },
-                  (upstreamRes) => {
-                    const chunks = [];
-                    upstreamRes.on('data', (c) => chunks.push(c));
-                    upstreamRes.on('end', () => resolve({ status: upstreamRes.statusCode || 502, headers: upstreamRes.headers, body: Buffer.concat(chunks) }));
-                  }
-                );
-                upstreamReq.setTimeout(120000, () => upstreamReq.destroy(new Error('Y4 请求超时（120s）')));
-                upstreamReq.on('error', reject);
-                upstreamReq.end();
-              })
-          )
-          .then(({ status, headers, body }) => {
+        forwardViaFetch({
+          base: env.Y4_API_BASE || Y4_API_BASE,
+          apiKey,
+          subpath,
+          search,
+        })
+          .then(({ status, contentType, cacheControl, body }) => {
             res.statusCode = status;
-            res.setHeader('Content-Type', headers['content-type'] || 'application/json; charset=utf-8');
-            if (headers['cache-control']) res.setHeader('Cache-Control', headers['cache-control']);
+            res.setHeader('Content-Type', contentType);
+            if (cacheControl) res.setHeader('Cache-Control', cacheControl);
             res.end(body);
           })
           .catch((err) => {

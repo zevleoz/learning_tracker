@@ -24,19 +24,26 @@ describe('E4 会前准备模板', () => {
     expect(draft.prepRows.E4).toHaveLength(7);
   });
 
-  test('每行自动录入协议 VERDICT 原文；E2 为模块级判断', () => {
+  test('每行自动录入协议 VERDICT 原文；E2 为模块级总述 + 按行 EVAL 评级', () => {
     const draft = buildPrepDraft(parseE4Protocol(leoMd), student);
     for (const code of PREP_DIMENSION_ORDER) {
       draft.prepRows[code].forEach((r) => {
-        expect(r.verdictText).toBeTruthy();
+        if (code !== 'E2') expect(r.verdictText).toBeTruthy();
         expect(r.ask).toBeTruthy(); // 确认现象默认文案
         expect(r.checked).toBe(false);
       });
     }
-    // E2 六行共享同一模块级判断
-    const texts = new Set(draft.prepRows.E2.map((r) => r.verdictText));
-    expect(texts.size).toBe(1);
-    expect(draft.prepRows.E2[0].verdict).toBeTruthy();
+    // E2 模块级判断存到 moduleJudgments，不进入行
+    expect(draft.moduleJudgments.E2.verdict).toBe('关注');
+    expect(draft.moduleJudgments.E2.text).toContain('需关注');
+    // E2 各行显示协议中对应的单项评级；无对应指标的行留空
+    const e2 = Object.fromEntries(draft.prepRows.E2.map((r) => [r.rowId, r]));
+    expect(e2['ene-sleep'].verdictText).toBe('体质健康-睡眠习惯得分 评级:良好');
+    expect(e2['ene-diet'].verdictText).toBe('体质健康-饮食习惯得分 评级:优');
+    expect(e2['ene-exercise'].verdictText).toBe('体质健康-运动习惯得分 评级:中等');
+    expect(e2['ene-other'].verdictText).toBe('自我概念-躯体外貌 较好');
+    expect(e2['ene-daytime'].verdictText).toBe('');
+    expect(e2['ene-window'].verdictText).toBe('');
   });
 
   test('封面/资料/学科初始结构', () => {
@@ -63,10 +70,15 @@ describe('E4 会前准备模板', () => {
     expect(screen.getByText('首次学习力会议会前准备')).toBeInTheDocument();
     expect(screen.getByText('会议固定结构')).toBeInTheDocument();
     expect(screen.getByText('学科线索与重点排序')).toBeInTheDocument();
-    // E2 模块级判断合并为一个单元格（rowspan=6）
-    const merged = container.querySelector('td[rowspan="6"]');
-    expect(merged).toBeTruthy();
-    expect(merged.textContent).toContain(draft.prepRows.E2[0].verdictText.slice(0, 10));
+    // E2 模块级判断展示在表格上方的总述块中，不再合并单元格
+    expect(container.querySelector('td[rowspan="6"]')).toBeNull();
+    const moduleBlock = container.querySelector('.e4-prep-module-block');
+    expect(moduleBlock).toBeTruthy();
+    expect(moduleBlock.textContent).toContain(draft.moduleJudgments.E2.text.slice(0, 10));
+    // E2 六行均有独立的第三列
+    const pages = container.querySelectorAll('.e4-print-page');
+    const energyPage = pages[4]; // P5 = Energy
+    expect(energyPage.querySelectorAll('tbody tr td.col-verdict')).toHaveLength(6);
   });
 
   test('PrepPrint 只读渲染：存量报告空 content 回落到默认预填文案', () => {

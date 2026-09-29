@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import DatePicker from '../components/ui/date-picker.jsx';
 
 /* ---------- 常量定义 ---------- */
 
@@ -1452,10 +1453,13 @@ export default function LearningPage() {
               <div className="three-col three-col-stay">
                 <div className="field">
                   <label>日期</label>
-                  <input type="date" className="input input-strong"
+                  <DatePicker
                     value={dateStr}
-                    onChange={(e) => setDateStr(e.target.value)}
-                    disabled={busy} />
+                    onChange={setDateStr}
+                    disabled={busy}
+                    className="h-12 rounded-xl text-sm font-normal"
+                    placeholder="选择日期"
+                  />
                 </div>
                 <div className="field">
                   <label>开始</label>
@@ -2018,13 +2022,12 @@ export default function LearningPage() {
                   <div style={{
                     fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
                   }}>考试日期 <span style={{ color: '#ef4444' }}>*</span></div>
-                  <input
-                    type="date"
-                    value={scoreForm.exam_date}
-                    onChange={(e) => setScoreForm({ ...scoreForm, exam_date: e.target.value })}
-                    className="input input-strong"
-                    style={{ fontSize: 13 }}
+                  <DatePicker
+                    value={scoreForm.exam_date || ''}
+                    onChange={(v) => setScoreForm({ ...scoreForm, exam_date: v })}
                     disabled={scoreSaving}
+                    className="h-12 rounded-xl text-[13px] font-normal"
+                    placeholder="选择日期"
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>

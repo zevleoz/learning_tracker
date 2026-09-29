@@ -3,10 +3,10 @@
  * 策略：
  *   - HTML/导航请求：network-first（网络好时用最新，失败回退到缓存）
  *   - CSS/JS/图片：stale-while-revalidate（后台刷新缓存，秒开）
- *   - JSON（Supabase REST）：网络走网络层，不缓存（避免敏感信息留在本地）
+ *   - 同源 /api/* 与 Supabase REST：不拦截不缓存（避免把代理/上游故障固化在本地）
  * ========================================================================= */
 
-const CACHE_NAME = "gpa-tracker-v3";
+const CACHE_NAME = "gpa-tracker-v4";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -35,6 +35,10 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
+
+  // 同源 API（/api/y4、/api/llm 等）一律直连网络，绝不缓存：
+  // 缓存代理响应会把上游故障/空结果固化在客户端
+  if (url.pathname.startsWith("/api/")) return;
 
   // 不缓存 Supabase / 任何跨域的非静态资源
   if (url.hostname.includes("supabase") || request.headers.get("accept")?.includes("application/json")) {

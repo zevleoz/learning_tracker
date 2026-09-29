@@ -14,8 +14,11 @@ import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
 import { summarizeMeetingNotes, generateCellNote } from '../../lib/llm.js';
 import FirstReportPrint from '../../components/e4/FirstReportPrint.jsx';
+import DatePicker from '../../components/ui/date-picker.jsx';
 import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
+
+const dateFieldCls = 'h-auto rounded-[9px] px-3 py-[9px] text-[13.5px] font-normal text-slate-900';
 
 function todayISO() {
   const d = new Date();
@@ -635,14 +638,14 @@ function BuildFlow({ reportId }) {
         <div className="e4-step-panel">
           <h2 className="e4-section-title">首次会议信息</h2>
           <div className="e4-form-grid">
-            <label className="e4-field">
+            <div className="e4-field">
               <span>首次会议日期</span>
-              <input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} />
-            </label>
-            <label className="e4-field">
+              <DatePicker value={meetingDate} onChange={setMeetingDate} className={dateFieldCls} placeholder="选择日期" />
+            </div>
+            <div className="e4-field">
               <span>报告日期</span>
-              <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
-            </label>
+              <DatePicker value={reportDate} onChange={setReportDate} className={dateFieldCls} placeholder="选择日期" />
+            </div>
             <label className="e4-field e4-field-full">
               <span>报告性质</span>
               <input value={form.cover.reportNature} onChange={(e) => updateCover({ reportNature: e.target.value })} />
@@ -913,14 +916,15 @@ function BuildFlow({ reportId }) {
           <div className="e4-s07-block">
             <h3>下次复盘</h3>
             <div className="e4-form-grid">
-              <label className="e4-field">
+              <div className="e4-field">
                 <span>时间（必填）</span>
-                <input
-                  type="date"
-                  value={form.section07.nextReviewDate}
-                  onChange={(e) => updateS07({ nextReviewDate: e.target.value })}
+                <DatePicker
+                  value={form.section07.nextReviewDate || ''}
+                  onChange={(v) => updateS07({ nextReviewDate: v })}
+                  className={dateFieldCls}
+                  placeholder="选择日期"
                 />
-              </label>
+              </div>
               <label className="e4-field e4-field-full">
                 <span>重点验证（必填）</span>
                 <textarea

@@ -29,7 +29,7 @@
 ### 环境变量（键名）
 
 前端（Vite 注入）：`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`
-服务端：`Y4_API_KEY`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_EXTRA_BODY`；可选 `Y4_DIRECT_IP`（本地代理绕 SNI 用）
+服务端：`Y4_API_KEY`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_EXTRA_BODY`；可选 `Y4_API_BASE`（默认 `https://report.p4learning-ark.app/api/v1`，Cloudflare Tunnel 域名，2026-09-26 起旧直连 IP 失效，本地/线上统一走域名 + 正常 SNI）
 
 ### 本地开发注意点
 
@@ -174,3 +174,11 @@
 4. 按业务优先级推进 E4：成长地图 PDF 落库（Supabase Storage）→ progress 过程中报告 → 其他
 5. 清理安全债：scripts 里的明文密钥/密码、teacher 密钥哈希、被跟踪的 `dist/`
 6. 长期：Supabase 手工 patch 模式收敛为正规迁移；`MentorAnalytics.jsx`/`SharedDashboard.jsx` 等 @legacy 代码择机删除
+
+---
+
+## 9. 未来规划（备忘，暂不实施）
+
+- **进程中会议模板**：待设计。方向是提取「一表人才」当前时间段的追踪数据 + 上一次会议的遗留讨论点，做统一分析后预填模板，让整个流程连贯（会前 → 会后 → 进程中）。
+- **CRM 上传**：首次会议报告完成后，未来可将报告上传到另一套 CRM；本期不做任何实操。
+- **会议驱动的主动提醒已上线（2026-09-29）**：会前准备填入会议日期即同步到 `e4_students.next_meeting_date`（待办从「待安排」变已排期）；会议日期当天结束后，待办页主动提醒导师填写《首次会议记录报告》。首次报告中的下次复盘日期早已会把学生推进到 `progress` 阶段。

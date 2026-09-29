@@ -327,7 +327,9 @@ export default function PrepPrint({
         const dim = PREP_DIMENSIONS[code];
         const rows = data.prepRows?.[code] || [];
         const moduleLevel = !!dim.moduleLevel;
-        const moduleText = rows[0]?.verdictText || '';
+        // 模块级总述：新数据取 moduleJudgments；旧草稿回退到第一行存的整段判断
+        const mj = data.moduleJudgments?.[code]
+          || (moduleLevel ? { verdict: rows[0]?.verdict || '', text: rows[0]?.verdictText || '' } : null);
         return (
           <PageShell
             key={code}
@@ -345,6 +347,17 @@ export default function PrepPrint({
             </header>
             <p className="e4-dim-intro">{dim.intro}</p>
 
+            {moduleLevel && mj && (mj.verdict || mj.text || editable) && (
+              <div className="e4-prep-module-block">
+                {mj.verdict && (
+                  <span className="e4-prep-verdict-tag">
+                    <i style={{ background: VERDICT_DOT[mj.verdict] || '#8F897B' }} />{mj.verdict}
+                  </span>
+                )}
+                <EF d={{ area: 'moduleJudgment', dim: code, field: 'text' }} type="long" val={mj.text} placeholder="Y4 协议未提供模块级判断" />
+              </div>
+            )}
+
             <table className="e4-navy-table e4-prep-table e4-prep-confirm">
               <thead>
                 <tr>
@@ -355,7 +368,7 @@ export default function PrepPrint({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, ri) => (
+                {rows.map((r) => (
                   <tr key={r.rowId} className={r.checked ? 'is-checked' : ''}>
                     <td className="col-check">
                       <CheckBox
@@ -372,23 +385,9 @@ export default function PrepPrint({
                         </span>
                       )}
                     </td>
-                    {moduleLevel ? (
-                      ri === 0 && (
-                        <td className="col-verdict" rowSpan={rows.length}>
-                          {r.verdict && (
-                            <span className="e4-prep-verdict-tag">
-                              <i style={{ background: VERDICT_DOT[r.verdict] || '#8F897B' }} />{r.verdict}
-                            </span>
-                          )}
-                          <EF d={{ area: 'row', dim: code, rowId: rows[0]?.rowId, field: 'verdictText' }} type="long" val={moduleText} placeholder="Y4 协议未提供模块级判断" />
-                          <p className="e4-prep-module-note">本判断覆盖本页全部精力相关排查项。</p>
-                        </td>
-                      )
-                    ) : (
-                      <td className="col-verdict">
-                        <EF d={{ area: 'row', dim: code, rowId: r.rowId, field: 'verdictText' }} type="long" val={r.verdictText} placeholder="协议未涉及" />
-                      </td>
-                    )}
+                    <td className="col-verdict">
+                      <EF d={{ area: 'row', dim: code, rowId: r.rowId, field: 'verdictText' }} type="long" val={moduleLevel && !data.moduleJudgments ? '' : r.verdictText} placeholder="协议未涉及" />
+                    </td>
                     <td className="col-ask">
                       <EF d={{ area: 'row', dim: code, rowId: r.rowId, field: 'ask' }} type="long" val={r.ask} placeholder="填写" />
                       {editable && r.meetingNote && <p className="e4-prep-mnote">会中记录：{r.meetingNote}</p>}

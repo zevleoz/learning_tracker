@@ -213,6 +213,9 @@ function PrepWorkbench({ reportId }) {
       } else if (desc.area === 'row') {
         const r = next.prepRows[desc.dim]?.find((x) => x.rowId === desc.rowId);
         if (r) r[desc.field] = value;
+      } else if (desc.area === 'moduleJudgment') {
+        next.moduleJudgments = next.moduleJudgments || {};
+        next.moduleJudgments[desc.dim] = { ...(next.moduleJudgments[desc.dim] || {}), [desc.field]: value };
       }
       return next;
     });

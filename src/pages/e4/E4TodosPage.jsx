@@ -28,10 +28,12 @@ const GROUPS = [
   { key: 'unscheduled', title: '待安排', match: (d) => d === null },
 ];
 
-function MeetingCard({ item, index, onClick }) {
+function MeetingCard({ item, index, onClick, onWriteReport }) {
   const diff = daysUntil(item.next_meeting_date);
   const overdue = diff !== null && diff < 0;
   const typeLabel = item.next_meeting_type === 'progress' ? '进程中' : '首次';
+  // 首次会议日期已到（当天结束或已过）→ 提醒导师补首次会议记录报告
+  const needsFirstReport = item.next_meeting_type === 'first' && diff !== null && diff <= 0;
 
   return (
     <motion.div
@@ -82,6 +84,17 @@ function MeetingCard({ item, index, onClick }) {
             {overdue && <span>· 已过 {-diff} 天</span>}
           </div>
 
+          {needsFirstReport && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onWriteReport(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-[12px] font-medium text-amber-500 transition-colors hover:bg-amber-500/20"
+            >
+              会议已进行 · 点击填写首次会议记录报告 →
+            </button>
+          )}
+
           <div className="border-t border-[var(--e4-line)] pt-2.5 text-[12px] text-[var(--e4-ink-3)]">
             已触达 <span className="font-semibold text-[var(--e4-ink-2)]">{item.touch_count}</span> 次
           </div>
@@ -111,7 +124,10 @@ export default function E4TodosPage() {
 
   // 首次会议 → 会前准备工作台；进程中 → 最新报告编辑界面；都没有则回退到学生档案
   function openItem(item) {
-    if (item.next_meeting_type === 'progress' && item.latest_report_id) {
+    const diff = daysUntil(item.next_meeting_date);
+    if (item.next_meeting_type === 'first' && diff !== null && diff <= 0) {
+      nav(`/e4/students/${item.id}/new-first`);
+    } else if (item.next_meeting_type === 'progress' && item.latest_report_id) {
       nav(`/e4/reports/${item.latest_report_id}/build`);
     } else if (item.next_meeting_type === 'first' && item.latest_prep_id) {
       nav(`/e4/prep/${item.latest_prep_id}`);
@@ -159,7 +175,13 @@ export default function E4TodosPage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {group.rows.map((item, i) => (
-              <MeetingCard key={item.id} item={item} index={i} onClick={() => openItem(item)} />
+              <MeetingCard
+                key={item.id}
+                item={item}
+                index={i}
+                onClick={() => openItem(item)}
+                onWriteReport={() => nav(`/e4/students/${item.id}/new-first`)}
+              />
             ))}
           </div>
         </section>

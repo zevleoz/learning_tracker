@@ -8,6 +8,8 @@
   --foreground: 0 0% 3.9%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 3.9%;
   --primary: 0 0% 9%;
   --primary-foreground: 0 0% 98%;
   --secondary: 0 0% 96.1%;
@@ -28,6 +30,8 @@
   --foreground: 0 0% 98%;
   --card: 0 0% 3.9%;
   --card-foreground: 0 0% 98%;
+  --popover: 0 0% 3.9%;
+  --popover-foreground: 0 0% 98%;
   --primary: 0 0% 98%;
   --primary-foreground: 0 0% 9%;
   --secondary: 0 0% 14.9%;
@@ -7632,10 +7636,22 @@ textarea::placeholder { color: #9ca3af; }
 }
 .e4-y4-item:hover:not(:disabled) { border-color: #94a3b8; background: #f8fafc; }
 .e4-y4-item:disabled { opacity: 0.6; cursor: wait; }
-.e4-y4-item-main { display: flex; flex-direction: column; gap: 3px; }
-.e4-y4-name { font-size: 14px; font-weight: 600; color: #0f172a; }
-.e4-y4-meta { font-size: 12px; color: #94a3b8; }
-.e4-y4-side { font-size: 12px; color: #64748b; flex-shrink: 0; }
+.e4-y4-item-main { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.e4-y4-name {
+  font-size: 14px; font-weight: 600; color: #0f172a;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.e4-y4-meta {
+  font-size: 12px; color: #94a3b8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.e4-y4-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  min-width: 76px; flex-shrink: 0; text-align: right;
+  font-size: 12px; color: #64748b;
+}
+.e4-y4-side strong { font-weight: 500; }
+.e4-y4-side em { font-style: normal; font-size: 11px; opacity: 0.75; }
 
 /* ---- 新建报告：拉取协议 ---- */
 .e4-fetch-card {
@@ -10982,12 +10998,18 @@ textarea::placeholder { color: #9ca3af; }
 }
 .e4-prep-confirm tbody tr.is-checked td { background: rgba(44, 62, 85, 0.035); }
 .e4-prep-confirm td.col-verdict { vertical-align: top; }
-.e4-prep-module-note {
-  margin: 8px 0 0;
+.e4-prep-module-block {
+  margin: 0 0 4mm;
+  padding: 8px 12px;
+  border: 1px solid rgba(27, 40, 56, 0.12);
+  border-left: 3px solid #C99A3D;
+  border-radius: 4px;
+  background: rgba(201, 154, 61, 0.05);
   font-size: 10.5px;
-  color: var(--e4-ink-3);
-  line-height: 1.6;
+  color: var(--e4-ink-2);
+  line-height: 1.7;
 }
+.e4-prep-module-block .e4-prep-verdict-tag { margin-right: 6px; }
 .e4-prep-mnote {
   margin: 6px 0 0;
   padding-top: 6px;
@@ -12952,3 +12974,20 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   body.e4-print-modal-open .e4-print-modal .e4-print-doc { margin: 0 !important; }
 }
 
+
+/* ---- shadcn DatePicker：最终文档就地编辑的日期触发器 ---- */
+.e4-dashboard .e4-doc-date-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+.e4-dashboard .e4-doc-date-trigger .e4-doc-date-icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  opacity: 0.55;
+  stroke-width: 2;
+}

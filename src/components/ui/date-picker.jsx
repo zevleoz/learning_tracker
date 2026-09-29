@@ -1,5 +1,6 @@
 // shadcn 风格日期选择器：Popover + Calendar 组合
-// 值协议与原生 input[type=date] 一致：'yyyy-MM-dd' 字符串，空值为 ''
+// 单选值协议: 'yyyy-MM-dd' 字符串，空值为 ''
+// 范围值协议: 'yyyy-MM-dd~yyyy-MM-dd' 字符串，空值为 ''
 import { useState } from 'react';
 import { Calendar as CalendarIcon, X } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
@@ -7,6 +8,16 @@ import { cn } from '@/lib/utils';
 import { Button } from './button.jsx';
 import { Popover, PopoverContent, PopoverTrigger } from './popover.jsx';
 import { Calendar } from './calendar.jsx';
+
+// 解析范围值 'yyyy-MM-dd~yyyy-MM-dd' → { from, to }
+function parseRange(val) {
+  if (!val || typeof val !== 'string') return null;
+  const parts = val.split('~');
+  const from = parseISO(parts[0]);
+  const to = parts[1] ? parseISO(parts[1]) : null;
+  if (!isValid(from)) return null;
+  return { from, to: to && isValid(to) ? to : undefined };
+}
 
 export default function DatePicker({
   value = '',
@@ -19,10 +30,11 @@ export default function DatePicker({
   onOpenChange,
   align = 'start',
   className,
-  trigger, // 自定义触发器（需可接收 ref/事件的单个元素）
+  trigger,
   displayFormat = 'yyyy年MM月dd日',
-  boundary, // 碰撞边界元素（默认走 clipping ancestors；缩放/裁剪容器内需传 document.body）
+  boundary,
   id,
+  range = false, // true 时使用日期范围模式
 }) {
   const [innerOpen, setInnerOpen] = useState(defaultOpen);
   const controlled = openProp !== undefined;
@@ -32,6 +44,7 @@ export default function DatePicker({
     onOpenChange?.(v);
   };
 
+  // ---- 单选模式 ----
   const parsed = value ? parseISO(value) : null;
   const valid = !!parsed && isValid(parsed);
 
@@ -41,6 +54,33 @@ export default function DatePicker({
     setOpen(false);
   };
 
+  // ---- 范围模式 ----
+  const rangeVal = range ? parseRange(value) : null;
+  const rangeValid = !!rangeVal;
+
+  const handleRangeSelect = (r, selectedDay) => {
+    if (!r) return;
+    const from = r.from ? format(r.from, 'yyyy-MM-dd') : '';
+    const to = r.to ? format(r.to, 'yyyy-MM-dd') : '';
+    if (from && to) {
+      onChange?.(`${from}~${to}`);
+      setOpen(false);
+    } else if (from && !to) {
+      onChange?.(`${from}~`);
+    } else {
+      onChange?.('');
+    }
+  };
+
+  const rangeLabel = rangeValid
+    ? rangeVal.to
+      ? `${format(rangeVal.from, displayFormat)} ~ ${format(rangeVal.to, displayFormat)}`
+      : `${format(rangeVal.from, displayFormat)} ~ ?`
+    : '';
+
+  const showClear = clearable && !disabled && (range ? rangeValid : valid);
+  const label = range ? rangeLabel : valid ? format(parsed, displayFormat) : '';
+
   const defaultTrigger = (
     <Button
       type="button"
@@ -49,15 +89,15 @@ export default function DatePicker({
       disabled={disabled}
       className={cn(
         'w-full justify-start gap-2 text-left font-normal',
-        !valid && 'text-muted-foreground',
+        !label && 'text-muted-foreground',
         className
       )}
     >
       <CalendarIcon className="h-4 w-4 shrink-0 opacity-70" />
       <span className="flex-1 truncate">
-        {valid ? format(parsed, displayFormat) : placeholder}
+        {label || placeholder}
       </span>
-      {clearable && valid && !disabled && (
+      {showClear && (
         <span
           role="button"
           aria-label="清除日期"
@@ -84,13 +124,24 @@ export default function DatePicker({
     >
       <PopoverTrigger asChild>{trigger ?? defaultTrigger}</PopoverTrigger>
       <PopoverContent className="w-auto p-0" align={align} collisionBoundary={boundary}>
-        <Calendar
-          mode="single"
-          selected={valid ? parsed : undefined}
-          defaultMonth={valid ? parsed : new Date()}
-          onSelect={handleSelect}
-          autoFocus
-        />
+        {range ? (
+          <Calendar
+            mode="range"
+            selected={rangeVal || undefined}
+            defaultMonth={rangeVal?.from || new Date()}
+            onSelect={handleRangeSelect}
+            numberOfMonths={1}
+            autoFocus
+          />
+        ) : (
+          <Calendar
+            mode="single"
+            selected={valid ? parsed : undefined}
+            defaultMonth={valid ? parsed : new Date()}
+            onSelect={handleSelect}
+            autoFocus
+          />
+        )}
       </PopoverContent>
     </Popover>
   );

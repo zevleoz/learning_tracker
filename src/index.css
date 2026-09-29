@@ -7754,20 +7754,13 @@ textarea::placeholder { color: #9ca3af; }
 
 /* ---- 核对矩阵：交互式行卡片 ---- */
 .e4-matrix-row {
-  --rail: #d5d8dd;
-  border: 1px solid rgba(27, 40, 56, 0.08);
-  border-left: 3px solid var(--rail);
-  border-radius: 10px;
+  border-bottom: 1px solid rgba(27, 40, 56, 0.08);
   padding: 10px 14px 10px 12px;
   background: rgba(255, 255, 255, 0.75);
   transition: border-color 200ms var(--e4-ease, ease), box-shadow 200ms var(--e4-ease, ease), transform 200ms var(--e4-ease, ease);
 }
-.e4-matrix-row:hover { border-color: rgba(27, 40, 56, 0.16); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
+.e4-matrix-row:hover { background: rgba(255, 255, 255, 0.95); }
 .e4-matrix-row.is-open { background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05); }
-.e4-matrix-row.tone-rail-red { --rail: #C4535A; }
-.e4-matrix-row.tone-rail-amber { --rail: #C99A3D; }
-.e4-matrix-row.tone-rail-green { --rail: #6D9A6A; }
-.e4-matrix-row.tone-rail-blue { --rail: #5B93BC; }
 
 .e4-matrix-row-head {
   display: flex; align-items: center;
@@ -9113,8 +9106,7 @@ textarea::placeholder { color: #9ca3af; }
 .e4-dashboard .e4-report-section,
 .e4-dashboard .e4-fetch-card,
 .e4-dashboard .e4-stepper,
-.e4-dashboard .e4-step-panel,
-.e4-dashboard .e4-dim-block {
+.e4-dashboard .e4-step-panel {
   border: 1px solid rgba(27, 40, 56, 0.09);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
@@ -9123,7 +9115,6 @@ textarea::placeholder { color: #9ca3af; }
   box-shadow: 0 1px 2px rgba(27, 40, 56, 0.04);
 }
 .e4-dashboard .e4-step-panel { padding: 20px 22px; }
-.e4-dashboard .e4-dim-block { padding: 16px 18px; margin-bottom: 12px; }
 .e4-dashboard .e4-section-title { font-size: 15.5px; }
 .e4-dashboard .e4-step-hint { font-size: 12.5px; margin-bottom: 14px; }
 .e4-dashboard .e4-step-actions { margin-top: 18px; }
@@ -10113,7 +10104,6 @@ textarea::placeholder { color: #9ca3af; }
 .e4-dashboard .e4-matrix-row.is-supplement {
   background: transparent;
   border: none;
-  border-left: 2px solid var(--rail);
   border-bottom: 1px solid rgba(27, 40, 56, 0.06);
   border-radius: 0;
   box-shadow: none;
@@ -10169,7 +10159,6 @@ textarea::placeholder { color: #9ca3af; }
 .e4-dashboard .e4-protocol-hint {
   background: rgba(27, 40, 56, 0.03);
   border-radius: 6px;
-  border-left: 2px solid rgba(27, 40, 56, 0.18);
   color: var(--e4-ink-2);
 }
 
@@ -10563,7 +10552,6 @@ textarea::placeholder { color: #9ca3af; }
   padding: 10px 14px;
   background: rgba(44, 62, 85, 0.045);
   border: 1px solid rgba(44, 62, 85, 0.12);
-  border-left: 2px solid var(--e4-navy);
   border-radius: 4px;
 }
 .e4-dashboard .e4-ai-banner-text {
@@ -10797,13 +10785,7 @@ textarea::placeholder { color: #9ca3af; }
   font-weight: 600;
   color: var(--e4-ink);
   margin: 18px 0 8px;
-  padding-left: 8px;
-  border-left: 2px solid var(--e4-navy);
 }
-.e4-prep-dim-title.tint-red { border-left-color: #C4535A; }
-.e4-prep-dim-title.tint-orange { border-left-color: #C99A3D; }
-.e4-prep-dim-title.tint-teal { border-left-color: #6D9A6A; }
-.e4-prep-dim-title.tint-blue { border-left-color: #5B93BC; }
 
 .e4-prep-row {
   padding: 8px 0 9px;
@@ -11002,7 +10984,6 @@ textarea::placeholder { color: #9ca3af; }
   margin: 0 0 4mm;
   padding: 8px 12px;
   border: 1px solid rgba(27, 40, 56, 0.12);
-  border-left: 3px solid #C99A3D;
   border-radius: 4px;
   background: rgba(201, 154, 61, 0.05);
   font-size: 10.5px;
@@ -11059,7 +11040,7 @@ textarea::placeholder { color: #9ca3af; }
   line-height: 1.7;
   color: var(--e4-ink-2);
   background: rgba(27, 40, 56, 0.03);
-  border-left: 2px solid rgba(44, 62, 85, 0.35);
+  border-radius: 4px;
 }
 .e4-prep-row-add {
   margin-top: 8px;
@@ -11699,8 +11680,7 @@ textarea::placeholder { color: #9ca3af; }
 .e4-dashboard .e4-report-section,
 .e4-dashboard .e4-fetch-card,
 .e4-dashboard .e4-stepper,
-.e4-dashboard .e4-step-panel,
-.e4-dashboard .e4-dim-block {
+.e4-dashboard .e4-step-panel {
   background: var(--e4-bg-2);
   border: 1px solid var(--e4-line);
   border-radius: 8px;
@@ -12678,6 +12658,15 @@ body.e4-light .e4-dashboard {
   --e4-paper: #F4F3EF;
 }
 body.e4-light .e4-dashboard { color-scheme: light; }
+
+/* ---- shadcn 组件浅色适配：primary 用 E4 navy 而非近黑 ---- */
+body.e4-light {
+  --primary: 215 25% 27%;
+  --primary-foreground: 40 30% 98%;
+  --ring: 215 25% 27%;
+  --accent: 40 16% 92%;
+  --accent-foreground: 215 25% 20%;
+}
 
 /* ---- 主题切换按钮（两主题通用，跟随令牌） ---- */
 .e4-dashboard .e4-theme-toggle {

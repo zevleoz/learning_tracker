@@ -919,10 +919,11 @@ function BuildFlow({ reportId }) {
               <div className="e4-field">
                 <span>时间（必填）</span>
                 <DatePicker
+                  range
                   value={form.section07.nextReviewDate || ''}
                   onChange={(v) => updateS07({ nextReviewDate: v })}
                   className={dateFieldCls}
-                  placeholder="选择日期"
+                  placeholder="选择日期范围"
                 />
               </div>
               <label className="e4-field e4-field-full">
@@ -1257,14 +1258,13 @@ function AutoTextarea({ value, onChange, minRows = 2, ...rest }) {
 
 function MatrixRow({ row, dim, supplement, open, onToggle, onActive, onChange, onAi, aiBusy }) {
   const [showHint, setShowHint] = useState(false);
-  const tone = JUDGMENT_TONE[row.judgment] || 'neutral';
   const note = String(row.meetingNote || '').trim();
   const clue = String(row.y4Clue || '').trim();
   const pending = note ? 'false' : 'true';
 
   return (
     <div
-      className={`e4-matrix-row tone-rail-${tone} ${open ? 'is-open' : ''} ${supplement ? 'is-supplement' : ''}`}
+      className={`e4-matrix-row ${open ? 'is-open' : ''} ${supplement ? 'is-supplement' : ''}`}
       data-dim={dim}
       data-rowid={row.rowId}
       data-pending={pending}

@@ -22,7 +22,7 @@ export default function E4PrintPreview() {
       { direction: '练习有效学习方法', arrangement: '目前学生对于学习方法和策略的运用比较少，我们也直接用"一表人才"帮助学生在过程中逐步养成习惯。' },
       { direction: '引导沟通方法', arrangement: '学校内对待不同学科老师的态度以及与不同老师（尤其是自己不喜欢的老师）的沟通方式，是要逐步引导的。' },
     ];
-    draft.section07.nextReviewDate = '2026-10-10';
+    draft.section07.nextReviewDate = '2026-10-10~2026-10-17';
     draft.section07.nextReviewFocus = '减少提醒后能否自主启动；手机造成的中断是否减少；使用新方法后，多步骤遗漏是否下降。';
 
     // 给 narrative box 补上默认值（让彩色盒子都显示出来）

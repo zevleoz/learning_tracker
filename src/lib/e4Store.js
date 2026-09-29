@@ -86,11 +86,14 @@ export async function updateE4Student(id, patch) {
 async function syncNextMeetingFromForm(e4StudentId, formData) {
   if (!e4StudentId) return;
   const raw = formData?.section07?.nextReviewDate;
-  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
+  if (!raw) return;
+  // 支持 'yyyy-MM-dd' 和 'yyyy-MM-dd~yyyy-MM-dd' 两种格式；范围取起始日期
+  const m = String(raw).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!m) return;
   try {
     await supabase
       .from('e4_students')
-      .update({ next_meeting_date: raw, next_meeting_type: 'progress' })
+      .update({ next_meeting_date: m[1], next_meeting_type: 'progress' })
       .eq('id', e4StudentId);
   } catch {}
 }

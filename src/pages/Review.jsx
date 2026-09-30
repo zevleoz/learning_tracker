@@ -25,6 +25,7 @@ export default function Review() {
           course:course_id(name, subject)
         `)
         .eq('student_id', user.id)
+        .is('deleted_at', null)
         .gte('session_date', new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10))
         .order('session_date', { ascending: false })
         .limit(2000);

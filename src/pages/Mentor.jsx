@@ -360,6 +360,7 @@ export default function Mentor() {
       .from('learning_sessions')
       .select('student_id, duration_minutes, eval_type, score')
       .in('student_id', targetStudents)
+      .is('deleted_at', null)
       .gte('session_date', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10));
 
     if (error) {
@@ -424,6 +425,7 @@ export default function Mentor() {
         chapter:chapter_id(name), unit:unit_id(name)
       `)
       .eq('student_id', picked.id)
+      .is('deleted_at', null)
       .order('session_date', { ascending: false })
       .limit(2000)
       .then(({ data, error }) => {

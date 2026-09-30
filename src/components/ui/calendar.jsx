@@ -39,7 +39,7 @@ function Calendar({
           'text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]',
         week: 'flex w-full mt-2',
         day: cn(
-          'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:rounded-md'
+          'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50'
         ),
         day_button: cn(
           buttonVariants({ variant: 'ghost' }),
@@ -48,13 +48,14 @@ function Calendar({
         range_start: 'day-range-start',
         range_end: 'day-range-end',
         selected:
-          '[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground [&>button]:focus:bg-primary [&>button]:focus:text-primary-foreground',
+          '[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:rounded-md [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground [&>button]:focus:bg-primary [&>button]:focus:text-primary-foreground',
         today: '[&>button]:bg-accent [&>button]:text-accent-foreground',
         outside:
           'day-outside text-muted-foreground aria-selected:text-muted-foreground',
         disabled: 'text-muted-foreground opacity-50',
+        // 范围中段：浅色连接带（酒店入住/退房样式），按钮透明避免叠成深色
         range_middle:
-          'aria-selected:bg-accent aria-selected:text-accent-foreground',
+          'aria-selected:bg-accent aria-selected:text-accent-foreground [&>button]:!rounded-none [&>button]:!bg-transparent [&>button]:!text-accent-foreground [&>button]:hover:!bg-black/5',
         hidden: 'invisible',
         ...classNames,
       }}

@@ -1,9 +1,9 @@
 // shadcn 风格日期选择器：Popover + Calendar 组合
 // 单选值协议: 'yyyy-MM-dd' 字符串，空值为 ''
-// 范围值协议: 'yyyy-MM-dd~yyyy-MM-dd' 字符串，空值为 ''
+// 范围值协议: 'yyyy-MM-dd~yyyy-MM-dd' 字符串（起止齐全才写回），空值为 ''
 import { useState } from 'react';
 import { Calendar as CalendarIcon, X } from 'lucide-react';
-import { format, isValid, parseISO } from 'date-fns';
+import { format, isSameDay, isValid, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from './button.jsx';
 import { Popover, PopoverContent, PopoverTrigger } from './popover.jsx';
@@ -37,10 +37,12 @@ export default function DatePicker({
   range = false, // true 时使用日期范围模式
 }) {
   const [innerOpen, setInnerOpen] = useState(defaultOpen);
+  const [draft, setDraft] = useState(null); // 范围选择中（只选了起点）的临时值
   const controlled = openProp !== undefined;
   const open = controlled ? openProp : innerOpen;
   const setOpen = (v) => {
     if (!controlled) setInnerOpen(v);
+    if (!v) setDraft(null); // 关掉弹层即放弃半成品范围
     onOpenChange?.(v);
   };
 
@@ -58,24 +60,30 @@ export default function DatePicker({
   const rangeVal = range ? parseRange(value) : null;
   const rangeValid = !!rangeVal;
 
-  const handleRangeSelect = (r, selectedDay) => {
-    if (!r) return;
-    const from = r.from ? format(r.from, 'yyyy-MM-dd') : '';
-    const to = r.to ? format(r.to, 'yyyy-MM-dd') : '';
-    if (from && to) {
-      onChange?.(`${from}~${to}`);
+  // 范围协议：起止都选完才 onChange('yyyy-MM-dd~yyyy-MM-dd')；
+  // 只选起点时存 draft，不写回父级，避免出现半截的「待定」值。
+  // 注意 react-day-picker v10 在空范围上首击会立即返回 from===to 的完整
+  // 范围，这里把「无 draft 时的单日结果」视为刚选了起点，等第二击定终点。
+  const handleRangeSelect = (r) => {
+    if (!r || !r.from) {
+      setDraft(null);
+      return;
+    }
+    if (!draft && r.to && isSameDay(r.from, r.to)) {
+      setDraft({ from: r.from, to: undefined });
+      return;
+    }
+    if (r.to) {
+      setDraft(null);
+      onChange?.(`${format(r.from, 'yyyy-MM-dd')}~${format(r.to, 'yyyy-MM-dd')}`);
       setOpen(false);
-    } else if (from && !to) {
-      onChange?.(`${from}~`);
     } else {
-      onChange?.('');
+      setDraft({ from: r.from, to: undefined });
     }
   };
 
-  const rangeLabel = rangeValid
-    ? rangeVal.to
-      ? `${format(rangeVal.from, displayFormat)} ~ ${format(rangeVal.to, displayFormat)}`
-      : `${format(rangeVal.from, displayFormat)} ~ ?`
+  const rangeLabel = rangeValid && rangeVal.to
+    ? `${format(rangeVal.from, displayFormat)} ~ ${format(rangeVal.to, displayFormat)}`
     : '';
 
   const showClear = clearable && !disabled && (range ? rangeValid : valid);
@@ -127,8 +135,8 @@ export default function DatePicker({
         {range ? (
           <Calendar
             mode="range"
-            selected={rangeVal || undefined}
-            defaultMonth={rangeVal?.from || new Date()}
+            selected={draft || rangeVal || undefined}
+            defaultMonth={draft?.from || rangeVal?.from || new Date()}
             onSelect={handleRangeSelect}
             numberOfMonths={1}
             autoFocus

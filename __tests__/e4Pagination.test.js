@@ -77,4 +77,20 @@ describe('paginateUnits', () => {
   it('空输入返回空页列表', () => {
     expect(paginateUnits([], 1000)).toEqual([]);
   });
+
+  it('较大安全余量（约 6mm≈23px）从每页预算中扣除', () => {
+    // 可用高度 1000 - 23 = 977；500 + 480 = 980 在无余量时同页放得下，有余量时必须换页
+    const pages = paginateUnits([block('a', 500), block('b', 480)], 1000, 23);
+    expect(pages).toEqual([[{ id: 'a', kind: 'block' }], [{ id: 'b', kind: 'block' }]]);
+  });
+
+  it('安全余量同样作用于表格拆行预算', () => {
+    // 可用 500 - 50 = 450：表头 100 + 1 行 300 = 400，第二行 300 放不下
+    const units = [table('t', 100, [300, 300])];
+    const pages = paginateUnits(units, 500, 50);
+    expect(pages).toEqual([
+      [{ id: 't', kind: 'table', start: 0, end: 1 }],
+      [{ id: 't', kind: 'table', start: 1, end: 2 }],
+    ]);
+  });
 });

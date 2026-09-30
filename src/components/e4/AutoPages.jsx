@@ -8,7 +8,7 @@ import { paginateUnits } from '../../lib/e4Pagination.js';
 // 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 297mm − 上 16mm − 下 14mm
 const INNER_WIDTH_MM = 178;
 const INNER_HEIGHT_MM = 267;
-const SAFETY_MM = 2; // 安全余量，避免临界裁切
+const SAFETY_MM = 6; // 安全余量：吸收 offsetTop/offsetHeight 取整与打印缩放误差
 
 function UnitView({ unit, slice }) {
   if (unit.kind === 'table') {
@@ -61,27 +61,36 @@ export default function AutoPages({ sections, brandKicker, footerCenter, docClas
     const el = measureRef.current;
     if (!el) return undefined;
     const timer = setTimeout(() => {
-      // 实测 1mm → px（不写死 3.7795）
+      // 实测 1mm → px：必须用 getBoundingClientRect（offsetHeight 会把 1mm≈3.7795px 取整成 4px，
+      // 导致整页预算被放大约 6%，内容溢出产生空白页）
       const probe = el.querySelector('.e4-pg-mmprobe');
-      const pxPerMm = probe ? probe.offsetHeight : 3.7795;
+      const pxPerMm = probe ? probe.getBoundingClientRect().height : 3.7795;
       const innerPx = INNER_HEIGHT_MM * pxPerMm;
       const safetyPx = SAFETY_MM * pxPerMm;
 
       const flat = [];
       sections.forEach((section, si) => {
-        section.units.forEach((unit, ui) => {
-          const node = el.querySelector(`[data-e4-unit="${si}-${ui}"]`);
-          if (!node) return;
+        // 同 section 内按文档顺序取单元节点，用相邻 offsetTop 差值推算实际占位高度
+        // （含 unit 自身的上/下 margin；相邻 margin 折叠在差值中自然体现）。
+        // 测量容器与正式渲染的包裹结构相同（.e4-pg-unit，flow-root），保证两条路径高度一致。
+        const pairs = section.units
+          .map((unit, ui) => ({ unit, ui, node: el.querySelector(`[data-e4-unit="${si}-${ui}"]`) }))
+          .filter((p) => p.node);
+        pairs.forEach(({ unit, ui, node }, idx) => {
+          const next = pairs[idx + 1];
+          const occupied = next
+            ? next.node.offsetTop - node.offsetTop
+            : node.getBoundingClientRect().height; // section 末尾单元：含下 margin 的自身高度
           if (unit.kind === 'table') {
             const trs = Array.from(node.querySelectorAll('tbody tr'));
             flat.push({
               id: `${si}-${ui}`,
               kind: 'table',
-              height: node.offsetHeight,
-              rowHeights: trs.map((tr) => tr.offsetHeight),
+              height: occupied,
+              rowHeights: trs.map((tr) => tr.getBoundingClientRect().height),
             });
           } else {
-            flat.push({ id: `${si}-${ui}`, kind: 'block', height: node.offsetHeight });
+            flat.push({ id: `${si}-${ui}`, kind: 'block', height: occupied });
           }
         });
       });

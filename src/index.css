@@ -25,27 +25,10 @@
   --ring: 0 0% 3.9%;
   --radius: 0.75rem;
 }
-.dark {
-  --background: 0 0% 3.9%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 3.9%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 3.9%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 9%;
-  --secondary: 0 0% 14.9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14.9%;
-  --muted-foreground: 0 0% 63.9%;
-  --accent: 0 0% 14.9%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 14.9%;
-  --input: 0 0% 14.9%;
-  --ring: 0 0% 83.1%;
-}
+/* shadcn 深色变量已移除：
+   全局 .dark 会泄漏到学生端「一表人才」，导致 DatePicker 等组件变黑。
+   E4 仪表盘使用独立主题体系（body.e4-light 切换 + .e4-dashboard 作用域），
+   不依赖 shadcn 的 .dark。如需局部深色，请到具体作用域内定义，切勿挂到 <html>。 */
 
 /* ================================================================
    Design Tokens for Mentor Dashboard
@@ -8458,6 +8441,10 @@ textarea::placeholder { color: #9ca3af; }
   }
   .e4-print-page.e4-page-shell {
     width: 210mm !important;
+    /* 固定纸高兜底：分页预算已含 6mm 安全余量，内容不会超高；
+       即使极端情况也不让 shell 溢出产生空白页 */
+    height: 297mm !important;
+    min-height: 0 !important;
     box-shadow: none !important;
     page-break-after: always;
     break-after: page;

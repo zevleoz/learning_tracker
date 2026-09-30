@@ -11,14 +11,15 @@ function formatCN(iso) {
 }
 
 // 日期范围格式化：'2026-10-01~2026-10-07' → '2026年10月1日 ~ 2026年10月7日'
+// 旧数据可能只有起点（'yyyy-MM-dd~'），此时只显示起点日期
 function formatRangeCN(raw) {
   if (!raw) return '';
   const parts = String(raw).split('~');
   const start = formatCN(parts[0]);
   if (!start) return '';
-  if (!parts[1] || !parts[1].trim()) return `${start} ~ 待定`;
+  if (!parts[1] || !parts[1].trim()) return start;
   const end = formatCN(parts[1]);
-  return end ? `${start} ~ ${end}` : `${start} ~ 待定`;
+  return end ? `${start} ~ ${end}` : start;
 }
 
 const cellText = (v) => {

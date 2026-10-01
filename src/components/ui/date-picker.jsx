@@ -1,156 +1,71 @@
-// shadcn 风格日期选择器：Popover + Calendar 组合
-// 单选值协议: 'yyyy-MM-dd' 字符串，空值为 ''
-// 范围值协议: 'yyyy-MM-dd~yyyy-MM-dd' 字符串（起止齐全才写回），空值为 ''
-import { useState } from 'react';
-import { Calendar as CalendarIcon, X } from 'lucide-react';
-import { format, isSameDay, isValid, parseISO } from 'date-fns';
+import * as React from 'react';
+import { format, parseISO } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
+import { CalendarDays, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from './button.jsx';
-import { Popover, PopoverContent, PopoverTrigger } from './popover.jsx';
-import { Calendar } from './calendar.jsx';
+import { Button } from '@/components/ui/button.jsx';
+import { Calendar } from '@/components/ui/calendar.jsx';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.jsx';
 
-// 解析范围值 'yyyy-MM-dd~yyyy-MM-dd' → { from, to }
-function parseRange(val) {
-  if (!val || typeof val !== 'string') return null;
-  const parts = val.split('~');
-  const from = parseISO(parts[0]);
-  const to = parts[1] ? parseISO(parts[1]) : null;
-  if (!isValid(from)) return null;
-  return { from, to: to && isValid(to) ? to : undefined };
-}
-
-export default function DatePicker({
-  value = '',
+// 单日期选择器：value 为 'YYYY-MM-DD' 或 ''，onChange 回传同格式。
+// 默认用 shadcn 中性变量；深色 E4 页面通过 buttonClassName / contentClassName 覆盖。
+export function DatePicker({
+  value,
   onChange,
   placeholder = '选择日期',
-  disabled = false,
-  clearable = true,
-  open: openProp,
-  defaultOpen = false,
-  onOpenChange,
-  align = 'start',
   className,
-  trigger,
-  displayFormat = 'yyyy年MM月dd日',
-  boundary,
-  id,
-  range = false, // true 时使用日期范围模式
+  buttonClassName,
+  contentClassName,
+  allowClear = true,
+  disabled = false,
 }) {
-  const [innerOpen, setInnerOpen] = useState(defaultOpen);
-  const [draft, setDraft] = useState(null); // 范围选择中（只选了起点）的临时值
-  const controlled = openProp !== undefined;
-  const open = controlled ? openProp : innerOpen;
-  const setOpen = (v) => {
-    if (!controlled) setInnerOpen(v);
-    if (!v) setDraft(null); // 关掉弹层即放弃半成品范围
-    onOpenChange?.(v);
-  };
-
-  // ---- 单选模式 ----
-  const parsed = value ? parseISO(value) : null;
-  const valid = !!parsed && isValid(parsed);
-
-  const handleSelect = (d) => {
-    if (!d) return;
-    onChange?.(format(d, 'yyyy-MM-dd'));
-    setOpen(false);
-  };
-
-  // ---- 范围模式 ----
-  const rangeVal = range ? parseRange(value) : null;
-  const rangeValid = !!rangeVal;
-
-  // 范围协议：起止都选完才 onChange('yyyy-MM-dd~yyyy-MM-dd')；
-  // 只选起点时存 draft，不写回父级，避免出现半截的「待定」值。
-  // 注意 react-day-picker v10 在空范围上首击会立即返回 from===to 的完整
-  // 范围，这里把「无 draft 时的单日结果」视为刚选了起点，等第二击定终点。
-  const handleRangeSelect = (r) => {
-    if (!r || !r.from) {
-      setDraft(null);
-      return;
-    }
-    if (!draft && r.to && isSameDay(r.from, r.to)) {
-      setDraft({ from: r.from, to: undefined });
-      return;
-    }
-    if (r.to) {
-      setDraft(null);
-      onChange?.(`${format(r.from, 'yyyy-MM-dd')}~${format(r.to, 'yyyy-MM-dd')}`);
-      setOpen(false);
-    } else {
-      setDraft({ from: r.from, to: undefined });
-    }
-  };
-
-  const rangeLabel = rangeValid && rangeVal.to
-    ? `${format(rangeVal.from, displayFormat)} ~ ${format(rangeVal.to, displayFormat)}`
-    : '';
-
-  const showClear = clearable && !disabled && (range ? rangeValid : valid);
-  const label = range ? rangeLabel : valid ? format(parsed, displayFormat) : '';
-
-  const defaultTrigger = (
-    <Button
-      type="button"
-      variant="outline"
-      id={id}
-      disabled={disabled}
-      className={cn(
-        'w-full justify-start gap-2 text-left font-normal',
-        !label && 'text-muted-foreground',
-        className
-      )}
-    >
-      <CalendarIcon className="h-4 w-4 shrink-0 opacity-70" />
-      <span className="flex-1 truncate">
-        {label || placeholder}
-      </span>
-      {showClear && (
-        <span
-          role="button"
-          aria-label="清除日期"
-          tabIndex={-1}
-          className="ml-auto rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onChange?.('');
-          }}
-        >
-          <X className="h-3.5 w-3.5" />
-        </span>
-      )}
-    </Button>
-  );
+  const [open, setOpen] = React.useState(false);
+  const selected = value ? parseISO(value) : undefined;
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(o) => {
-        if (!disabled) setOpen(o);
-      }}
-    >
-      <PopoverTrigger asChild>{trigger ?? defaultTrigger}</PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align={align} collisionBoundary={boundary}>
-        {range ? (
-          <Calendar
-            mode="range"
-            selected={draft || rangeVal || undefined}
-            defaultMonth={draft?.from || rangeVal?.from || new Date()}
-            onSelect={handleRangeSelect}
-            numberOfMonths={1}
-            autoFocus
-          />
-        ) : (
+    <div className={cn('flex items-center gap-2', className)}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            className={cn(
+              'w-full justify-start text-left font-normal',
+              !value && 'text-muted-foreground',
+              buttonClassName
+            )}
+          >
+            <CalendarDays className="h-4 w-4" />
+            {value ? format(selected, 'yyyy年M月d日 EEEE', { locale: zhCN }) : placeholder}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className={cn('w-auto p-0', contentClassName)}>
           <Calendar
             mode="single"
-            selected={valid ? parsed : undefined}
-            defaultMonth={valid ? parsed : new Date()}
-            onSelect={handleSelect}
-            autoFocus
+            selected={selected}
+            onSelect={(d) => {
+              onChange(d ? format(d, 'yyyy-MM-dd') : '');
+              setOpen(false);
+            }}
+            initialFocus
           />
-        )}
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+      {allowClear && value && !disabled && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="清空"
+          onClick={() => onChange('')}
+          className="shrink-0 text-muted-foreground"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
   );
 }
+
+export default DatePicker;

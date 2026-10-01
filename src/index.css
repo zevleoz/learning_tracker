@@ -8397,6 +8397,22 @@ textarea::placeholder { color: #9ca3af; }
   gap: 3mm;
   margin-bottom: 5mm;
 }
+/* 家长未参会：学生卡片占满整行 */
+.e4-quote-pair.is-single {
+  grid-template-columns: 1fr;
+}
+/* 家长未参会开关：仅屏幕可编辑模式可见（带 no-print） */
+.e4-quote-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2mm;
+  font-size: 9pt;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+.e4-quote-toggle input { accent-color: var(--e4-red); cursor: pointer; }
 .e4-quote-card {
   border: 1px solid #e2e8f0;
   padding: 3.5mm 4mm;
@@ -13251,3 +13267,66 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
 .e4-progress-guide-hint { flex: 1; font-size: 11px; color: var(--e4-ink-3); line-height: 1.5; }
 .e4-progress-guide-done { font-size: 10px; color: #7FA67E; white-space: nowrap; }
 .e4-progress-guide-row.is-done .e4-progress-guide-name { color: var(--e4-ink-3); }
+
+/* =========================================================================
+ * UpdatePrompt — 新版本提示横幅（视口底部居中，细线/中性墨色）
+ * ========================================================================= */
+.update-prompt {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  margin: 0 auto;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: 420px;
+  box-sizing: border-box;
+  padding: 12px 14px 12px 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
+}
+.update-prompt-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0f172a;
+}
+.update-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.update-prompt-later {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.update-prompt-later:hover { color: #0f172a; }
+.update-prompt-apply {
+  appearance: none;
+  border: 1px solid #0f172a;
+  background: #0f172a;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #ffffff;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.update-prompt-apply:hover { background: #1e293b; border-color: #1e293b; }
+.update-prompt-later:focus-visible,
+.update-prompt-apply:focus-visible {
+  outline: 2px solid #0f172a;
+  outline-offset: 2px;
+}

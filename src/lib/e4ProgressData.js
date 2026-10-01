@@ -15,20 +15,27 @@ function daysBetween(startISO, endISO) {
   return Math.round((e - s) / 86400000) + 1;
 }
 
-// 拉取学生的 syllabus 学科名（course.subject，去重，保持录入顺序）
+// 从 PostgREST 嵌入结果里兜底读取 course（可能是对象或数组）
+function pickCourse(row) {
+  return Array.isArray(row.course) ? row.course[0] : row.course;
+}
+
+// 拉取学生的 syllabus 课程名（course.name，去重，按最近出现排序）。
+// 课程来自该学生全部学习记录（不限于复盘周期），保证分学科各表完整覆盖。
 export async function fetchProgressSyllabus(trackerProfileId) {
   if (!trackerProfileId) return [];
   const { data, error } = await supabase
-    .from('courses')
-    .select('subject')
-    .eq('created_by', trackerProfileId)
+    .from('learning_sessions')
+    .select('session_date, course:course_id(name)')
+    .eq('student_id', trackerProfileId)
     .is('deleted_at', null)
-    .order('created_at', { ascending: true });
-  if (error) throw new ProgressDataError(`读取学科（syllabus）失败：${error.message}`);
+    .order('session_date', { ascending: false })
+    .limit(1000);
+  if (error) throw new ProgressDataError(`读取课程（syllabus）失败：${error.message}`);
   const seen = new Set();
   const out = [];
-  for (const c of data || []) {
-    const s = String(c.subject || '').trim();
+  for (const row of data || []) {
+    const s = String(pickCourse(row)?.name || '').trim();
     if (s && !seen.has(s)) { seen.add(s); out.push(s); }
   }
   return out;
@@ -40,7 +47,7 @@ export async function fetchProgressSessions(trackerProfileId, startDate, endDate
   const { data, error } = await supabase
     .from('learning_sessions')
     .select(
-      'session_date, duration_minutes, category, form, eval_type, self_rating, grade_label, score, courses(subject, name)'
+      'session_date, duration_minutes, category, form, eval_type, self_rating, grade_label, score, course:course_id(name)'
     )
     .eq('student_id', trackerProfileId)
     .gte('session_date', startDate)
@@ -108,7 +115,7 @@ export function aggregateProgress(rows, startDate, endDate, syllabus = []) {
     calendar[d] = (calendar[d] || 0) + mins;
     (isWeekday(d) ? weekdayMins : weekendMins).push(mins);
 
-    const subject = String(r.courses?.subject || '').trim() || '未分类';
+    const subject = String(pickCourse(r)?.name || '').trim() || '未分类';
     let s = bySubject.get(subject);
     if (!s) {
       s = {

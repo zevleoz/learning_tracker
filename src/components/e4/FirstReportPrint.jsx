@@ -368,6 +368,8 @@ export default function FirstReportPrint({
   });
 
   // ---------------- 07 综合判断 ----------------
+  // 家长未参会时可隐藏「家庭最初反映」卡片（仅隐藏，不清空 familyQuote 数据）
+  const familyExcluded = !!data.section07?.familyQuoteExcluded;
   const judgmentSection = {
     key: 's07',
     chapterLabel: 'INTEGRATED JUDGMENT',
@@ -387,19 +389,33 @@ export default function FirstReportPrint({
               </div>
             </header>
 
-            {/* 双栏 quote */}
-            <div className="e4-quote-pair">
-              <div className="e4-quote-card">
-                <span className="e4-quote-label e4-tint-red">家庭最初反映</span>
-                <p>
-                  <EF
-                    d={{ area: 's07', key: 'familyQuote' }}
-                    type="long"
-                    val={data.section07?.familyQuote}
-                    ctx={{ quote: 'family' }}
-                  />
-                </p>
-              </div>
+            {/* 家长未参会开关：仅可编辑模式显示，打印不出现 */}
+            {editable && (
+              <label className="e4-quote-toggle no-print">
+                <input
+                  type="checkbox"
+                  checked={familyExcluded}
+                  onChange={(e) => onPatch?.({ area: 's07', key: 'familyQuoteExcluded' }, e.target.checked)}
+                />
+                家长未参会，不显示家庭反馈
+              </label>
+            )}
+
+            {/* 双栏 quote；隐藏家庭反馈时学生卡片占满整行 */}
+            <div className={`e4-quote-pair ${familyExcluded ? 'is-single' : ''}`}>
+              {!familyExcluded && (
+                <div className="e4-quote-card">
+                  <span className="e4-quote-label e4-tint-red">家庭最初反映</span>
+                  <p>
+                    <EF
+                      d={{ area: 's07', key: 'familyQuote' }}
+                      type="long"
+                      val={data.section07?.familyQuote}
+                      ctx={{ quote: 'family' }}
+                    />
+                  </p>
+                </div>
+              )}
               <div className="e4-quote-card">
                 <span className="e4-quote-label e4-tint-red">学生自己的理解</span>
                 <p>

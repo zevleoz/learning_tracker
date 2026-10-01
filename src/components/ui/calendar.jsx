@@ -1,75 +1,59 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
-import zhCN from 'date-fns/locale/zh-CN';
+import { zhCN } from 'date-fns/locale';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { buttonVariants } from './button.jsx';
+import { buttonVariants } from '@/components/ui/button.jsx';
 
-function Calendar({
-  className,
-  classNames,
-  showOutsideDays = true,
-  locale = zhCN,
-  weekStartsOn = 1,
-  ...props
-}) {
+// shadcn Calendar，基于 react-day-picker v9；支持 mode="single" / "range"
+function Calendar({ className, classNames, showOutsideDays = true, ...props }) {
   return (
     <DayPicker
+      locale={zhCN}
       showOutsideDays={showOutsideDays}
-      locale={locale}
-      weekStartsOn={weekStartsOn}
       className={cn('p-3', className)}
       classNames={{
         months: 'flex flex-col sm:flex-row gap-2',
         month: 'flex flex-col gap-4',
-        month_caption: 'flex justify-center pt-1 relative items-center w-full',
+        month_caption: 'flex justify-center pt-1 relative items-center',
         caption_label: 'text-sm font-medium',
-        nav: 'flex items-center flex-row absolute right-1 gap-1',
+        nav: 'flex items-center gap-1',
         button_previous: cn(
           buttonVariants({ variant: 'outline' }),
-          'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100'
+          'absolute left-1 top-0 h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100'
         ),
         button_next: cn(
           buttonVariants({ variant: 'outline' }),
-          'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100'
+          'absolute right-1 top-0 h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100'
         ),
-        month_grid: 'w-full border-collapse space-x-1',
+        month_grid: 'w-full border-collapse',
         weekdays: 'flex',
-        weekday:
-          'text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]',
+        weekday: 'text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]',
         week: 'flex w-full mt-2',
-        day: cn(
-          'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50'
-        ),
+        day: 'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50',
         day_button: cn(
           buttonVariants({ variant: 'ghost' }),
-          'h-8 w-8 rounded-md p-0 font-normal aria-selected:opacity-100'
+          'h-8 w-8 p-0 font-normal aria-selected:opacity-100'
         ),
-        range_start: 'day-range-start',
         range_end: 'day-range-end',
         selected:
-          '[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:rounded-md [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground [&>button]:focus:bg-primary [&>button]:focus:text-primary-foreground',
+          '[&>button]:bg-primary [&>button]:text-primary-foreground [&>button:hover]:bg-primary [&>button:hover]:text-primary-foreground [&>button:focus]:bg-primary [&>button:focus]:text-primary-foreground',
         today: '[&>button]:bg-accent [&>button]:text-accent-foreground',
         outside:
-          'day-outside text-muted-foreground aria-selected:text-muted-foreground',
+          'day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',
         disabled: 'text-muted-foreground opacity-50',
-        // 范围中段：浅色连接带（酒店入住/退房样式），按钮透明避免叠成深色
-        range_middle:
-          'aria-selected:bg-accent aria-selected:text-accent-foreground [&>button]:!rounded-none [&>button]:!bg-transparent [&>button]:!text-accent-foreground [&>button]:hover:!bg-black/5',
+        range_middle: 'aria-selected:bg-accent aria-selected:text-accent-foreground',
         hidden: 'invisible',
         ...classNames,
       }}
       components={{
-        Chevron: ({ orientation }) => {
-          if (orientation === 'right') {
-            return <ChevronRight className="h-4 w-4" />;
-          }
-          return <ChevronLeft className="h-4 w-4" />;
-        },
+        Chevron: ({ orientation }) =>
+          orientation === 'left' ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />,
       }}
       {...props}
     />
   );
 }
+Calendar.displayName = 'Calendar';
 
 export { Calendar };

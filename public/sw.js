@@ -27,6 +27,11 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll())
+      .then((clients) => {
+        // 通知各页面：新 SW 已接管，可去拉 version.json 判断哪些面需要更新
+        clients.forEach((client) => client.postMessage({ type: "SW_ACTIVATED" }));
+      })
   );
 });
 
@@ -39,6 +44,9 @@ self.addEventListener("fetch", (event) => {
   // 同源 API（/api/y4、/api/llm 等）一律直连网络，绝不缓存：
   // 缓存代理响应会把上游故障/空结果固化在客户端
   if (url.pathname.startsWith("/api/")) return;
+
+  // 版本摘要必须每次直连，否则更新检测会被 SWR 缓存卡住
+  if (url.pathname === "/version.json") return;
 
   // 不缓存 Supabase / 任何跨域的非静态资源
   if (url.hostname.includes("supabase") || request.headers.get("accept")?.includes("application/json")) {

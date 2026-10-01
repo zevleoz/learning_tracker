@@ -1,7 +1,125 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { Y4_API_BASE, forwardViaFetch } from './api-lib/y4-forward.mjs';
+import { reachableFiles, SURFACE_SEEDS, SURFACES } from './scripts/surfaceHashes.js';
+
+// ----------------------------------------------------------------
+// 版本分区摘要：
+// 从各使用面入口沿静态 import 图推导真实文件归属（scripts/surfaceHashes.js），
+// 分别计算 sha256。只改导师端/E4 时，学生摘要不变、不会收到提示。
+// ----------------------------------------------------------------
+
+const RESOLVE_EXTENSIONS = [
+  '.jsx', '.js', '.mjs', '.json', '.css',
+  '.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp',
+];
+
+function listFilesRel(absDir, relBase) {
+  const out = [];
+  for (const name of fs.readdirSync(absDir)) {
+    const abs = path.join(absDir, name);
+    const rel = `${relBase}/${name}`;
+    if (fs.statSync(abs).isDirectory()) out.push(...listFilesRel(abs, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
+function makeGraphDeps(root) {
+  // specifier -> 项目内相对路径；bare / 外部包返回 null
+  const resolve = (specifier, importerRel) => {
+    let base;
+    if (specifier.startsWith('@/')) {
+      base = path.join(root, 'src', specifier.slice(2));
+    } else if (specifier.startsWith('./') || specifier.startsWith('../')) {
+      base = path.join(path.dirname(path.join(root, importerRel)), specifier);
+    } else {
+      return null;
+    }
+    const candidates = [
+      base,
+      ...RESOLVE_EXTENSIONS.map((e) => base + e),
+      ...RESOLVE_EXTENSIONS.map((e) => path.join(base, `index${e}`)),
+    ];
+    for (const candidate of candidates) {
+      try {
+        if (fs.statSync(candidate).isFile()) return path.relative(root, candidate);
+      } catch {
+        // 尝试下一个候选
+      }
+    }
+    return null;
+  };
+
+  const read = (rel) => {
+    try {
+      return fs.readFileSync(path.join(root, rel), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+
+  return { resolve, read };
+}
+
+async function computeSurfaceBuilds(root) {
+  const { resolve, read } = makeGraphDeps(root);
+
+  const seeds = {
+    ...SURFACE_SEEDS,
+    e4: fs
+      .readdirSync(path.join(root, 'src/pages/e4'))
+      .filter((n) => n.endsWith('.jsx'))
+      .map((n) => `src/pages/e4/${n}`),
+  };
+
+  // 外壳文件计入全部面：改动后所有用户都提示
+  const globalFiles = [
+    'index.html',
+    'package.json',
+    'public/manifest.json',
+    'src/main.jsx',
+    'src/App.jsx',
+    'src/index.css',
+    ...listFilesRel(path.join(root, 'public/icons'), 'public/icons'),
+  ];
+
+  const builds = {};
+  for (const surface of SURFACES) {
+    const files = await reachableFiles(seeds[surface], { read, resolve });
+    for (const g of globalFiles) files.add(g);
+
+    const hash = crypto.createHash('sha256');
+    for (const rel of [...files].sort()) {
+      hash.update(rel);
+      hash.update(fs.readFileSync(path.join(root, rel))); // 图片等二进制按 Buffer 哈希
+    }
+    builds[surface] = hash.digest('hex').slice(0, 10);
+  }
+  return builds;
+}
+
+// 构建结束后把分区摘要写入 dist/version.json，供客户端轮询比对
+function versionJsonPlugin(surfaceBuilds) {
+  return {
+    name: 'version-json',
+    apply: 'build',
+    closeBundle() {
+      const outDir = path.resolve('dist');
+      const payload = {
+        surfaces: surfaceBuilds,
+        builtAt: new Date().toISOString(),
+        commit: process.env.VERCEL_GIT_COMMIT_SHA ? process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) : 'local',
+      };
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, 'version.json'), JSON.stringify(payload, null, 2));
+    },
+  };
+}
 
 // ----------------------------------------------------------------
 // 本地开发用 Y4 代理（生产环境由 Vercel Function api/y4/[...path].js 承担）
@@ -104,10 +222,15 @@ function llmDevProxy(env) {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const root = process.cwd();
+  const surfaceBuilds = await computeSurfaceBuilds(root);
   return {
-    plugins: [react(), y4DevProxy(env), llmDevProxy(env)],
+    plugins: [react(), y4DevProxy(env), llmDevProxy(env), versionJsonPlugin(surfaceBuilds)],
+    define: {
+      __SURFACE_BUILDS__: JSON.stringify(surfaceBuilds),
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

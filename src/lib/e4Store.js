@@ -59,7 +59,8 @@ export async function listReportsForStudent(e4StudentId) {
 export async function createE4Student(input) {
   const row = {
     display_name: input.display_name?.trim(),
-    next_meeting_type: 'first',
+    next_meeting_type: input.next_meeting_type === 'progress' ? 'progress' : 'first',
+    next_meeting_date: input.next_meeting_date || null,
     gender: input.gender || null,
     grade: input.grade || null,
     school: input.school || null,
@@ -199,8 +200,9 @@ export async function updateReport(id, patch) {
 }
 
 export async function deleteReport(id) {
-  const { error } = await supabase.from('e4_reports').delete().eq('id', id);
+  const { data, error } = await supabase.from('e4_reports').delete().eq('id', id).select('id');
   if (error) throw new E4StoreError(`删除报告失败：${error.message}`);
+  if (!data || data.length === 0) throw new E4StoreError('删除失败：报告不存在或没有删除权限');
 }
 
 // ---- 待办事项（upcoming 会议）----

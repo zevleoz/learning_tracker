@@ -20,6 +20,8 @@ import E4ReportBuilderPage from './pages/e4/E4ReportBuilderPage.jsx';
 import E4PrepPage from './pages/e4/E4PrepPage.jsx';
 import E4ProgressPage from './pages/e4/E4ProgressPage.jsx';
 import E4PrintPreview from './pages/e4/E4PrintPreview.jsx';
+import UpdatePrompt from './components/UpdatePrompt.jsx';
+import { SurfaceTracker } from './lib/useAppUpdate.js';
 
 // DebugTools 只在开发环境加载，避免生产 bundle 包含数据操作工具
 const DebugTools = import.meta.env.DEV
@@ -50,6 +52,8 @@ function DebugToolsFallback() {
 export default function App() {
   return (
     <ErrorBoundary>
+      <SurfaceTracker />
+      <UpdatePrompt />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />

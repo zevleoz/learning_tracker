@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
+import { DatePicker } from '@/components/ui/date-picker.jsx';
 import { listStudents, listReports, fetchProtocol, Y4ApiError } from '../../lib/y4api.js';
 import { createE4Student, createFirstReport } from '../../lib/e4Store.js';
 import { parseE4Protocol } from '../../lib/e4ProtocolParser.js';
@@ -54,7 +55,7 @@ export default function E4IntakePage() {
   const [loadingReports, setLoadingReports] = useState(false);
 
   // 档案信息（可改）
-  const [info, setInfo] = useState({ display_name: '', gender: '', grade: '', school: '' });
+  const [info, setInfo] = useState({ display_name: '', gender: '', grade: '', school: '', next_meeting_type: 'first', next_meeting_date: '' });
   const [creating, setCreating] = useState(false);
   const [createdStudentId, setCreatedStudentId] = useState(null);
 
@@ -92,13 +93,15 @@ export default function E4IntakePage() {
   function pickCandidate(c) {
     setChosen(c);
     setBareMode(false);
-    setInfo({
+    setInfo((f) => ({
       // 选中 Y4 学生后以 Y4 里的真实姓名为准（用户可能只输了首字母/别名）
       display_name: c.name || name.trim(),
       gender: c.gender || '',
       grade: c.grade || '',
       school: c.school || '',
-    });
+      next_meeting_type: f.next_meeting_type,
+      next_meeting_date: f.next_meeting_date,
+    }));
   }
 
   function pickBare() {
@@ -148,6 +151,8 @@ export default function E4IntakePage() {
         school: info.school.trim() || null,
         advisor_id: profile.id,
         created_by: profile.id,
+        next_meeting_type: info.next_meeting_type,
+        next_meeting_date: info.next_meeting_date || null,
         ...(chosen
           ? {
               y4_student_id: chosen.id,
@@ -313,6 +318,23 @@ export default function E4IntakePage() {
               <label className="e4-field e4-field-full">
                 <span>学校{info.school ? '（已从 Y4 带出，可改）' : ''}</span>
                 <input value={info.school} onChange={setInfoField('school')} maxLength={100} />
+              </label>
+              <label className="e4-field">
+                <span>下次会议类型（已服务过的学生可选进程中）</span>
+                <select value={info.next_meeting_type} onChange={setInfoField('next_meeting_type')}>
+                  <option value="first">首次会议</option>
+                  <option value="progress">进程中复盘</option>
+                </select>
+              </label>
+              <label className="e4-field">
+                <span>下次会议日期（可留空待安排）</span>
+                <DatePicker
+                  value={info.next_meeting_date}
+                  onChange={(v) => setInfo((f) => ({ ...f, next_meeting_date: v }))}
+                  placeholder="待安排"
+                  buttonClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg)] text-[var(--e4-ink)] hover:bg-[var(--e4-bg-3)] hover:text-[var(--e4-ink)]"
+                  contentClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)]"
+                />
               </label>
             </div>
 

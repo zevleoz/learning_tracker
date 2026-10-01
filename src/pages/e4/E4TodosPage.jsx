@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { CalendarDays, ChevronRight } from 'lucide-react';
-import { listUpcomingMeetings } from '../../lib/e4Store.js';
+import { CalendarDays, CalendarClock, ChevronRight } from 'lucide-react';
+import { listUpcomingMeetings, updateE4Student } from '../../lib/e4Store.js';
+import { toast } from '../../lib/toast.js';
 import { Card, CardContent } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
+import { Button } from '@/components/ui/button.jsx';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx';
+import { DatePicker } from '@/components/ui/date-picker.jsx';
 
 function formatDate(iso) {
   if (!iso) return '待安排';
@@ -28,7 +32,94 @@ const GROUPS = [
   { key: 'unscheduled', title: '待安排', match: (d) => d === null },
 ];
 
-function MeetingCard({ item, index, onClick, onWriteReport }) {
+function ScheduleDialog({ item, onClose, onSaved }) {
+  const [type, setType] = useState('first');
+  const [date, setDate] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setType(item?.next_meeting_type === 'progress' ? 'progress' : 'first');
+    setDate(item?.next_meeting_date || '');
+  }, [item]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateE4Student(item.id, {
+        next_meeting_type: type,
+        next_meeting_date: date || null,
+      });
+      toast('下次会议已更新', { kind: 'success' });
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast(err.message || '保存失败', { kind: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const typeBtn = (value, label) => (
+    <button
+      type="button"
+      onClick={() => setType(value)}
+      className={`flex-1 rounded-md border px-3 py-2 text-[13px] font-medium transition-colors ${
+        type === value
+          ? 'border-[var(--e4-accent)] bg-[var(--e4-accent-dim)] text-[var(--e4-accent-strong)]'
+          : 'border-[var(--e4-line-2)] text-[var(--e4-ink-2)] hover:bg-[var(--e4-bg-3)]'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        onClose={onClose}
+        className="border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)]"
+      >
+        <DialogHeader>
+          <DialogTitle>安排下次会议 · {item?.display_name}</DialogTitle>
+          <DialogDescription className="text-[var(--e4-ink-3)]">
+            选择会议类型和日期；已服务过的学生可以直接安排进程中复盘
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <div className="mb-1.5 text-[12.5px] text-[var(--e4-ink-2)]">会议类型</div>
+            <div className="flex gap-2">
+              {typeBtn('first', '首次会议')}
+              {typeBtn('progress', '进程中复盘')}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[12.5px] text-[var(--e4-ink-2)]">日期（留空 = 待安排）</div>
+            <DatePicker
+              value={date}
+              onChange={setDate}
+              placeholder="待安排"
+              buttonClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg)] text-[var(--e4-ink)] hover:bg-[var(--e4-bg-3)] hover:text-[var(--e4-ink)]"
+              contentClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)]"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={saving} className="text-[var(--e4-ink-2)]">
+            取消
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? '保存中…' : '保存'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
   const diff = daysUntil(item.next_meeting_date);
   const overdue = diff !== null && diff < 0;
   const typeLabel = item.next_meeting_type === 'progress' ? '进程中' : '首次';
@@ -60,10 +151,21 @@ function MeetingCard({ item, index, onClick, onWriteReport }) {
             >
               {typeLabel}
             </Badge>
-            <ChevronRight
-              size={15}
-              className="text-[var(--e4-ink-3)] transition-transform group-hover:translate-x-0.5"
-            />
+            <span className="flex items-center gap-1">
+              <button
+                type="button"
+                title="安排下次会议"
+                onClick={(e) => { e.stopPropagation(); onSchedule(); }}
+                onKeyDown={(e) => e.stopPropagation()}
+                className="rounded-md p-1 text-[var(--e4-ink-3)] transition-colors hover:bg-[var(--e4-accent-dim)] hover:text-[var(--e4-accent-strong)]"
+              >
+                <CalendarClock size={16} />
+              </button>
+              <ChevronRight
+                size={15}
+                className="text-[var(--e4-ink-3)] transition-transform group-hover:translate-x-0.5"
+              />
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -108,11 +210,16 @@ export default function E4TodosPage() {
   const nav = useNavigate();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
+  const [scheduleTarget, setScheduleTarget] = useState(null);
 
-  useEffect(() => {
+  function load() {
     listUpcomingMeetings()
       .then((rows) => { setItems(rows); setError(''); })
       .catch((err) => setError(err.message));
+  }
+
+  useEffect(() => {
+    load();
   }, []);
 
   const grouped = useMemo(() => {
@@ -181,11 +288,18 @@ export default function E4TodosPage() {
                 index={i}
                 onClick={() => openItem(item)}
                 onWriteReport={() => nav(`/e4/students/${item.id}/new-first`)}
+                onSchedule={() => setScheduleTarget(item)}
               />
             ))}
           </div>
         </section>
       ))}
+
+      <ScheduleDialog
+        item={scheduleTarget}
+        onClose={() => setScheduleTarget(null)}
+        onSaved={load}
+      />
     </div>
   );
 }

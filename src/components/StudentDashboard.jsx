@@ -8,7 +8,7 @@ import {
   fmtMins, scoreColor, CATEGORY_NAMES, CATEGORY_COLORS,
   isSelfForm, SELF_COLOR, getWeeksInRange,
 } from './WeekGrid.jsx';
-import { isWeekday, shortDate } from '../lib/date.js';
+import { isWeekday, shortDate, toLocalDateStr } from '../lib/date.js';
 import DateRangeCalendar from './DateRangeCalendar.jsx';
 
 // ── 时间预设 ──
@@ -75,13 +75,13 @@ function computeStats(sessions) {
 
   // 连续学习
   const dateSet = new Set(uniqueDates);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = toLocalDateStr(new Date());
   let currentStreak = 0;
   const todayD = new Date(todayStr + 'T00:00:00');
   for (let i = 0; i < 365; i++) {
     const d = new Date(todayD);
     d.setDate(todayD.getDate() - i);
-    const dStr = d.toISOString().slice(0, 10);
+    const dStr = toLocalDateStr(d);
     if (dateSet.has(dStr)) currentStreak++;
     else if (i > 0) break;
   }
@@ -208,8 +208,8 @@ export default function StudentDashboard({ sessions = [] }) {
   const range = customRange || getPresetRange(presetId) || getPresetRange('week');
 
   const filteredSessions = useMemo(() => {
-    const startStr = range.start.toISOString().split('T')[0];
-    const endStr = range.end.toISOString().split('T')[0];
+    const startStr = toLocalDateStr(range.start);
+    const endStr = toLocalDateStr(range.end);
     return sessions.filter(s => {
       const d = s.date?.split('T')[0];
       return d && d >= startStr && d <= endStr;
@@ -234,7 +234,7 @@ export default function StudentDashboard({ sessions = [] }) {
       for (let i = 0; i < dayDiff; i++) {
         const d = new Date(startD);
         d.setDate(startD.getDate() + i);
-        const dStr = d.toISOString().split('T')[0];
+        const dStr = toLocalDateStr(d);
         data.push({
           date: `${d.getMonth() + 1}/${d.getDate()}`,
           minutes: stats.byDate?.[dStr] || 0,
@@ -252,7 +252,7 @@ export default function StudentDashboard({ sessions = [] }) {
         wEnd.setDate(monday.getDate() + 6); // 周日
         wEnd.setHours(0, 0, 0, 0);
         while (cur <= wEnd) {
-          const dStr = cur.toISOString().split('T')[0];
+          const dStr = toLocalDateStr(cur);
           total += stats.byDate?.[dStr] || 0;
           cur.setDate(cur.getDate() + 1);
         }

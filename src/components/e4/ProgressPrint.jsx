@@ -2,6 +2,7 @@
 // 版式语言对齐 FirstReportPrint/PrepPrint（章节条 / 页脚 / 纸张外壳），
 // 量化字段由一表人才数据预填、可点改；定性字段由导师填写。
 import { PROGRESS_STATIC, PROGRESS_MODULES, MODULE_STATUSES } from '../../lib/e4ProgressTemplate.js';
+import { toLocalDateStr } from '../../lib/date.js';
 import DocField from './DocField.jsx';
 import logoImg from '../../logo/logo_color.png';
 
@@ -97,7 +98,7 @@ function CalendarMini({ calendar, periodStart, periodEnd }) {
     if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime()) && e >= s) {
       const cur = new Date(s);
       while (cur <= e) {
-        days.push(cur.toISOString().slice(0, 10));
+        days.push(toLocalDateStr(cur));
         cur.setDate(cur.getDate() + 1);
       }
     }

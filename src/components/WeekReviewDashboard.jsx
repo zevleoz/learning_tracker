@@ -5,6 +5,7 @@ import DimensionStrip from './DimensionStrip.jsx';
 import DeepDivePanels from './DeepDivePanels.jsx';
 import DateRangeCalendar from './DateRangeCalendar.jsx';
 import { toast } from '../lib/toast.js';
+import { toLocalDateStr } from '../lib/date.js';
 
 // ── 时段预设 ─────────────────────────────────────────
 const PRESETS = [
@@ -88,8 +89,8 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
 
   // Filter sessions to selected period
   const periodSessions = useMemo(() => {
-    const startStr = range.start.toISOString().split('T')[0];
-    const endStr = range.end.toISOString().split('T')[0];
+    const startStr = toLocalDateStr(range.start);
+    const endStr = toLocalDateStr(range.end);
     return sessions.filter(s => {
       const d = s.date?.split('T')[0];
       return d && d >= startStr && d <= endStr;
@@ -103,8 +104,8 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
       const mon = getMonday(new Date());
       const end = new Date(mon);
       end.setDate(end.getDate() + 6);
-      setCustomStart(mon.toISOString().split('T')[0]);
-      setCustomEnd(end.toISOString().split('T')[0]);
+      setCustomStart(toLocalDateStr(mon));
+      setCustomEnd(toLocalDateStr(end));
     } else {
       setShowCustomPicker(false);
       setPresetId(id);
@@ -227,8 +228,8 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
             start={customStart ? new Date(customStart + 'T00:00:00') : getMonday(new Date())}
             end={customEnd ? new Date(customEnd + 'T00:00:00') : new Date()}
             onChange={(s, e) => {
-              setCustomStart(s.toISOString().split('T')[0]);
-              setCustomEnd(e.toISOString().split('T')[0]);
+              setCustomStart(toLocalDateStr(s));
+              setCustomEnd(toLocalDateStr(e));
               setCustomRange({ start: s, end: e });
               setPresetId('custom');
               setShowCustomPicker(false);

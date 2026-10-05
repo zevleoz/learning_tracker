@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
+import { toLocalDateStr } from '../lib/date.js';
 import StudentDashboard from '../components/StudentDashboard.jsx';
 
 export default function Review() {
@@ -26,7 +27,7 @@ export default function Review() {
         `)
         .eq('student_id', user.id)
         .is('deleted_at', null)
-        .gte('session_date', new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10))
+        .gte('session_date', toLocalDateStr(new Date(Date.now() - 365 * 24 * 3600 * 1000)))
         .order('session_date', { ascending: false })
         .limit(2000);
 

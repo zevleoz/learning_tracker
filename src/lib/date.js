@@ -1,7 +1,13 @@
+// 本地时区 YYYY-MM-DD。不要用 d.toISOString()——它转成 UTC，UTC+8 下会差一天
+export function toLocalDateStr(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function todayISO(offsetDays = 0) {
   const d = new Date();
   if (offsetDays) d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 export function fmtMinutes(total) {
@@ -45,7 +51,7 @@ export function getWeekStart(iso) {
   const day = d.getDay();
   const offset = day === 0 ? 6 : day - 1;
   d.setDate(d.getDate() - offset);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 // 获取某个日期的周结束日(周日)
@@ -54,7 +60,7 @@ export function getWeekEnd(iso) {
   const day = d.getDay();
   const offset = day === 0 ? 0 : 7 - day;
   d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 // 获取最近 N 周的周起始日(从本周往前排)
@@ -69,7 +75,7 @@ export function lastNWeeks(n) {
   for (let i = n - 1; i >= 0; i--) {
     const monday = new Date(thisMonday);
     monday.setDate(thisMonday.getDate() - i * 7);
-    weeks.push(monday.toISOString().slice(0, 10));
+    weeks.push(toLocalDateStr(monday));
   }
   return weeks;
 }

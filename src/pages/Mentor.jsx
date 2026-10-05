@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
@@ -15,6 +15,7 @@ import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
 import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { toLocalDateStr } from '../lib/date.js';
 
 // ═══════════════════════════════════════════════════════════
 // FEATURE FLAG: 设为 true 可切换回旧版仪表盘 (ReviewDashboard)
@@ -361,7 +362,7 @@ export default function Mentor() {
       .select('student_id, duration_minutes, eval_type, score')
       .in('student_id', targetStudents)
       .is('deleted_at', null)
-      .gte('session_date', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10));
+      .gte('session_date', toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000)));
 
     if (error) {
       logger.error('loadClassStats error:', error);
@@ -412,11 +413,11 @@ export default function Mentor() {
     setSub(subscription);
   }
 
-  useEffect(() => {
-    if (!picked) return setSessions([]);
-    let cancelled = false;
-    setBusy(true);
-    supabase
+  const pickedIdRef = useRef(null);
+
+  async function fetchPickedSessions(studentId, { silent = false } = {}) {
+    if (!silent) setBusy(true);
+    const { data, error } = await supabase
       .from('learning_sessions')
       .select(`
         id, session_date, start_time, duration_minutes, category, form, eval_type,
@@ -424,30 +425,78 @@ export default function Mentor() {
         course:course_id(name, subject),
         chapter:chapter_id(name), unit:unit_id(name)
       `)
-      .eq('student_id', picked.id)
+      .eq('student_id', studentId)
       .is('deleted_at', null)
       .order('session_date', { ascending: false })
-      .limit(2000)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          logger.error('mentor load sessions', error);
-          toast('加载学生学习记录失败：' + error.message, { kind: 'error' });
-          setSessions([]);
-        } else {
-          setSessions(
-            (data || []).map((s) => ({
-              ...s,
-              date: String(s.session_date || '').slice(0, 10),
-              time: s.start_time ? String(s.start_time).slice(0, 5) : null,
-              subject: s.course?.name || s.course?.subject || '未分类',
-            }))
-          );
+      .limit(2000);
+    // 请求在飞行途中用户可能已切换到另一个学生，过期响应直接丢弃
+    if (pickedIdRef.current !== studentId) return;
+    if (error) {
+      logger.error('mentor load sessions', error);
+      if (!silent) {
+        toast('加载学生学习记录失败：' + error.message, { kind: 'error' });
+        setSessions([]);
+      }
+    } else {
+      setSessions(
+        (data || []).map((s) => ({
+          ...s,
+          date: String(s.session_date || '').slice(0, 10),
+          time: s.start_time ? String(s.start_time).slice(0, 5) : null,
+          subject: s.course?.name || s.course?.subject || '未分类',
+        }))
+      );
+    }
+    if (!silent) setBusy(false);
+  }
+
+  useEffect(() => {
+    pickedIdRef.current = picked ? picked.id : null;
+    if (!picked) return setSessions([]);
+    fetchPickedSessions(picked.id);
+
+    // 页面重新可见/聚焦时静默刷新，保证学生新提交的记录能及时出现
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      fetchPickedSessions(picked.id, { silent: true });
+      fetchPickedScores(picked.id, { silent: true });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+
+    // 轮询兜底：即使 visibility/focus 事件不触发（PWA、嵌入式 webview 等），
+    // 也能在 60 秒内自动拿到学生的新提交
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchPickedSessions(picked.id, { silent: true });
+      }
+    }, 60000);
+
+    // realtime：学生提交/修改/删除记录时即刻刷新（需生产库启用 learning_sessions 的 replication，
+    // 见 supabase/migrations/004-enable-realtime-sessions.sql；未启用时退化为 focus 刷新）
+    const channel = supabase
+      .channel(`mentor_sessions_${picked.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'learning_sessions',
+        filter: `student_id=eq.${picked.id}`,
+      }, () => {
+        fetchPickedSessions(picked.id, { silent: true });
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          logger.warn('[Realtime] learning_sessions 订阅失败，已退化为页面聚焦时刷新');
         }
-        setBusy(false);
       });
-    return () => { cancelled = true; };
-  }, [picked]);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      clearInterval(poll);
+      channel.unsubscribe();
+    };
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 加载选中学学生的 syllabus（课程→章节→单元）
   useEffect(() => {
@@ -491,34 +540,34 @@ export default function Mentor() {
   }, [picked]);
 
   // 加载选中学生的校内课程考试成绩（exam_scores join courses）
-  useEffect(() => {
-    if (!picked) { setStudentScores([]); return; }
-    let cancelled = false;
-    setStudentScoresLoading(true);
-    supabase
+  async function fetchPickedScores(studentId, { silent = false } = {}) {
+    if (!silent) setStudentScoresLoading(true);
+    const { data, error } = await supabase
       .from('exam_scores')
       .select(`
         *,
         course:courses(id, name, course_type)
       `)
-      .eq('student_id', picked.id)
+      .eq('student_id', studentId)
       .is('deleted_at', null)
       .order('exam_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          logger.error('mentor load studentScores', error);
-          setStudentScores([]);
-        } else {
-          // 仅保留 course_type=1（校内课程）的成绩
-          const filtered = (data || []).filter(s => s.course && s.course.course_type === 1);
-          setStudentScores(filtered);
-        }
-        setStudentScoresLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [picked]);
+      .order('created_at', { ascending: false });
+    // 过期响应直接丢弃（用户可能已切换到另一个学生）
+    if (pickedIdRef.current !== studentId) return;
+    if (error) {
+      logger.error('mentor load studentScores', error);
+      if (!silent) setStudentScores([]);
+    } else {
+      // 仅保留 course_type=1（校内课程）的成绩
+      setStudentScores((data || []).filter(s => s.course && s.course.course_type === 1));
+    }
+    if (!silent) setStudentScoresLoading(false);
+  }
+
+  useEffect(() => {
+    if (!picked) { setStudentScores([]); return; }
+    fetchPickedScores(picked.id);
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function sendInvite(studentId) {
     if (!user) { toast('请先登录老师账号', { kind: 'error' }); return; }
@@ -2243,7 +2292,7 @@ export default function Mentor() {
                     const dow = today.getDay();
                     const mon = new Date(today);
                     mon.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-                    const weekStartStr = mon.toISOString().split('T')[0];
+                    const weekStartStr = toLocalDateStr(mon);
                     const weekActive = uniqueDates.filter(d => d >= weekStartStr).length;
                     // 学科分布
                     const bySubj = {};

@@ -1387,6 +1387,7 @@ export default function MentorAnalyticsPage({ students, connections }) {
             score, course_id, course:course_id(name, subject)
           `)
           .eq('student_id', studentId)
+          .is('deleted_at', null)
           .order('session_date', { ascending: false })
           .limit(200);
 

@@ -150,6 +150,14 @@ export default function Mentor() {
   // 确认对话框状态（替代原生 confirm()）
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '确认', variant: 'danger', onConfirm: null });
 
+  // 按提交时间（created_at）排序的记录——学生补填旧日期记录时，
+  // 按 session_date 排序的列表会把它埋进历史里，老师端"最近记录"永远看不到。
+  // 这里单独维护一份按提交时间倒序的副本，供「最新提交」类列表使用。
+  const recentSubmitted = useMemo(
+    () => [...sessions].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    [sessions],
+  );
+
   // 组件卸载或 sub 变更时清理 realtime subscription，防止内存泄漏与重复订阅
   useEffect(() => {
     return () => {
@@ -421,13 +429,14 @@ export default function Mentor() {
       .from('learning_sessions')
       .select(`
         id, session_date, start_time, duration_minutes, category, form, eval_type,
-        score, self_rating, grade_label, notes, course_id,
+        score, self_rating, grade_label, notes, course_id, created_at,
         course:course_id(name, subject),
         chapter:chapter_id(name), unit:unit_id(name)
       `)
       .eq('student_id', studentId)
       .is('deleted_at', null)
       .order('session_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(2000);
     // 请求在飞行途中用户可能已切换到另一个学生，过期响应直接丢弃
     if (pickedIdRef.current !== studentId) return;
@@ -1484,22 +1493,35 @@ export default function Mentor() {
                                   </div>
                                 </div>
 
-                                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginBottom: 6 }}>最近记录</div>
+                                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginBottom: 6 }}>最新提交（按提交时间，含补填）</div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  {sessions.slice(0, 8).map((s, i) => (
-                                    <div key={i} style={{
-                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                      padding: '6px 10px', borderRadius: 8,
-                                      background: '#f8fafc', fontSize: 12,
-                                    }}>
-                                      <span style={{ color: '#475569', fontWeight: 500 }}>
-                                        {s.subject}
-                                      </span>
-                                      <span style={{ color: '#0f172a', fontWeight: 700 }}>
-                                        {fmtMinutes(s.duration_minutes || 0)}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {recentSubmitted.slice(0, 8).map((s, i) => {
+                                    const isBackfill = s.created_at && s.date && String(s.created_at).slice(0, 10) !== s.date;
+                                    return (
+                                      <div key={i} style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '6px 10px', borderRadius: 8,
+                                        background: '#f8fafc', fontSize: 12, gap: 8,
+                                      }}>
+                                        <span style={{ color: '#475569', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {s.subject}
+                                        </span>
+                                        <span style={{ color: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}>
+                                          {s.date}
+                                        </span>
+                                        {isBackfill && (
+                                          <span style={{
+                                            fontSize: 9, fontWeight: 700, color: '#b45309',
+                                            background: 'rgba(245,158,11,0.12)', borderRadius: 4,
+                                            padding: '1px 5px', flexShrink: 0,
+                                          }}>补填</span>
+                                        )}
+                                        <span style={{ color: '#0f172a', fontWeight: 700, flexShrink: 0 }}>
+                                          {fmtMinutes(s.duration_minutes || 0)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
 
                                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
@@ -2385,16 +2407,24 @@ export default function Mentor() {
                               </div>
                             )}
 
-                            {/* 最近活动 */}
+                            {/* 最近活动（按提交时间，含补填） */}
                             <div style={{ marginBottom: 16 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最近活动</div>
-                              {sessions.slice(0, 3).map((s, i) => {
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最新提交</div>
+                              {recentSubmitted.slice(0, 3).map((s, i) => {
                                 const subjC = subjectColor((s.subject || '未分类').trim());
+                                const isBackfill = s.created_at && s.date && String(s.created_at).slice(0, 10) !== s.date;
                                 return (
                                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < 2 ? '1px solid #f1f5f9' : 'none' }}>
                                     <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>{fmtD(s.date)}</span>
                                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC }} />
                                     <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
+                                    {isBackfill && (
+                                      <span style={{
+                                        fontSize: 9, fontWeight: 700, color: '#b45309',
+                                        background: 'rgba(245,158,11,0.12)', borderRadius: 4,
+                                        padding: '1px 5px', flexShrink: 0,
+                                      }}>补填</span>
+                                    )}
                                     <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>{fmtMinutes(s.duration_minutes || 0)}</span>
                                   </div>
                                 );

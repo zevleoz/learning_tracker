@@ -97,6 +97,32 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
     });
   }, [sessions, range]);
 
+  // 近 7 天新提交（含补填）但落在当前所选时段之外的记录。
+  // 学生补填旧日期记录时，默认「本周」视图完全看不到——这是"学生填了老师看不到"的根源。
+  const newOutsideRange = useMemo(() => {
+    const startStr = toLocalDateStr(range.start);
+    const endStr = toLocalDateStr(range.end);
+    const weekAgo = toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000));
+    return sessions.filter(s => {
+      if (!s.created_at) return false;
+      const submitted = String(s.created_at).slice(0, 10);
+      if (submitted < weekAgo) return false;
+      const d = s.date?.split('T')[0];
+      return d && (d < startStr || d > endStr);
+    });
+  }, [sessions, range]);
+
+  // 一键把时段扩展到能覆盖全部新提交记录
+  function showAllNewSubmissions() {
+    const dates = newOutsideRange.map(s => s.date.split('T')[0]).sort();
+    const start = new Date(dates[0] + 'T00:00:00');
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    setCustomRange({ start, end });
+    setPresetId('custom');
+    setShowCustomPicker(false);
+  }
+
   function handlePreset(id) {
     if (id === 'custom') {
       setShowCustomPicker(true);
@@ -238,6 +264,31 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
             isMobileOverride={isMobile}
           />
         </motion.div>
+      )}
+
+      {/* ── 新提交/补填提醒：近7天提交但不在当前时段的记录 ── */}
+      {newOutsideRange.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '8px 12px', borderRadius: 10,
+          background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.25)',
+          fontSize: 12, color: '#92400e', lineHeight: 1.5,
+        }}>
+          <span style={{ flex: 1, minWidth: 200 }}>
+            {studentName}近 7 天新提交/补填了 <strong>{newOutsideRange.length}</strong> 条记录，不在当前所选时段内
+          </span>
+          <button
+            onClick={showAllNewSubmissions}
+            style={{
+              padding: '4px 12px', fontSize: 11, fontWeight: 600,
+              borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: '#d97706', color: 'white', flexShrink: 0,
+            }}
+          >
+            查看全部新提交
+          </button>
+        </div>
       )}
 
       {/* ── 周历网格 ── */}

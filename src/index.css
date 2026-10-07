@@ -13330,3 +13330,9 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   outline: 2px solid #0f172a;
   outline-offset: 2px;
 }
+
+/* 导师端周历：可点击日卡片的键盘焦点环 */
+.wk-daycard:focus-visible {
+  outline: 2px solid rgba(79, 70, 229, 0.45);
+  outline-offset: 2px;
+}

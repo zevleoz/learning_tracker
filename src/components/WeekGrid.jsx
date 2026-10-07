@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 
 // ── 色彩 & 常量 ──────────────────────────────────────
@@ -77,10 +77,16 @@ export function fmtDateShort(d) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+// 本地日期键 "YYYY-MM-DD"（与 toLocalDateStr 同格式，用于匹配展开中的日期）
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 // ── 日卡片 ────────────────────────────────────────────
-function DayCard({ dayName, date, daySessions, isMobile, onClick }) {
+function DayCard({ dayName, date, daySessions, isMobile, onClick, isSelected }) {
+  const [hover, setHover] = useState(false);
   const data = useMemo(() => {
     if (!daySessions || daySessions.length === 0) return null;
     const totalMins = daySessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
@@ -139,6 +145,26 @@ function DayCard({ dayName, date, daySessions, isMobile, onClick }) {
   }
 
   // ── Active day ──
+  // 可点击时的交互态：选中描边 + 悬停浅底 + 键盘可访问
+  const interactive = onClick ? {
+    role: 'button',
+    tabIndex: 0,
+    className: 'wk-daycard',
+    onMouseEnter: () => setHover(true),
+    onMouseLeave: () => setHover(false),
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick();
+      }
+    },
+  } : {};
+  const baseAlpha = (isMobile ? 0.04 : 0.03) + data.intensity * (isMobile ? 0.08 : 0.06);
+  const bgAlpha = isSelected ? 0.14 : (hover && onClick ? baseAlpha + 0.03 : baseAlpha);
+  const borderColor = isSelected
+    ? '#4F46E5'
+    : (hover && onClick ? 'rgba(79,70,229,0.35)' : 'rgba(15,23,42,0.06)');
+
   if (isMobile) {
     // Horizontal strip for mobile
     return (
@@ -147,11 +173,14 @@ function DayCard({ dayName, date, daySessions, isMobile, onClick }) {
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.2 }}
         onClick={onClick}
+        {...interactive}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '8px 10px', borderRadius: 10,
-          background: `rgba(99,102,241,${0.04 + data.intensity * 0.08})`,
-          border: '1px solid rgba(15,23,42,0.06)',
+          background: `rgba(99,102,241,${bgAlpha})`,
+          border: `1px solid ${borderColor}`,
+          cursor: onClick ? 'pointer' : 'default',
+          transition: 'background 140ms ease, border-color 140ms ease',
         }}
       >
         <div style={{ flexShrink: 0, width: 48 }}>
@@ -189,14 +218,16 @@ function DayCard({ dayName, date, daySessions, isMobile, onClick }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
       onClick={onClick}
+      {...interactive}
       style={{
         borderRadius: 12,
         padding: '10px 8px',
         minHeight: 150,
-        background: `rgba(99,102,241,${0.03 + data.intensity * 0.06})`,
-        border: '1px solid rgba(15,23,42,0.06)',
+        background: `rgba(99,102,241,${bgAlpha})`,
+        border: `1px solid ${borderColor}`,
         display: 'flex', flexDirection: 'column', gap: 6,
         cursor: onClick ? 'pointer' : 'default',
+        transition: 'background 140ms ease, border-color 140ms ease',
       }}
     >
       {/* Header */}
@@ -255,7 +286,7 @@ function DayCard({ dayName, date, daySessions, isMobile, onClick }) {
 }
 
 // ── 周历网格 ──────────────────────────────────────────
-export default function WeekGrid({ sessions = [], weekStart, isMobile = false, onDayClick }) {
+export default function WeekGrid({ sessions = [], weekStart, isMobile = false, onDayClick, selectedDate }) {
   const monday = getMonday(weekStart || new Date());
 
   const days = useMemo(() => {
@@ -273,32 +304,40 @@ export default function WeekGrid({ sessions = [], weekStart, isMobile = false, o
   if (isMobile) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {DAY_NAMES.map((name, i) => (
-          <DayCard
-            key={i}
-            dayName={name}
-            date={new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)}
-            daySessions={days[i]}
-            isMobile
-            onClick={onDayClick ? () => onDayClick(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)) : undefined}
-          />
-        ))}
+        {DAY_NAMES.map((name, i) => {
+          const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+          return (
+            <DayCard
+              key={i}
+              dayName={name}
+              date={date}
+              daySessions={days[i]}
+              isMobile
+              isSelected={selectedDate === dateKey(date)}
+              onClick={onDayClick ? () => onDayClick(date) : undefined}
+            />
+          );
+        })}
       </div>
     );
   }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
-      {DAY_NAMES.map((name, i) => (
-        <DayCard
-          key={i}
-          dayName={name}
-          date={new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)}
-          daySessions={days[i]}
-          isMobile={false}
-          onClick={onDayClick ? () => onDayClick(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)) : undefined}
-        />
-      ))}
+      {DAY_NAMES.map((name, i) => {
+        const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+        return (
+          <DayCard
+            key={i}
+            dayName={name}
+            date={date}
+            daySessions={days[i]}
+            isMobile={false}
+            isSelected={selectedDate === dateKey(date)}
+            onClick={onDayClick ? () => onDayClick(date) : undefined}
+          />
+        );
+      })}
     </div>
   );
 }

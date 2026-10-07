@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import WeekGrid, { getMonday, getWeeksInRange, fmtDateShort } from './WeekGrid.jsx';
+import DayDetailPanel from './DayDetailPanel.jsx';
 import DimensionStrip from './DimensionStrip.jsx';
 import DeepDivePanels from './DeepDivePanels.jsx';
 import DateRangeCalendar from './DateRangeCalendar.jsx';
@@ -73,6 +74,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [isMobile, setIsMobile] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null); // 展开中的日期 "YYYY-MM-DD"
 
   useEffect(() => {
     // 导师端周历：仅真实手机（触屏 + 无 hover + ≤480px）走移动版
@@ -96,6 +98,34 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
       return d && d >= startStr && d <= endStr;
     });
   }, [sessions, range]);
+
+  // 展开中的那一天的全部记录（按时间、提交时间排序）
+  const selectedDaySessions = useMemo(() => {
+    if (!selectedDay) return [];
+    return sessions
+      .filter(s => s.date?.split('T')[0] === selectedDay)
+      .sort((a, b) =>
+        String(a.time || '').localeCompare(String(b.time || '')) ||
+        String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }, [sessions, selectedDay]);
+
+  function handleDayClick(date) {
+    const key = toLocalDateStr(date);
+    setSelectedDay(prev => (prev === key ? null : key));
+  }
+
+  // 切换时段 / 切换学生时收起当天明细
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [presetId, customRange, student?.id]);
+
+  // Esc 收起当天明细
+  useEffect(() => {
+    if (!selectedDay) return;
+    const onKey = (e) => { if (e.key === 'Escape') setSelectedDay(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedDay]);
 
   // 近 7 天新提交（含补填）但落在当前所选时段之外的记录。
   // 学生补填旧日期记录时，默认「本周」视图完全看不到——这是"学生填了老师看不到"的根源。
@@ -301,28 +331,48 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
           周历总览 {weeks.length > 1 && `(${weeks.length} 周)`}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {weeks.map((weekStart, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08, duration: 0.25 }}
-            >
-              {weeks.length > 1 && (
-                <div style={{
-                  fontSize: 10, fontWeight: 600, color: '#94a3b8',
-                  marginBottom: 4, paddingLeft: 2,
-                }}>
-                  {fmtDateShort(weekStart)} - {fmtDateShort(new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6))}
-                </div>
-              )}
-              <WeekGrid
-                sessions={periodSessions}
-                weekStart={weekStart}
-                isMobile={isMobile}
-              />
-            </motion.div>
-          ))}
+          {weeks.map((weekStart, i) => {
+            const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6);
+            const detailDate = selectedDay ? new Date(selectedDay + 'T00:00:00') : null;
+            const showDetail = detailDate && detailDate >= weekStart && detailDate <= weekEnd
+              && selectedDaySessions.length > 0;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.08, duration: 0.25 }}
+              >
+                {weeks.length > 1 && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, color: '#94a3b8',
+                    marginBottom: 4, paddingLeft: 2,
+                  }}>
+                    {fmtDateShort(weekStart)} - {fmtDateShort(weekEnd)}
+                  </div>
+                )}
+                <WeekGrid
+                  sessions={periodSessions}
+                  weekStart={weekStart}
+                  isMobile={isMobile}
+                  onDayClick={handleDayClick}
+                  selectedDate={selectedDay}
+                />
+                <AnimatePresence>
+                  {showDetail && (
+                    <div style={{ marginTop: 8 }}>
+                      <DayDetailPanel
+                        dateStr={selectedDay}
+                        sessions={selectedDaySessions}
+                        onClose={() => setSelectedDay(null)}
+                        isMobile={isMobile}
+                      />
+                    </div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
 

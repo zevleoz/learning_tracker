@@ -203,12 +203,15 @@ function y4DevProxy(env) {
 
         forwardViaFetch({
           base: env.Y4_API_BASE || Y4_API_BASE,
+          // 与线上一致：只读请求在主端点失败后回退备用端点；e4-protocol 不回退
+          fallbackBase: isProtocol ? '' : (env.Y4_API_BASE_FALLBACK || Y4_API_BASE),
           apiKey,
           subpath,
           search,
           // 与线上一致：只读列表用阶梯超时 [6s, 12s] 并重试；协议生成放宽到 50s 且不重试
           attempts: isProtocol ? 1 : 2,
           timeoutMs: isProtocol ? 50000 : [6000, 12000],
+          authHeader: env.Y4_AUTH_HEADER || 'authorization',
         })
           .then(({ status, contentType, cacheControl, body }) => {
             res.statusCode = status;

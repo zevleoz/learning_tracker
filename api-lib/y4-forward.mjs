@@ -18,37 +18,54 @@ export const DEFAULT_UPSTREAM_TIMEOUT_MS = 7000;
  * timeoutMs：单次尝试的超时（挂起保护）。可传数组作为阶梯，例如 [6000, 12000]
  *   ——上游正常时 2-5 秒，偶发慢到 7 秒以上，先快速失败再给第二次更长的窗口，
  *   避免「两次都在短超时内被杀」造成误判失败。
+ * fallbackBase：备用端点（例如直连 origin 失败时回退到 Cloudflare 域名）。
+ *   主端点的全部尝试都失败后才会用到；与主端点相同则自动忽略。
+ * authHeader：鉴权头形态，'authorization'（默认，Bearer）或 'x-api-key'。
+ *   后者用于让 Cloudflare 缓存规则能命中（CF 默认不缓存带 Authorization 的请求）。
  */
 export async function forwardViaFetch({
   base = Y4_API_BASE,
+  fallbackBase = '',
   apiKey,
   subpath,
   search = '',
   attempts = 1,
   timeoutMs = DEFAULT_UPSTREAM_TIMEOUT_MS,
+  authHeader = 'authorization',
 }) {
-  const url = `${base.replace(/\/$/, '')}/${subpath}${search}`;
   const timeouts = Array.isArray(timeoutMs) ? timeoutMs : [timeoutMs];
   const tries = Math.max(1, attempts, timeouts.length);
+  const headers = authHeader === 'x-api-key'
+    ? { 'X-Api-Key': apiKey }
+    : { Authorization: `Bearer ${apiKey}` };
+
+  const primary = base.replace(/\/$/, '');
+  const endpoints = [primary];
+  const fallback = String(fallbackBase || '').replace(/\/$/, '');
+  if (fallback && fallback !== primary) endpoints.push(fallback);
+
   let lastErr;
-  for (let i = 0; i < tries; i += 1) {
-    const perTryTimeout = timeouts[Math.min(i, timeouts.length - 1)];
-    try {
-      const upstream = await fetch(url, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(perTryTimeout),
-      });
-      const buffer = Buffer.from(await upstream.arrayBuffer());
-      return {
-        status: upstream.status,
-        contentType: upstream.headers.get('content-type') || 'application/json; charset=utf-8',
-        cacheControl: upstream.headers.get('cache-control'),
-        body: buffer,
-      };
-    } catch (err) {
-      lastErr = err;
-      if (i + 1 < tries) await new Promise((r) => setTimeout(r, 400)); // 稍等再试
+  for (const endpointBase of endpoints) {
+    const url = `${endpointBase}/${subpath}${search}`;
+    for (let i = 0; i < tries; i += 1) {
+      const perTryTimeout = timeouts[Math.min(i, timeouts.length - 1)];
+      try {
+        const upstream = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(perTryTimeout),
+        });
+        const buffer = Buffer.from(await upstream.arrayBuffer());
+        return {
+          status: upstream.status,
+          contentType: upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+          cacheControl: upstream.headers.get('cache-control'),
+          body: buffer,
+        };
+      } catch (err) {
+        lastErr = err;
+        if (i + 1 < tries) await new Promise((r) => setTimeout(r, 400)); // 稍等再试
+      }
     }
   }
   throw lastErr;

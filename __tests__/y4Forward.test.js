@@ -57,3 +57,117 @@ describe('forwardViaFetch 的重试策略', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+// 直连 origin 可能遇到跨境抖动：主端点全部尝试失败后自动回退到 Cloudflare 域名
+describe('forwardViaFetch 的多端点故障转移', () => {
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  const ok = () => ({
+    status: 200,
+    arrayBuffer: async () => Buffer.from('{"ok":true}'),
+    headers: { get: () => 'application/json' },
+  });
+
+  test('主端点两次都失败 → 自动切备用端点并成功', async () => {
+    const calls = [];
+    global.fetch = jest.fn(async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('origin.p4learning-ark.app')) throw new Error('origin unreachable');
+      return ok();
+    });
+
+    const result = await forwardViaFetch({
+      base: 'https://origin.p4learning-ark.app/api/v1',
+      fallbackBase: 'https://report.p4learning-ark.app/api/v1',
+      apiKey: 'k',
+      subpath: 'students/48/reports',
+      attempts: 2,
+    });
+
+    expect(result.status).toBe(200);
+    expect(calls.filter((u) => u.includes('origin.p4learning-ark.app'))).toHaveLength(2); // 主端点用满两次
+    expect(calls[calls.length - 1]).toBe('https://report.p4learning-ark.app/api/v1/students/48/reports');
+  });
+
+  test('主端点成功时不碰备用端点', async () => {
+    const calls = [];
+    global.fetch = jest.fn(async (url) => {
+      calls.push(String(url));
+      return ok();
+    });
+
+    await forwardViaFetch({
+      base: 'https://origin.p4learning-ark.app/api/v1',
+      fallbackBase: 'https://report.p4learning-ark.app/api/v1',
+      apiKey: 'k',
+      subpath: 'students',
+      attempts: 2,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('origin.p4learning-ark.app');
+  });
+
+  test('两端都失败 → 抛出最后一次错误', async () => {
+    global.fetch = jest.fn(async (url) => {
+      if (String(url).includes('origin')) throw new Error('origin unreachable');
+      throw new Error('cf unreachable');
+    });
+
+    await expect(forwardViaFetch({
+      base: 'https://origin.p4learning-ark.app/api/v1',
+      fallbackBase: 'https://report.p4learning-ark.app/api/v1',
+      apiKey: 'k',
+      subpath: 'students',
+      attempts: 2,
+    })).rejects.toThrow('cf unreachable');
+    expect(global.fetch).toHaveBeenCalledTimes(4); // 2 主 + 2 备
+  });
+
+  test('主备端点相同（尚未切换直连）时不重复请求', async () => {
+    global.fetch = jest.fn(async () => { throw new Error('boom'); });
+    await expect(forwardViaFetch({
+      base: 'https://report.p4learning-ark.app/api/v1',
+      fallbackBase: 'https://report.p4learning-ark.app/api/v1',
+      apiKey: 'k',
+      subpath: 'students',
+      attempts: 2,
+    })).rejects.toThrow('boom');
+    expect(global.fetch).toHaveBeenCalledTimes(2); // 只有主端点两次
+  });
+});
+
+// CF 默认不缓存带 Authorization 的请求：上游支持后可切到 X-Api-Key
+describe('forwardViaFetch 的鉴权头形态', () => {
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  function captureFetch() {
+    const calls = [];
+    global.fetch = jest.fn(async (url, options) => {
+      calls.push({ url: String(url), headers: options?.headers });
+      return {
+        status: 200,
+        arrayBuffer: async () => Buffer.from('{"ok":true}'),
+        headers: { get: () => 'application/json' },
+      };
+    });
+    return calls;
+  }
+
+  test('默认使用 Authorization: Bearer', async () => {
+    const calls = captureFetch();
+    await forwardViaFetch({ apiKey: 'secret-key', subpath: 'students' });
+    expect(calls[0].headers).toEqual({ Authorization: 'Bearer secret-key' });
+  });
+
+  test('authHeader=x-api-key 时改用 X-Api-Key，且不带 Authorization（可被 CF 缓存）', async () => {
+    const calls = captureFetch();
+    await forwardViaFetch({ apiKey: 'secret-key', subpath: 'students', authHeader: 'x-api-key' });
+    expect(calls[0].headers).toEqual({ 'X-Api-Key': 'secret-key' });
+    expect(calls[0].headers.Authorization).toBeUndefined();
+  });
+});

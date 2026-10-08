@@ -45,11 +45,15 @@ export default async function handler(req, res) {
   try {
     const result = await forwardViaFetch({
       base: process.env.Y4_API_BASE || Y4_API_BASE,
+      // 备用端点：主端点（如直连 origin）全部尝试失败时自动回退，默认回到 CF 域名
+      fallbackBase: isProtocol ? '' : (process.env.Y4_API_BASE_FALLBACK || Y4_API_BASE),
       apiKey,
       subpath,
       search,
       attempts: isProtocol ? 1 : 2,
       timeoutMs: isProtocol ? 50000 : [6000, 12000],
+      // 上游支持 X-Api-Key 后设为 x-api-key，可让 Cloudflare 缓存规则命中
+      authHeader: process.env.Y4_AUTH_HEADER || 'authorization',
     });
     res.status(result.status);
     res.setHeader('Content-Type', result.contentType);

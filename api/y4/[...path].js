@@ -38,6 +38,8 @@ export default async function handler(req, res) {
   }
   const subpath = check.subpath;
   const search = req.url.includes('?') ? `?${req.url.slice(req.url.indexOf('?') + 1)}` : '';
+  // e4-protocol 会触发上游 AI 生成（10-30 秒），不重试；其余只读列表/文档允许重试一次
+  const attempts = subpath.endsWith('/e4-protocol') ? 1 : 2;
 
   try {
     const result = await forwardViaFetch({
@@ -45,6 +47,7 @@ export default async function handler(req, res) {
       apiKey,
       subpath,
       search,
+      attempts,
     });
     res.status(result.status);
     res.setHeader('Content-Type', result.contentType);

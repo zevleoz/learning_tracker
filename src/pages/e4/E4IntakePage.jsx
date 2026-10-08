@@ -53,6 +53,7 @@ export default function E4IntakePage() {
   const [reports, setReports] = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [loadingReports, setLoadingReports] = useState(false);
+  const [reportsError, setReportsError] = useState(''); // 加载失败与「确实没有报告」必须区分
 
   // 档案信息（可改）
   const [info, setInfo] = useState({ display_name: '', gender: '', grade: '', school: '', next_meeting_type: 'first', next_meeting_date: '' });
@@ -120,13 +121,28 @@ export default function E4IntakePage() {
       return;
     }
     setStep(2);
+    loadReports(chosen.id);
+  }
+
+  // 拉取某位 Y4 学生的报告列表。
+  // 注意：必须把「请求失败」与「确实没有报告」分开——
+  // 失败时若只显示「暂无报告」，会让人误以为学生没有报告（上游偶发抖动时尤其误导）。
+  function loadReports(y4StudentId) {
+    if (!y4StudentId) return;
     setLoadingReports(true);
-    listReports(chosen.id)
+    setReportsError('');
+    setReports([]);
+    setSelectedReport(null);
+    listReports(y4StudentId)
       .then((rs) => {
         setReports(rs);
         setSelectedReport(rs[0]?.id ?? null); // 接口按创建时间倒序，最新在前
       })
-      .catch((err) => toast(err instanceof Y4ApiError ? err.message : 'Y4 报告列表加载失败', { kind: 'error' }))
+      .catch((err) => {
+        const message = err instanceof Y4ApiError ? err.message : 'Y4 报告列表加载失败';
+        setReportsError(message);
+        toast(message, { kind: 'error' });
+      })
       .finally(() => setLoadingReports(false));
   }
 
@@ -351,10 +367,20 @@ export default function E4IntakePage() {
                       </div>
                     </div>
                   ))}
-                  {!loadingReports && reports.length === 0 && (
-                    <div className="e4-list-hint">该 Y4 学生名下暂无报告。可先仅用名字建档，之后再关联。</div>
+                  {!loadingReports && reportsError && (
+                    <div className="e4-inline-error e4-y4-list-error">
+                      <span>报告列表加载失败：{reportsError}</span>
+                      <button type="button" className="e4-btn-mini" onClick={() => loadReports(chosen?.id)}>
+                        重新加载
+                      </button>
+                    </div>
                   )}
-                  {!loadingReports && reports.map((r) => (
+                  {!loadingReports && !reportsError && reports.length === 0 && (
+                    <div className="e4-list-hint">
+                      该 Y4 学生名下暂无报告。可返回上一步点「以上都不是，仅用名字建档」，之后再关联。
+                    </div>
+                  )}
+                  {!loadingReports && !reportsError && reports.map((r) => (
                     <button
                       type="button"
                       key={r.id}

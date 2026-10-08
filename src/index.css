@@ -13484,3 +13484,11 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   --warn: var(--e4-orange, #D97706);
   --err: var(--e4-red, #C43B3B);
 }
+
+/* E4 建档：报告列表加载失败（与「暂无报告」区分，内联重试） */
+.e4-y4-list-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

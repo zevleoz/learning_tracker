@@ -241,3 +241,11 @@
 - **FEAT-2 打印质检**：过程报告打印版式与基准 PDF 的逐页对照，需人工目检。
 - **UI-2 收尾**：`index.css` 中两处原生 `input[type="date"]` 样式仍被更宽的 base-input 选择器组共享，暂未拆分。
 - 学生端深色主题尚未映射到语义 token（仅 E4 作用域已映射）。
+
+### 发布后修复（2026-10-08 部署后）
+
+| 问题 | 处理 |
+|---|---|
+| 线上 E4 建档全部报「缺少 Y4 接口路径」 | Vercel catch-all 不填充 `req.query.path`，新增 `resolveY4Subpath(req)` 改为按 `req.url` 解析（commit `4ed4e1d`） |
+| 线上建档「找不到学生的报告」 | 报告列表加载失败时错误地落到「暂无报告」空态，误导排查方向。E4IntakePage 拆出 `reportsError` 状态：失败显示内联错误 + 「重新加载」，只有真正 0 报告才显示空态提示（上游约 30% 请求存在瞬时 `fetch failed`） |
+| Y4 上游偶发连接抖动 | `forwardViaFetch` 增加 `attempts`：只读列表/文档重试一次（400ms 间隔）；`e4-protocol`（触发上游 AI，10-30 秒）保持 1 次不重试 |

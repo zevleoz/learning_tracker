@@ -41,17 +41,41 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   schema: 'public',
   global: {
     fetch: (url, options = {}) => {
+      // 默认 10s 超时；数据重的查询可用 query.abortSignal(timeoutSignal(30000)) 显式放宽（STU-3）
+      const signal = options.signal || AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
       return fetch(url, {
         ...options,
-        signal: AbortSignal.timeout(10000)
+        signal
       });
     }
   }
 });
 
+// 查询超时：默认值 + 给重查询的放宽通道
+export const DEFAULT_TIMEOUT_MS = 10000;
+
+/**
+ * 放宽单条查询的超时（用于导师看板聚合、E4 待办全量拉取等慢查询）。
+ * 用法：supabase.from('x').select('*').abortSignal(timeoutSignal(30000))
+ */
+export function timeoutSignal(ms) {
+  return AbortSignal.timeout(ms);
+}
+
 // 恢复 BroadcastChannel，避免影响应用其他可能用到它的逻辑。
 // Supabase 客户端已在上方创建完毕，此后不再使用它做 session 同步。
 globalThis.BroadcastChannel = _BroadcastChannel;
+
+// 服务端代理（/api/y4、/api/llm）需要校验调用者身份：
+// 从本地 session 取 access_token 注入 Authorization 头（只读本地缓存，不发网络请求）。
+export async function getAccessToken() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token || '';
+  } catch {
+    return '';
+  }
+}
 
 export async function safeQuery(promise, errorMsg = '操作失败') {
   try {
@@ -82,10 +106,6 @@ export const FORM_LABEL = {
   5: '校外线上', 6: '校外线下', 7: '学校作业',
   8: '课堂练习(不算分)', 9: '课堂练习(算分)'
 };
-
-export const MASTERY_LABEL = { 100: '完全掌握', 75: '基本掌握', 50: '有不少没掌握', 25: '像在听天书' };
-export const MASTERY_COLOR = { 100: 'text-emerald-400', 75: 'text-amber-400', 50: 'text-orange-400', 25: 'text-rose-400' };
-export const MASTERY_DOT   = { 100: 'dot-growth', 75: 'dot dot-hesitant', 50: 'dot dot-slow', 25: 'dot dot-slow' };
 
 export const SIGNAL_LABEL = { 1: 'Hesitant', 2: 'Slow', 3: 'Growth', 4: 'Stable' };
 export const SIGNAL_CARD  = { 1: 'signal-card-hesitant', 2: 'signal-card-slow', 3: 'signal-card-growth', 4: 'signal-card' };

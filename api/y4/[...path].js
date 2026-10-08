@@ -1,6 +1,8 @@
 // 同源 Y4 代理：浏览器只请求 /api/y4/*，
 // Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
 import { Y4_API_BASE, forwardViaFetch, jsonError } from '../../api-lib/y4-forward.mjs';
+import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
+import { validateY4Subpath } from '../../api-lib/y4-path.js';
 
 export const config = {
   // e4-protocol 端点实时调用 AI，实测 10-30 秒
@@ -13,6 +15,13 @@ export default async function handler(req, res) {
     return;
   }
 
+  // 鉴权：仅导师及以上账号（token 由前端从 Supabase session 注入）
+  const auth = await requireMentor(req);
+  if (!auth.ok) {
+    sendDenied(res, auth);
+    return;
+  }
+
   const apiKey = process.env.Y4_API_KEY;
   if (!apiKey) {
     res.status(503).json({ ok: false, error: '服务端未配置 Y4_API_KEY' });
@@ -20,7 +29,13 @@ export default async function handler(req, res) {
   }
 
   const parts = req.query.path;
-  const subpath = Array.isArray(parts) ? parts.join('/') : parts || '';
+  const rawSubpath = Array.isArray(parts) ? parts.join('/') : parts || '';
+  const check = validateY4Subpath(rawSubpath);
+  if (!check.ok) {
+    res.status(400).json({ ok: false, error: check.reason });
+    return;
+  }
+  const subpath = check.subpath;
   const search = req.url.includes('?') ? `?${req.url.slice(req.url.indexOf('?') + 1)}` : '';
 
   try {

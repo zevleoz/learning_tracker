@@ -32,10 +32,16 @@ git push -u origin main
 2. 点击右上角 **"Add New Project"**。
 3. 选择您刚刚推送到 GitHub 的仓库。
 4. 在 **Configure Project** 页面，保持默认设置（Framework Preset 应为 Vite）。
-5. **重要**: 在 **Environment Variables** 部分，添加以下两个变量：
+5. **重要**: 在 **Environment Variables** 部分，添加以下变量：
    - `VITE_SUPABASE_URL`: 您的 Supabase 项目 URL（例如 `https://xxxxxxxx.supabase.co`）
    - `VITE_SUPABASE_ANON_KEY`: 您的 Supabase 匿名公钥（Anon Key）
+   - `SUPABASE_URL`: 同 `VITE_SUPABASE_URL`（**serverless 函数读不到 `VITE_*` 变量，必须单独配置**，用于 `/api/y4/*`、`/api/llm/*` 的导师登录态校验）
+   - `SUPABASE_ANON_KEY`: 同 `VITE_SUPABASE_ANON_KEY`（同上）
+   - `Y4_API_KEY`: Y4 综合测评接口密钥（仅服务端）
+   - `LLM_API_KEY`: AI 接口密钥（仅服务端；`LLM_BASE_URL` / `LLM_MODEL` / `LLM_EXTRA_BODY` 可选）
 6. 点击 **"Deploy"**。
+
+> 注意：缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 时，E4 平台的 Y4 抓取与 AI 佐证会返回 503（服务端未完成配置），前端会给出明确提示。
 
 ### 2.3. 配置环境变量（如果在第 2.2 步跳过）
 
@@ -66,7 +72,7 @@ where tablename = 'learning_sessions';
 
 **预期结果**: 应该看到 `sessions_select_access`, `sessions_insert`, `sessions_update`, `sessions_delete` 四条策略。
 
-如果没有，请在 SQL Editor 中执行 `supabase/schema.patch-check-policies.sql` 文件的内容来重建策略。
+如果没有，请在 SQL Editor 中执行 `supabase/archive/schema.patch-check-policies.sql` 文件的内容来重建策略（该目录为历史存档，新变更请走 `supabase/migrations/`）。
 
 ### 3.2. 检查表结构
 
@@ -109,11 +115,11 @@ and column_name in ('self_rating', 'grade_label', 'score', 'eval_type');
 
 ### Q2: 提交学习记录时报错"权限不足"
 - **原因**: RLS 策略未部署到生产数据库。
-- **解决**: 在 Supabase SQL Editor 执行 `schema.patch-check-policies.sql` 重建策略。
+- **解决**: 在 Supabase SQL Editor 执行 `supabase/archive/schema.patch-check-policies.sql` 重建策略。
 
 ### Q3: 学生管理页数据不显示
 - **原因**: `teacher_student_connections` 表可能不存在或 RLS 限制。
-- **解决**: 运行 `schema.patch-invites.sql` 确保邀请表已创建，并检查 `profiles` 表的 RLS 策略。
+- **解决**: 运行 `supabase/archive/schema.patch-invites.sql` 确保邀请表已创建，并检查 `profiles` 表的 RLS 策略。
 
 ### Q4: 页面样式错乱
 - **原因**: Vite 构建产物未正确生成。

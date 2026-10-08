@@ -1,10 +1,21 @@
 // 前端调用 AI 生成会议佐证。
 // 仅调用同源 /api/llm/*，LLM_API_KEY 只存在于服务端。
+// 代理要求导师及以上登录态，请求携带 Supabase access_token。
+
+import { getAccessToken } from './supabase.js';
+
+async function jsonHeaders() {
+  const token = await getAccessToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 export async function summarizeMeetingNotes(minutes, rows) {
   const resp = await fetch('/api/llm/meeting-notes', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await jsonHeaders(),
     body: JSON.stringify({
       minutes: String(minutes || ''),
       rows: (rows || []).map((r) => ({
@@ -29,7 +40,7 @@ export async function summarizeMeetingNotes(minutes, rows) {
 export async function generateCellNote({ minutes, label, field = 'meetingNote', y4Clue = '', current = '', instruction = '' }) {
   const resp = await fetch('/api/llm/cell-note', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await jsonHeaders(),
     body: JSON.stringify({ minutes, label, field, y4Clue, current, instruction }),
   });
 
@@ -47,7 +58,7 @@ export async function generateCellNote({ minutes, label, field = 'meetingNote', 
 export async function prefillPrepSubjects({ protocolMd, studentName = '' }) {
   const resp = await fetch('/api/llm/prep-prefill', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await jsonHeaders(),
     body: JSON.stringify({ protocolMd: String(protocolMd || ''), studentName }),
   });
 

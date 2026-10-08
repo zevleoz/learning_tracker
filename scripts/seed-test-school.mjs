@@ -2,6 +2,7 @@
 // 用法: node scripts/seed-test-school.mjs
 // 读取 .env 的 VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY（不打印密钥）
 import { createClient } from '@supabase/supabase-js';
+import { requireEnv } from './env.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -23,7 +24,7 @@ const supabase = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY,
 });
 
 const EMAIL = 'test@school.edu';
-const PASSWORD = '111111';
+const PASSWORD = requireEnv('SCRIPT_TEST_PASSWORD', '学生测试账号的密码');
 
 const pad = (n) => String(n).padStart(2, '0');
 const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

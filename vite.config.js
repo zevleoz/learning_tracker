@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { Y4_API_BASE, forwardViaFetch } from './api-lib/y4-forward.mjs';
+import { requireMentor } from './api-lib/require-mentor.js';
+import { validateY4Subpath } from './api-lib/y4-path.js';
 import { reachableFiles, SURFACE_SEEDS, SURFACES } from './scripts/surfaceHashes.js';
 
 // ----------------------------------------------------------------
@@ -122,6 +124,43 @@ function versionJsonPlugin(surfaceBuilds) {
 }
 
 // ----------------------------------------------------------------
+// 本地开发代理的公共部分：与线上 serverless 行为保持一致
+// 1) 把 serverless 需要的变量从 .env 系列文件注入 process.env（Vercel 由平台注入）；
+// 2) 校验导师登录态（api-lib/require-mentor.js 与线上同一实现）。
+// ----------------------------------------------------------------
+
+function injectServerEnv(env) {
+  const map = {
+    Y4_API_KEY: env.Y4_API_KEY,
+    Y4_API_BASE: env.Y4_API_BASE,
+    LLM_API_KEY: env.LLM_API_KEY,
+    LLM_BASE_URL: env.LLM_BASE_URL,
+    LLM_MODEL: env.LLM_MODEL,
+    LLM_EXTRA_BODY: env.LLM_EXTRA_BODY,
+    SUPABASE_URL: env.SUPABASE_URL || env.VITE_SUPABASE_URL,
+    SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY,
+  };
+  for (const [key, value] of Object.entries(map)) {
+    if (value) process.env[key] = value;
+  }
+}
+
+function sendJson(res, status, payload) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(payload));
+}
+
+async function requireMentorForDev(req, res) {
+  const result = await requireMentor(req);
+  if (!result.ok) {
+    sendJson(res, result.status, { ok: false, error: result.error });
+    return false;
+  }
+  return true;
+}
+
+// ----------------------------------------------------------------
 // 本地开发用 Y4 代理（生产环境由 Vercel Function api/y4/[...path].js 承担）
 //
 // 上游自 2026-09-26 起迁移到 Cloudflare Tunnel 域名
@@ -134,17 +173,31 @@ function y4DevProxy(env) {
   return {
     name: 'y4-dev-proxy',
     configureServer(server) {
-      server.middlewares.use('/api/y4', (req, res) => {
+      injectServerEnv(env);
+      server.middlewares.use('/api/y4', async (req, res) => {
+        if (!(await requireMentorForDev(req, res))) return;
+
         const apiKey = env.Y4_API_KEY;
         if (!apiKey) {
-          res.statusCode = 503;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ ok: false, error: '本地缺少 Y4_API_KEY（请在 .env.local 配置）' }));
+          sendJson(res, 503, { ok: false, error: '本地缺少 Y4_API_KEY（请在 .env.local 配置）' });
           return;
         }
 
         const qIndex = req.url.indexOf('?');
-        const subpath = decodeURIComponent(qIndex >= 0 ? req.url.slice(1, qIndex) : req.url.slice(1));
+        const rawPath = qIndex >= 0 ? req.url.slice(1, qIndex) : req.url.slice(1);
+        let decoded;
+        try {
+          decoded = decodeURIComponent(rawPath);
+        } catch {
+          sendJson(res, 400, { ok: false, error: 'Y4 接口路径编码无效' });
+          return;
+        }
+        const check = validateY4Subpath(decoded);
+        if (!check.ok) {
+          sendJson(res, 400, { ok: false, error: check.reason });
+          return;
+        }
+        const subpath = check.subpath;
         const search = qIndex >= 0 ? req.url.slice(qIndex) : '';
 
         forwardViaFetch({
@@ -173,11 +226,9 @@ function llmDevProxy(env) {
   return {
     name: 'llm-dev-proxy',
     configureServer(server) {
-      // 把 .env.local 里的 LLM_* 变量注入 process.env，
+      // 把 .env.local 里的 LLM_* 与 Supabase 变量注入 process.env，
       // 让 serverless 函数在本地 vite 下也能读到（与线上 Vercel 行为一致）。
-      for (const k of ['LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL', 'LLM_EXTRA_BODY']) {
-        if (env[k]) process.env[k] = env[k];
-      }
+      injectServerEnv(env);
 
       server.middlewares.use(async (req, res, next) => {
         if (!req.url || !req.url.startsWith('/api/llm/')) return next();

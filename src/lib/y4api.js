@@ -1,5 +1,8 @@
 // Y4 综合测评 API 客户端。
 // 浏览器只调用同源 /api/y4/* 代理；API Key 由服务端注入，此处不持有任何密钥。
+// 代理要求导师及以上登录态，请求携带 Supabase access_token。
+
+import { getAccessToken } from './supabase.js';
 
 const BASE = '/api/y4';
 
@@ -12,16 +15,22 @@ export class Y4ApiError extends Error {
 }
 
 const STATUS_MESSAGES = {
-  401: 'Y4 接口密钥无效或缺失，请联系管理员检查服务端配置',
+  401: '登录状态无效或已过期，请重新登录后重试；若仍失败请联系管理员检查 Y4 密钥',
+  403: '仅导师及以上账号可使用 Y4 相关功能',
   404: 'Y4 中未找到该资源（学生或报告可能不存在 / 报告文件已被清理）',
   429: 'Y4 请求过于频繁（每分钟上限 60 次），请稍后重试',
-  503: 'Y4 服务端尚未配置 API Key，请联系凭远管理员',
+  503: '服务端尚未完成配置（Y4 密钥或登录校验环境变量），请联系管理员',
 };
 
 async function request(path, { signal } = {}) {
   let res;
   try {
-    res = await fetch(`${BASE}/${path}`, { method: 'GET', signal });
+    const token = await getAccessToken();
+    res = await fetch(`${BASE}/${path}`, {
+      method: 'GET',
+      signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
     throw new Y4ApiError('无法连接 Y4 代理，请检查网络后重试', 0);

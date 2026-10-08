@@ -2,7 +2,13 @@
 // 仅服务端持有 LLM_API_KEY，前端只调用同源 /api/llm/meeting-notes。
 // 使用 OpenAI 兼容接口（ARK/Doubao、DeepSeek、Qwen、OpenAI 等均可，通过 env 配置）。
 
+import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
+
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+
+// 输入上限：防滥用与超长 prompt（会议纪要远超 4 万字已属异常）
+const MAX_MINUTES = 40000;
+const MAX_ROWS = 50;
 
 function stripCodeFence(text) {
   return String(text || '')
@@ -28,6 +34,13 @@ export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: '仅支持 POST 请求' });
+    return;
+  }
+
+  // 鉴权：仅导师及以上账号
+  const auth = await requireMentor(req);
+  if (!auth.ok) {
+    sendDenied(res, auth);
     return;
   }
 
@@ -66,8 +79,16 @@ export default async function handler(req, res) {
     res.status(400).json({ ok: false, error: '请先粘贴会议纪要' });
     return;
   }
+  if (minutes.length > MAX_MINUTES) {
+    res.status(400).json({ ok: false, error: `会议纪要过长（上限 ${MAX_MINUTES} 字），请精简后重试` });
+    return;
+  }
   if (rows.length === 0) {
     res.status(400).json({ ok: false, error: '没有可生成佐证的排查项' });
+    return;
+  }
+  if (rows.length > MAX_ROWS) {
+    res.status(400).json({ ok: false, error: `排查项数量超出上限（最多 ${MAX_ROWS} 条）` });
     return;
   }
 

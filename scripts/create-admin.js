@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireSupabase, requireEnv } from './env.js';
 
-const SUPABASE_URL = 'https://rkmspodctprrwmeiteos.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV09hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y65p0ZM';
+const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY } = requireSupabase();
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const ADMIN_EMAIL = 'admin@yibc.com';
-const ADMIN_PASSWORD = 'Admin@2026!';
+const ADMIN_PASSWORD = requireEnv('SCRIPT_ADMIN_PASSWORD', 'admin@yibc.com 的密码');
 
 async function createAdmin() {
   console.log('Creating super admin (role=3) account...');
@@ -80,7 +80,7 @@ async function createAdmin() {
     console.log('\n========================================');
     console.log('  超级管理员账号创建完成');
     console.log('  邮箱:', ADMIN_EMAIL);
-    console.log('  密码:', ADMIN_PASSWORD);
+    console.log('  密码: 见 .env.scripts（SCRIPT_ADMIN_PASSWORD）');
     console.log('========================================');
   } catch (err) {
     console.error('Error:', err);

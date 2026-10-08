@@ -2,7 +2,12 @@
 // 只输出协议中真实出现的学科信息；找不到时返回空数组，不编造。
 // OpenAI 兼容接口，LLM_API_KEY 仅服务端持有。
 
+import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
+
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+
+// 输入上限：真实 Y4 协议约 2.7 万字，6 万字上限只拦截异常超大请求
+const MAX_PROTOCOL = 60000;
 
 function stripCodeFence(text) {
   return String(text || '')
@@ -30,6 +35,13 @@ export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: '仅支持 POST 请求' });
+    return;
+  }
+
+  // 鉴权：仅导师及以上账号
+  const auth = await requireMentor(req);
+  if (!auth.ok) {
+    sendDenied(res, auth);
     return;
   }
 
@@ -64,6 +76,10 @@ export default async function handler(req, res) {
   const studentName = String(payload?.studentName || '').slice(0, 50);
   if (!protocolMd) {
     res.status(400).json({ ok: false, error: '缺少 Y4 协议内容' });
+    return;
+  }
+  if (protocolMd.length > MAX_PROTOCOL) {
+    res.status(400).json({ ok: false, error: `协议内容过长（上限 ${MAX_PROTOCOL} 字），请截取后重试` });
     return;
   }
 

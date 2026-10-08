@@ -12,8 +12,12 @@ import json
 import requests
 from datetime import datetime, timedelta, time as dtime
 
-SUPABASE_URL = os.getenv("VITE_SUPABASE_URL", "https://rkmspodctprrwmeiteos.supabase.co")
-SERVICE_KEY = os.getenv("VITE_SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL") or ""
+SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("VITE_SUPABASE_SERVICE_ROLE_KEY") or ""
+
+if not SUPABASE_URL:
+    print("错误: 请设置 SUPABASE_URL 环境变量（见 .env.scripts.example）")
+    sys.exit(1)
 
 if not SERVICE_KEY:
     print("ERROR: Set VITE_SUPABASE_SERVICE_ROLE_KEY env var first")

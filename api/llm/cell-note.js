@@ -2,7 +2,12 @@
 // 基于会议纪要生成该区域文本，并摘出纪要中的原文证据片段（供前端高亮）。
 // 与 meeting-notes.js 同样使用 OpenAI 兼容接口，LLM_API_KEY 仅服务端持有。
 
+import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
+
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+
+// 输入上限：与 meeting-notes 保持一致
+const MAX_MINUTES = 40000;
 
 function stripCodeFence(text) {
   return String(text || '')
@@ -51,6 +56,13 @@ export default async function handler(req, res) {
     return;
   }
 
+  // 鉴权：仅导师及以上账号
+  const auth = await requireMentor(req);
+  if (!auth.ok) {
+    sendDenied(res, auth);
+    return;
+  }
+
   const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) {
     res.status(503).json({ ok: false, error: '服务端未配置 LLM_API_KEY' });
@@ -87,6 +99,10 @@ export default async function handler(req, res) {
 
   if (!minutes) {
     res.status(400).json({ ok: false, error: '请先粘贴会议纪要' });
+    return;
+  }
+  if (minutes.length > MAX_MINUTES) {
+    res.status(400).json({ ok: false, error: `会议纪要过长（上限 ${MAX_MINUTES} 字），请精简后重试` });
     return;
   }
   if (!label) {

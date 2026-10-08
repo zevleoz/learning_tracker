@@ -5,11 +5,16 @@ Run with: python3 scripts/seed_test_data.py --key YOUR_SERVICE_ROLE_KEY
 """
 
 import argparse
+import os
+import sys
 import requests
 import json
 from datetime import datetime, timedelta
 
-SUPABASE_URL = "https://rkmspodctprrwmeiteos.supabase.co"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+if not SUPABASE_URL:
+    print("错误: 请设置 SUPABASE_URL 环境变量（见 .env.scripts.example）")
+    sys.exit(1)
 JEFF_ID = "e233e55e-9af4-4174-b254-7ae77d8309f4"
 
 def get_headers(service_key):

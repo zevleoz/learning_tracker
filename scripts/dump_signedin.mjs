@@ -1,11 +1,12 @@
 // 登录并查询所有学习记录，帮助排查 letter grade 不显示的问题
 import { createClient } from '@supabase/supabase-js'
+import { requireSupabase, requireEnv } from './env.js'
 
-const SUPABASE_URL = 'https://rkmspodctprrwmeiteos.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV0b9hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y56pZM'
+const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY } = requireSupabase()
 
+// 目标账号：tester@example.com（学生测试账号），密码来自 SCRIPT_TEST_PASSWORD
 const EMAIL = process.env.SB_EMAIL || 'tester@example.com'
-const PASSWORD = process.env.SB_PASS || '123456'
+const PASSWORD = process.env.SB_PASS || requireEnv('SCRIPT_TEST_PASSWORD', '学生测试账号的密码')
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false },

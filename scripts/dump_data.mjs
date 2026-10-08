@@ -1,8 +1,8 @@
 // 读取现有学习记录 + 课程 + 档案，帮助诊断 & 准备假数据
 import { createClient } from '@supabase/supabase-js'
+import { requireSupabase } from './env.js'
 
-const SUPABASE_URL = 'https://rkmspodctprrwmeiteos.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV0b9hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y56pZM'
+const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY } = requireSupabase()
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 

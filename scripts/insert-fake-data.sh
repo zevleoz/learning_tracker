@@ -6,7 +6,7 @@ if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
   exit 1
 fi
 
-SUPABASE_URL="https://rkmspodctprrwmeiteos.supabase.co"
+: "${SUPABASE_URL:?请设置 SUPABASE_URL（见 .env.scripts.example）}"
 JEFF_ID="e233e55e-9af4-4174-b254-7ae77d8309f4"
 
 echo "=== 插入假数据开始 ==="

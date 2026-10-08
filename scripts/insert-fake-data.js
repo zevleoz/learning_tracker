@@ -1,12 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireEnv } from './env.js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://rkmspodctprrwmeiteos.supabase.co';
-const serviceKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
-
-if (!serviceKey) {
-  console.error('请设置 VITE_SUPABASE_SERVICE_ROLE_KEY 环境变量');
-  process.exit(1);
-}
+const supabaseUrl = process.env.VITE_SUPABASE_URL || requireEnv('SUPABASE_URL', 'Supabase 项目 URL');
+const serviceKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || requireEnv('SUPABASE_SERVICE_ROLE_KEY', 'service role key');
 
 const supabase = createClient(supabaseUrl, serviceKey);
 

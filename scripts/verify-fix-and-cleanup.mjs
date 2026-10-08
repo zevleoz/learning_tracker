@@ -1,12 +1,13 @@
 // 验证修复：用与修复后代码完全一致的查询与排序/过滤逻辑，确认 E2E-B（10/3 补填）能被老师端看到
 // 然后软删 E2E-A / E2E-B 两条测试记录
 import { createClient } from '@supabase/supabase-js'
+import { requireSupabase, requireEnv } from './env.js'
 
-const SUPABASE_URL = 'https://rkmspodctprrwmeiteos.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV09hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y65p0ZM'
+const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY } = requireSupabase()
+const ADMIN_PASSWORD = requireEnv('SCRIPT_ADMIN_PASSWORD', 'admin@yibc.com 的密码')
 
 const admin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-const { error: signErr } = await admin.auth.signInWithPassword({ email: 'admin@yibc.com', password: 'Admin@2026!' })
+const { error: signErr } = await admin.auth.signInWithPassword({ email: 'admin@yibc.com', password: ADMIN_PASSWORD })
 if (signErr) { console.error('admin 登录失败:', signErr.message); process.exit(1) }
 
 // 找到测试学生

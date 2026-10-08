@@ -1,11 +1,12 @@
 // 以学生身份插入 2 条记录：A=今天(10/6)、B=补填上周六(10/3)，复现"学生补填老师看不到"
 import { createClient } from '@supabase/supabase-js'
+import { requireSupabase, requireEnv } from './env.js'
 
-const SUPABASE_URL = 'https://rkmspodctprrwmeiteos.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrbXNwb2RjdHBycndtZWl0ZW9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NTcxNDcsImV4cCI6MjA5NzMzMzE0N30.hmV09hgpQ2xcO6PoTJqhuQGvRErxbHuQ76w-Y65p0ZM'
+const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY } = requireSupabase()
+const TEST_PASSWORD = requireEnv('SCRIPT_TEST_PASSWORD', '学生测试账号的密码')
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-const { error: signErr } = await supabase.auth.signInWithPassword({ email: 'test@school.edu', password: '111111' })
+const { error: signErr } = await supabase.auth.signInWithPassword({ email: 'test@school.edu', password: TEST_PASSWORD })
 if (signErr) { console.error('学生登录失败:', signErr.message); process.exit(1) }
 const { data: { user } } = await supabase.auth.getUser()
 console.log('学生已登录:', user.id)

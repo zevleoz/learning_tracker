@@ -12,6 +12,7 @@ import {
 } from '../../lib/e4ReportTemplate.js';
 import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
+import { useMergedAutosave } from '../../lib/useAutosave.js';
 import { summarizeMeetingNotes, generateCellNote } from '../../lib/llm.js';
 import FirstReportPrint from '../../components/e4/FirstReportPrint.jsx';
 import DatePicker from '../../components/ui/date-picker.jsx';
@@ -132,9 +133,8 @@ function BuildFlow({ reportId }) {
   const [meetingDate, setMeetingDate] = useState('');
   const [reportDate, setReportDate] = useState(todayISO());
   const [minutesOpen, setMinutesOpen] = useState(false);
-  const [saveState, setSaveState] = useState('idle'); // idle | saving | saved
-  const [savedAt, setSavedAt] = useState('');
   const [finalizing, setFinalizing] = useState(false);
+  const [revokeOpen, setRevokeOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [rebuildOpen, setRebuildOpen] = useState(false);
   const [jFilter, setJFilter] = useState('全部'); // 核对矩阵筛选：全部 / 各判断状态 / 待核实
@@ -145,8 +145,16 @@ function BuildFlow({ reportId }) {
   const [evidence, setEvidence] = useState([]); // 最近一次 AI 生成的纪要原文证据（侧栏高亮）
   const [openRows, setOpenRows] = useState({}); // 矩阵行展开状态提升到父级：支持全部展开/收起
   const matrixPanelRef = useRef(null);
-  const saveTimer = useRef(null);
-  const firstSave = useRef(true);
+
+  // 最终版锁定：定稿后工作台只读，撤回后才恢复编辑
+  const locked = report?.status === 'final';
+
+  // 定稿后工作台固定停在“完成”页只读；撤回后回到原来所在步骤
+  const activeStep = locked ? 'finish' : step;
+
+  const { saveState, savedAt, persist, flush } = useMergedAutosave(
+    useCallback((patch) => updateReport(reportId, patch), [reportId])
+  );
 
   useEffect(() => {
     getReport(reportId)
@@ -164,37 +172,21 @@ function BuildFlow({ reportId }) {
       .catch((e) => setLoadError(e.message));
   }, [reportId]);
 
-  const persist = useCallback((patch) => {
-    setSaveState('saving');
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await updateReport(reportId, patch);
-        setSaveState('saved');
-        setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
-      } catch {
-        setSaveState('idle');
-        toast('自动保存失败，请检查网络', { kind: 'error' });
-      }
-    }, firstSave.current ? 0 : 700);
-    firstSave.current = false;
-  }, [reportId]);
-
-  // 表单变化 → 自动保存
+  // 表单变化 → 自动保存（合并式：与会议纪要、日期字段共用一个待存区，互不取消）
   useEffect(() => {
-    if (!form) return;
+    if (!form || locked) return;
     persist({ form_data: form });
-  }, [form, persist]);
+  }, [form, persist, locked]);
 
   useEffect(() => {
-    if (!report) return;
+    if (!report || locked) return;
     persist({ minutes_text: minutes });
-  }, [minutes, report, persist]);
+  }, [minutes, report, persist, locked]);
 
   useEffect(() => {
-    if (!report) return;
+    if (!report || locked) return;
     persist({ meeting_date: meetingDate || null, report_date: reportDate || null });
-  }, [meetingDate, reportDate, report, persist]);
+  }, [meetingDate, reportDate, report, persist, locked]);
 
   const updateCover = (patch) => setForm((f) => ({ ...f, cover: { ...f.cover, ...patch } }));
 
@@ -510,14 +502,26 @@ function BuildFlow({ reportId }) {
     }
     setFinalizing(true);
     try {
-      clearTimeout(saveTimer.current);
+      await flush(); // 定稿前先把待存内容落盘
       await updateReport(reportId, { status: 'final' });
       setReport((r) => ({ ...r, status: 'final' }));
-      toast('已标记为最终版', { kind: 'success' });
+      toast('已标记为最终版，工作台转为只读', { kind: 'success' });
     } catch (e) {
       toast(e.message, { kind: 'error' });
     } finally {
       setFinalizing(false);
+    }
+  }
+
+  // 撤回最终版：显式确认后回到草稿，恢复编辑
+  async function revokeFinal() {
+    setRevokeOpen(false);
+    try {
+      await updateReport(reportId, { status: 'draft' });
+      setReport((r) => ({ ...r, status: 'draft' }));
+      toast('已撤回最终版，可继续编辑', { kind: 'success' });
+    } catch (e) {
+      toast(e.message, { kind: 'error' });
     }
   }
 
@@ -560,15 +564,16 @@ function BuildFlow({ reportId }) {
           </button>
           <div className="e4-stepper">
             {STEPS.map((s, i) => {
-              const stepIndex = STEPS.findIndex((x) => x.id === step);
+              const stepIndex = STEPS.findIndex((x) => x.id === activeStep);
               return (
                 <button
                   type="button"
                   key={s.id}
-                  className={`e4-step ${step === s.id ? 'active' : ''} ${i < stepIndex ? 'is-done' : ''}`}
+                  className={`e4-step ${activeStep === s.id ? 'active' : ''} ${i < stepIndex ? 'is-done' : ''}`}
+                  disabled={locked}
                   onClick={() => setStep(s.id)}
                 >
-                  {step === s.id && (
+                  {activeStep === s.id && (
                     <motion.span
                       className="e4-step-pill"
                       layoutId="e4-step-pill"
@@ -583,7 +588,8 @@ function BuildFlow({ reportId }) {
           </div>
         </div>
         <div className="e4-command-right">
-          {step === 'matrix' && (
+          {locked && <span className="e4-status-badge e4-status-final">最终版</span>}
+          {activeStep === 'matrix' && (
             <>
               {pendingCount > 0 && (
                 <span className="e4-pending-pill" title="会议核实情况仍为空的排查项">
@@ -634,7 +640,7 @@ function BuildFlow({ reportId }) {
       </div>
 
       {/* ---- 步骤 1：会议信息 ---- */}
-      {step === 'meta' && (
+      {activeStep === 'meta' && (
         <div className="e4-step-panel">
           <h2 className="e4-section-title">首次会议信息</h2>
           <div className="e4-form-grid">
@@ -689,7 +695,7 @@ function BuildFlow({ reportId }) {
       )}
 
       {/* ---- 步骤 2：核对矩阵（常驻挂载：切换步骤后保留行展开/滚动状态） ---- */}
-      <div className="e4-step-panel" style={{ display: step === 'matrix' ? undefined : 'none' }}>
+      <div className="e4-step-panel" style={{ display: activeStep === 'matrix' ? undefined : 'none' }}>
           <div className="e4-matrix-head">
             <h2 className="e4-section-title">逐行核对四个维度</h2>
             <div className="e4-head-actions">
@@ -810,7 +816,7 @@ function BuildFlow({ reportId }) {
       </div>
 
       {/* ---- 步骤 3：综合判断 ---- */}
-      {step === 'judgment' && (
+      {activeStep === 'judgment' && (
         <div className="e4-step-panel">
           <h2 className="e4-section-title">第 07 页 · 综合判断</h2>
           <p className="e4-step-hint">
@@ -948,7 +954,7 @@ function BuildFlow({ reportId }) {
       )}
 
       {/* ---- 步骤 4：完成 ---- */}
-      {step === 'finish' && (
+      {activeStep === 'finish' && (
         <div className="e4-step-panel">
           <h2 className="e4-section-title">完成并导出</h2>
           <p className="e4-step-hint">导出前检查以下必填信息；点击任意一项可直接跳回对应步骤补全。</p>
@@ -994,27 +1000,40 @@ function BuildFlow({ reportId }) {
                    strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              必填信息已齐全。下方就是最终排版，点击任意文字可直接修改；改完点「预览 / 下载 PDF」导出。
+              {locked
+                ? '本报告已定稿为最终版，下方为只读排版稿；如需修改，请先撤回最终版。'
+                : '必填信息已齐全。下方就是最终排版，点击任意文字可直接修改；改完点「预览 / 下载 PDF」导出。'}
             </p>
           )}
 
-          {/* 最终文档：与 PDF 同版式，点哪改哪；编辑只在屏内出现，打印样式不受影响 */}
+          {/* 最终文档：与 PDF 同版式，点哪改哪；定稿后转为只读 */}
           <div className="e4-finish-doc-wrap">
             <FirstReportPrint
-              editable
+              editable={!locked}
               report={{ ...report, meeting_date: meetingDate, report_date: reportDate, form_data: form }}
               onPatch={handleDocPatch}
               onTableOp={handleTableOp}
-              aiFor={aiForDoc}
+              aiFor={locked ? undefined : aiForDoc}
             />
           </div>
 
           <div className="e4-finish-actions">
-            <button type="button" className="e4-btn-ghost" onClick={() => setStep('judgment')}>返回修改</button>
-            <button type="button" className="e4-btn-ghost" onClick={openPrint}>预览 / 下载 PDF</button>
-            <button type="button" className="e4-btn-primary" disabled={finalizing || missingRequired.length > 0} onClick={markFinal}>
-              {finalizing ? '处理中…' : report.status === 'final' ? '已为最终版（仍可更新）' : '标记为最终版'}
-            </button>
+            {locked ? (
+              <>
+                <button type="button" className="e4-btn-ghost" onClick={openPrint}>预览 / 下载 PDF</button>
+                <button type="button" className="e4-btn-ghost e4-btn-danger-ghost" onClick={() => setRevokeOpen(true)}>
+                  撤回最终版
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="e4-btn-ghost" onClick={() => setStep('judgment')}>返回修改</button>
+                <button type="button" className="e4-btn-ghost" onClick={openPrint}>预览 / 下载 PDF</button>
+                <button type="button" className="e4-btn-primary" disabled={finalizing || missingRequired.length > 0} onClick={markFinal}>
+                  {finalizing ? '处理中…' : '标记为最终版'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1046,6 +1065,16 @@ function BuildFlow({ reportId }) {
         variant="danger"
         onConfirm={rebuildFromProtocol}
         onCancel={() => setRebuildOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={revokeOpen}
+        title="撤回最终版"
+        message="撤回后本报告回到草稿状态，工作台恢复编辑；已导出的 PDF 不受影响。确定撤回？"
+        confirmLabel="撤回最终版"
+        variant="danger"
+        onConfirm={revokeFinal}
+        onCancel={() => setRevokeOpen(false)}
       />
     </div>
   );

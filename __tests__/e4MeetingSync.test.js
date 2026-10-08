@@ -1,4 +1,29 @@
-import { extractPrepMeetingDate, prepMeetingPatch } from '../src/lib/e4MeetingSync.js';
+import { extractPrepMeetingDate, prepMeetingPatch, extractNextReviewDate } from '../src/lib/e4MeetingSync.js';
+
+describe('extractNextReviewDate（BUG-2：按报告类型取字段）', () => {
+  it('first 报告读 section07.nextReviewDate', () => {
+    expect(extractNextReviewDate('first', { section07: { nextReviewDate: '2026-11-01' } })).toBe('2026-11-01');
+  });
+
+  it('first 报告的区间值取起始日', () => {
+    expect(extractNextReviewDate('first', { section07: { nextReviewDate: '2026-11-01~2026-11-30' } })).toBe('2026-11-01');
+  });
+
+  it('progress 报告读 p8.reviewDate（此前永远取不到，导致待办日期链断裂）', () => {
+    expect(extractNextReviewDate('progress', { p8: { reviewDate: '2026-12-15' } })).toBe('2026-12-15');
+  });
+
+  it('progress 报告不会误读 first 形状的字段', () => {
+    expect(extractNextReviewDate('progress', { section07: { nextReviewDate: '2026-11-01' } })).toBeNull();
+  });
+
+  it('缺失或非法值返回 null', () => {
+    expect(extractNextReviewDate('progress', {})).toBeNull();
+    expect(extractNextReviewDate('progress', null)).toBeNull();
+    expect(extractNextReviewDate('first', { section07: { nextReviewDate: '待定' } })).toBeNull();
+    expect(extractNextReviewDate('first', { section07: { nextReviewDate: '' } })).toBeNull();
+  });
+});
 
 describe('extractPrepMeetingDate', () => {
   it('提取合法的会议日期', () => {

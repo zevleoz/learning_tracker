@@ -8,12 +8,17 @@ import {
   getE4Student, getReport, listReportsForStudent, createProgressReport, updateReport,
 } from '../../lib/e4Store.js';
 import { fetchProgressSessions, fetchProgressSyllabus, aggregateProgress, ProgressDataError } from '../../lib/e4ProgressData.js';
-import { buildProgressDraft, PROGRESS_MODULES } from '../../lib/e4ProgressTemplate.js';
+import { buildProgressDraft, PROGRESS_MODULES, extractCarry } from '../../lib/e4ProgressTemplate.js';
 import { todayISO } from '../../lib/date.js';
 import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
+import { useMergedAutosave } from '../../lib/useAutosave.js';
 import ProgressPrint from '../../components/e4/ProgressPrint.jsx';
 import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
+import DatePicker from '../../components/ui/date-picker.jsx';
+
+// 与其它 E4 工作台一致的日期控件外观（UI-2：不再使用原生 date input）
+const dateFieldCls = 'h-auto rounded-[9px] px-3 py-[9px] text-[13.5px] font-normal text-slate-900';
 
 // A4 文档固定 210mm：左栏预览按容器宽度整体缩放，高度随内容联动
 function ScaledDoc({ children }) {
@@ -90,17 +95,11 @@ function NewProgressFlow({ studentId }) {
 
       // 报告期数 = 已有过程报告数 + 1
       const progressCount = (reports || []).filter((r) => r.report_type === 'progress').length;
-      // 上阶段承接：取最新一份 first/progress 报告的 section07
+      // 上阶段承接：取最新一份 first/progress 报告，字段按类型分派（见 extractCarry）
       const prior = [...(reports || [])]
         .filter((r) => r.report_type === 'first' || r.report_type === 'progress')
         .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
-      const carry = {
-        priorIssues: prior?.form_data?.section07?.nextReviewFocus || '',
-        priorDirection: (prior?.form_data?.section07?.solutions || [])
-          .map((x) => x.direction)
-          .filter(Boolean)
-          .join('；'),
-      };
+      const carry = extractCarry(prior);
 
       const draft = buildProgressDraft(aggregate, student, {
         issueNumber: progressCount + 1,
@@ -148,9 +147,9 @@ function NewProgressFlow({ studentId }) {
           </p>
           <div className="e4-progress-period-field">
             <label className="e4-progress-period-label">复盘周期</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <DatePicker value={startDate} onChange={setStartDate} className={dateFieldCls} placeholder="开始日期" />
             <span className="e4-progress-period-field-sep">至</span>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <DatePicker value={endDate} onChange={setEndDate} className={dateFieldCls} placeholder="结束日期" />
           </div>
           {phase === 'fetching' && (
             <div className="e4-fetch-progress">
@@ -181,11 +180,13 @@ function ProgressWorkbench({ reportId }) {
   const [report, setReport] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState(null);
-  const [saveState, setSaveState] = useState('idle'); // idle | saving | saved
-  const [savedAt, setSavedAt] = useState('');
   const [printOpen, setPrintOpen] = useState(false);
-  const saveTimer = useRef(null);
-  const firstSave = useRef(true);
+
+  // 最终版锁定（与其他 E4 工作台同策略；过程报告当前不提供定稿入口，防御性支持）
+  const locked = report?.status === 'final';
+  const { saveState, savedAt, persist } = useMergedAutosave(
+    useCallback((patch) => updateReport(reportId, patch), [reportId])
+  );
 
   useEffect(() => {
     getReport(reportId)
@@ -204,26 +205,10 @@ function ProgressWorkbench({ reportId }) {
       .catch((e) => setLoadError(e.message));
   }, [reportId]);
 
-  const persist = useCallback((patch) => {
-    setSaveState('saving');
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await updateReport(reportId, patch);
-        setSaveState('saved');
-        setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
-      } catch {
-        setSaveState('idle');
-        toast('自动保存失败，请检查网络', { kind: 'error' });
-      }
-    }, firstSave.current ? 0 : 700);
-    firstSave.current = false;
-  }, [reportId]);
-
   useEffect(() => {
-    if (!form) return;
+    if (!form || locked) return;
     persist({ form_data: form });
-  }, [form, persist]);
+  }, [form, persist, locked]);
 
   // ProgressPrint 的 desc 协议统一写入口
   const updateField = useCallback((desc, value) => {
@@ -340,7 +325,7 @@ function ProgressWorkbench({ reportId }) {
       <div className="e4-progress-workbench">
         <div className="e4-progress-preview">
           <ScaledDoc>
-            <ProgressPrint report={{ ...report, form_data: form }} editable onPatch={updateField} onTableOp={onTableOp} />
+            <ProgressPrint report={{ ...report, form_data: form }} editable={!locked} onPatch={updateField} onTableOp={onTableOp} />
           </ScaledDoc>
         </div>
         <aside className="e4-prep-panel">

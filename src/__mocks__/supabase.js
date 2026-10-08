@@ -13,6 +13,8 @@ let mockTables = {
 let mockRpcResponses = {};        // per-RPC-name override: { [rpcName]: { data, error } }
 let mockRpcDefault = { data: null, error: null };  // fallback for any RPC
 
+let mockStorage = {};             // bucket -> { [path]: fileName }
+
 const callHistory = [];
 
 function resetMocks() {
@@ -25,6 +27,7 @@ function resetMocks() {
   };
   mockRpcResponses = {};
   mockRpcDefault = { data: null, error: null };
+  mockStorage = {};
   callHistory.length = 0;
 }
 
@@ -71,6 +74,11 @@ function createMockQueryBuilder(tableName) {
       return this;
     },
 
+    ilike(field, value) {
+      this.filters.push({ type: 'ilike', field, value });
+      return this;
+    },
+
     not(field, operator, value) {
       this.filters.push({ type: 'not', field, operator, value });
       return this;
@@ -83,6 +91,11 @@ function createMockQueryBuilder(tableName) {
 
     limit(count) {
       this.limitCount = count;
+      return this;
+    },
+
+    abortSignal(signal) {
+      this.abortSignalValue = signal;
       return this;
     },
 
@@ -216,6 +229,15 @@ function createMockQueryBuilder(tableName) {
             if (filter.operator === 'eq') return row[filter.field] !== filter.value;
           }
           if (filter.type === 'gte') return row[filter.field] >= filter.value;
+          if (filter.type === 'ilike') {
+            // 支持转义后的 % _ \（与 PostgREST ilike 的语义一致：无通配符时按包含匹配）
+            const needle = String(filter.value)
+              .replace(/^%/, '')
+              .replace(/%$/, '')
+              .replace(/\\([\\%_])/g, '$1')
+              .toLowerCase();
+            return String(row[filter.field] || '').toLowerCase().includes(needle);
+          }
           return true;
         });
       }
@@ -353,6 +375,33 @@ const supabase = {
     return Promise.resolve(response);
   },
 
+  // Storage（仅供成长地图等文件上传测试；真实实现走 Supabase Storage）
+  storage: {
+    from(bucket) {
+      return {
+        async upload(path, file) {
+          trackCall('storage.upload', bucket, { path, fileName: file?.name });
+          mockStorage[bucket] = mockStorage[bucket] || {};
+          mockStorage[bucket][path] = file?.name || String(file);
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path, expiresIn, options) {
+          trackCall('storage.createSignedUrl', bucket, { path, expiresIn, options });
+          const hit = (mockStorage[bucket] || {})[path];
+          if (!hit) return { data: null, error: { message: 'Object not found' } };
+          return { data: { signedUrl: `https://mock.storage/${bucket}/${path}?token=mock` }, error: null };
+        },
+        async remove(paths = []) {
+          trackCall('storage.remove', bucket, { paths });
+          for (const p of paths) {
+            if (mockStorage[bucket]) delete mockStorage[bucket][p];
+          }
+          return { data: null, error: null };
+        },
+      };
+    },
+  },
+
   channel(name) {
     return {
       on(event, options, callback) {
@@ -380,6 +429,16 @@ const supabase = {
   __setRpcResponse: (name, response) => { mockRpcResponses[name] = response; },
   __setRpcDefault: (response) => { mockRpcDefault = response; },
 };
+
+// 与服务端代理约定：从本地 session 取 access_token（真实实现见 src/lib/supabase.js）
+export async function getAccessToken() {
+  return mockAuthState.session?.access_token || '';
+}
+
+// 查询超时放宽通道（真实实现见 src/lib/supabase.js；mock 不做真实超时）
+export function timeoutSignal(ms) {
+  return { __timeoutMs: ms };
+}
 
 export { supabase };
 export default supabase;

@@ -138,6 +138,31 @@ function emptySubject(name = '') {
 const emptySolution = () => ({ direction: '', arrangement: '' });
 
 /**
+ * 从上期报告提取「上阶段承接」内容，按报告类型分派字段：
+ *   first    → form_data.section07.{nextReviewFocus, solutions[]}
+ *   progress → form_data.p8.{goal1, goal2, solutions[]}
+ * 之前只认 section07，导致第二份起的过程报告（上期是 progress）承接为空。
+ * @returns {{ priorIssues: string, priorDirection: string }}
+ */
+export function extractCarry(prior) {
+  const empty = { priorIssues: '', priorDirection: '' };
+  const fd = prior?.form_data;
+  if (!fd) return empty;
+  const src = prior.report_type === 'progress' ? fd.p8 : fd.section07;
+  if (!src) return empty;
+
+  const priorIssues = prior.report_type === 'progress'
+    ? [src.goal1, src.goal2].map((x) => String(x || '').trim()).filter(Boolean).join('；')
+    : String(src.nextReviewFocus || '').trim();
+  const priorDirection = (Array.isArray(src.solutions) ? src.solutions : [])
+    .map((x) => String(x?.direction || '').trim())
+    .filter(Boolean)
+    .join('；');
+
+  return { priorIssues, priorDirection };
+}
+
+/**
  * 聚合结果 + 学生 + 上期承接 → 过程报告草稿。
  * @param {Object} aggregate aggregateProgress 结果
  * @param {Object} student   e4_students 行

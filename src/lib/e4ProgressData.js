@@ -3,6 +3,7 @@
 // 量化字段可自动预填；定性字段（观察/判断/情绪/方案）留给导师填写。
 import { supabase } from './supabase.js';
 import { stripToDate, isWeekday } from './date.js';
+import { subjectiveLabel } from './rating.js';
 
 export class ProgressDataError extends Error {}
 
@@ -74,9 +75,6 @@ function avg(nums) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
-// 主观自评 20/40/60/80/100 → 标签
-const RATING_LABEL = { 100: '完全掌握', 80: '基本掌握', 60: '大致掌握', 40: '掌握不足', 20: '几乎未掌握' };
-
 // 组装「练习质量」的客观/主观评价一句（仅由已记录数据生成，供导师改写）
 function evalText(stats) {
   const parts = [];
@@ -86,7 +84,8 @@ function evalText(stats) {
   }
   if (stats.subjectiveCount > 0) {
     const mean = Math.round(stats.subjectiveSum / stats.subjectiveCount);
-    parts.push(`主观 ${stats.subjectiveCount} 次（均 ${RATING_LABEL[mean] || mean}）`);
+    // 主观刻度文案统一取自 rating.js（报告口径），均分未落在档位上时回落为数值
+    parts.push(`主观 ${stats.subjectiveCount} 次（均 ${subjectiveLabel(mean, { formal: true }) || mean}）`);
   }
   return parts.join('；');
 }
@@ -102,8 +101,6 @@ export function aggregateProgress(rows, startDate, endDate, syllabus = []) {
   const totalDays = daysBetween(startDate, endDate);
   const calendar = {}; // "YYYY-MM-DD" -> 分钟
   const recordedDays = new Set();
-  const weekdayMins = [];
-  const weekendMins = [];
   let totalMinutes = 0;
   const bySubject = new Map();
 
@@ -113,7 +110,6 @@ export function aggregateProgress(rows, startDate, endDate, syllabus = []) {
     recordedDays.add(d);
     totalMinutes += mins;
     calendar[d] = (calendar[d] || 0) + mins;
-    (isWeekday(d) ? weekdayMins : weekendMins).push(mins);
 
     const subject = String(pickCourse(r)?.name || '').trim() || '未分类';
     let s = bySubject.get(subject);
@@ -186,13 +182,21 @@ export function aggregateProgress(rows, startDate, endDate, syllabus = []) {
     subjectSet.add(name);
   }
 
+  // 工作日/周末平均 = 「有记录的日子」的每日平均投入（不是平均每段会话），
+  // 与报告文案「有记录工作日平均」一致。
+  const weekdayDayMins = [];
+  const weekendDayMins = [];
+  for (const [day, mins] of Object.entries(calendar)) {
+    (isWeekday(day) ? weekdayDayMins : weekendDayMins).push(mins);
+  }
+
   return {
     period: { start: startDate, end: endDate, totalDays },
     summary: {
       recordDays: recordedDays.size,
       totalMinutes,
-      weekdayAvgMins: avg(weekdayMins),
-      weekendAvgMins: avg(weekendMins),
+      weekdayAvgMins: avg(weekdayDayMins),
+      weekendAvgMins: avg(weekendDayMins),
     },
     calendar,
     subjects,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { logger } from './logger';
+import { toast } from './toast.js';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -50,24 +51,27 @@ export function useAuth() {
         .select('id, role, full_name, default_workspace, created_at')
         .eq('id', uid)
         .maybeSingle();
-      if (!error) {
-        if (data) {
-          // 安全原则：始终信任 profiles 表的 role（数据库权威来源），
-          // 不信任 user_metadata.role（用户可自行修改 → 提权风险）
-          if (metaRole && Number(metaRole) !== data.role) {
-            logger.warn('Role mismatch: DB role takes precedence over user_metadata', {
-              user_metadata_role: metaRole,
-              profiles_role: data.role,
-            });
-          }
-          setProfile({ ...data, role: data.role });
-        } else if (metaRole) {
-          // 仅当 profile 行尚未创建时（trigger 延迟），临时回退到 user_metadata
-          setProfile({ id: uid, role: Number(metaRole), full_name: 'User' });
+      if (error) throw error;
+      if (data) {
+        // 安全原则：始终信任 profiles 表的 role（数据库权威来源），
+        // 不信任 user_metadata.role（用户可自行修改 → 提权风险）
+        if (metaRole && Number(metaRole) !== data.role) {
+          logger.warn('Role mismatch: DB role takes precedence over user_metadata', {
+            user_metadata_role: metaRole,
+            profiles_role: data.role,
+          });
         }
+        setProfile({ ...data, role: data.role });
+        return;
       }
+      // profile 行尚未创建（trigger 延迟）：按学生处理，不用 metadata 判定导师身份
+      setProfile({ id: uid, role: 1, full_name: 'User' });
     } catch (err) {
-      logger.warn('loadProfile failed, using fallback:', err);
+      // fail-closed：读不到权威角色时一律按学生处理，
+      // 否则 user_metadata 被篡改即可让界面进入导师工作区
+      logger.warn('loadProfile failed, falling back to student role:', err);
+      setProfile({ id: uid, role: 1, full_name: 'User' });
+      toast('账号信息读取失败，已按学生视图显示；请检查网络后刷新重试', { kind: 'error' });
     } finally {
       setLoading(false);
     }

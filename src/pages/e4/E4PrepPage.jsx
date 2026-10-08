@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  getE4Student, getReport, createPrepReport, updateReport,
+  getE4Student, getReport, listReportsForStudent, createPrepReport, updateReport,
+  uploadGrowthMap, growthMapUrl, removeGrowthMap,
 } from '../../lib/e4Store.js';
 import { fetchProtocol, Y4ApiError } from '../../lib/y4api.js';
 import { parseE4Protocol } from '../../lib/e4ProtocolParser.js';
@@ -10,6 +11,7 @@ import {
 } from '../../lib/e4PrepTemplate.js';
 import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
+import { useMergedAutosave } from '../../lib/useAutosave.js';
 import { prefillPrepSubjects } from '../../lib/llm.js';
 import PrepPrint from '../../components/e4/PrepPrint.jsx';
 import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
@@ -144,14 +146,17 @@ function PrepWorkbench({ reportId }) {
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState(null);
   const [minutes, setMinutes] = useState('');
-  const [saveState, setSaveState] = useState('idle'); // idle | saving | saved
-  const [savedAt, setSavedAt] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const [growthMapBusy, setGrowthMapBusy] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
-  const saveTimer = useRef(null);
-  const firstSave = useRef(true);
   const panelRef = useRef(null);
   const fileRef = useRef(null);
+
+  // 最终版锁定（与其他 E4 工作台同策略；会前准备当前不提供定稿入口，防御性支持）
+  const locked = report?.status === 'final';
+  const { saveState, savedAt, persist } = useMergedAutosave(
+    useCallback((patch) => updateReport(reportId, patch), [reportId])
+  );
 
   useEffect(() => {
     getReport(reportId)
@@ -171,31 +176,15 @@ function PrepWorkbench({ reportId }) {
       .catch((e) => setLoadError(e.message));
   }, [reportId]);
 
-  const persist = useCallback((patch) => {
-    setSaveState('saving');
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await updateReport(reportId, patch);
-        setSaveState('saved');
-        setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
-      } catch {
-        setSaveState('idle');
-        toast('自动保存失败，请检查网络', { kind: 'error' });
-      }
-    }, firstSave.current ? 0 : 700);
-    firstSave.current = false;
-  }, [reportId]);
-
   useEffect(() => {
-    if (!form) return;
+    if (!form || locked) return;
     persist({ form_data: form });
-  }, [form, persist]);
+  }, [form, persist, locked]);
 
   useEffect(() => {
-    if (!report) return;
+    if (!report || locked) return;
     persist({ minutes_text: minutes });
-  }, [minutes, report, persist]);
+  }, [minutes, report, persist, locked]);
 
   // 可编辑区域的统一写入口（PrepPrint 的 desc 协议）
   const updateField = useCallback((desc, value) => {
@@ -277,8 +266,8 @@ function PrepWorkbench({ reportId }) {
     }
   }
 
-  // 成长地图 PDF：先保存文件引用，AI 提取后续版本接入
-  function handleGrowthMapFile(e) {
+  // 成长地图 PDF：上传到私有 Storage（migrations/006），form_data 只存 path + 文件名
+  async function handleGrowthMapFile(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -286,11 +275,55 @@ function PrepWorkbench({ reportId }) {
       toast('请上传 PDF 文件', { kind: 'error' });
       return;
     }
-    setForm((f) => ({
-      ...f,
-      growthMap: { fileName: file.name, uploadedAt: new Date().toISOString() },
-    }));
-    toast('成长地图已关联；AI 读取提取将在下一步接入', { kind: 'success' });
+    if (file.size > 20 * 1024 * 1024) {
+      toast('文件过大（上限 20MB）', { kind: 'error' });
+      return;
+    }
+    setGrowthMapBusy(true);
+    try {
+      const path = await uploadGrowthMap({
+        e4StudentId: report.e4_student_id,
+        reportId: report.id,
+        file,
+      });
+      setForm((f) => ({
+        ...f,
+        growthMap: { fileName: file.name, path, uploadedAt: new Date().toISOString() },
+      }));
+      toast('成长地图已上传', { kind: 'success' });
+    } catch (err) {
+      toast(err.message || '上传失败，请重试', { kind: 'error' });
+    } finally {
+      setGrowthMapBusy(false);
+    }
+  }
+
+  // 预览 / 下载：现场生成短时签名链接
+  async function openGrowthMap(download = false) {
+    const gm = form?.growthMap;
+    if (!gm?.path) {
+      toast('该文件只有引用信息（未上传到存储），请重新上传', { kind: 'info' });
+      return;
+    }
+    try {
+      const url = await growthMapUrl(gm.path, { download, fileName: gm.fileName });
+      if (!url) throw new Error('未能生成链接');
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast(err.message || '打开失败，请重试', { kind: 'error' });
+    }
+  }
+
+  async function clearGrowthMap() {
+    const gm = form?.growthMap;
+    setForm((f) => ({ ...f, growthMap: null }));
+    if (gm?.path) {
+      try {
+        await removeGrowthMap(gm.path);
+      } catch {
+        toast('已从报告移除，但存储文件删除失败，请稍后在存储中清理', { kind: 'error' });
+      }
+    }
   }
 
   // 确认清单键盘流：↑↓ 移动焦点，空格勾选，Enter 进入速记，J 下一条未勾选
@@ -407,7 +440,7 @@ function PrepWorkbench({ reportId }) {
         {/* 左栏：A4 预览（可编辑） */}
         <div className="e4-prep-preview">
           <ScaledDoc>
-            <PrepPrint report={{ ...report, form_data: form }} editable onPatch={updateField} onTableOp={onTableOp} />
+            <PrepPrint report={{ ...report, form_data: form }} editable={!locked} onPatch={updateField} onTableOp={onTableOp} />
           </ScaledDoc>
         </div>
 
@@ -492,22 +525,42 @@ function PrepWorkbench({ reportId }) {
                 <div className="e4-prep-gmap-file">
                   <span className="e4-prep-gmap-name">{form.growthMap.fileName}</span>
                   <span className="e4-prep-gmap-meta">
-                    已关联 · {new Date(form.growthMap.uploadedAt).toLocaleDateString('zh-CN')}
+                    {form.growthMap.path
+                      ? `已上传 · ${new Date(form.growthMap.uploadedAt).toLocaleDateString('zh-CN')}`
+                      : `仅引用 · ${new Date(form.growthMap.uploadedAt).toLocaleDateString('zh-CN')}`}
                   </span>
-                  <button type="button" className="e4-btn-mini" onClick={() => fileRef.current?.click()}>
-                    更换文件
+                  {form.growthMap.path ? (
+                    <>
+                      <button type="button" className="e4-btn-mini" onClick={() => openGrowthMap(false)}>
+                        预览
+                      </button>
+                      <button type="button" className="e4-btn-mini" onClick={() => openGrowthMap(true)}>
+                        下载
+                      </button>
+                    </>
+                  ) : null}
+                  <button type="button" className="e4-btn-mini" disabled={growthMapBusy} onClick={() => fileRef.current?.click()}>
+                    {growthMapBusy ? '上传中…' : '更换文件'}
+                  </button>
+                  <button type="button" className="e4-btn-mini e4-btn-danger-ghost" onClick={clearGrowthMap}>
+                    移除
                   </button>
                 </div>
               ) : (
-                <button type="button" className="e4-prep-gmap-upload" onClick={() => fileRef.current?.click()}>
+                <button
+                  type="button"
+                  className="e4-prep-gmap-upload"
+                  disabled={growthMapBusy}
+                  onClick={() => fileRef.current?.click()}
+                >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <polyline points="17 8 12 3 7 8" />
                     <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
-                  上传成长地图 PDF
-                  <span>AI 读取提取将在下一步接入</span>
+                  {growthMapBusy ? '上传中…' : '上传成长地图 PDF'}
+                  <span>文件存入私有存储，仅导师可查看</span>
                 </button>
               )}
               <input

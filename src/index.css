@@ -13336,3 +13336,151 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   outline: 2px solid rgba(79, 70, 229, 0.45);
   outline-offset: 2px;
 }
+
+/* E4 工作台：撤回最终版（ghost 形态的语义红，hover 才显现） */
+.e4-btn-danger-ghost {
+  color: var(--e4-red, #C43B3B);
+  border-color: #efd2d2;
+}
+.e4-btn-danger-ghost:hover:not(:disabled) {
+  border-color: #e4b4b4;
+  background: #fdf3f3;
+}
+
+/* E4 学生详情：Y4 原始报告只读预览（等宽文本，模态框内滚动） */
+.e4-md-preview {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 14px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* E4 学生列表：行内操作 + 已归档折叠区 */
+.e4-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.e4-archived-block {
+  margin-top: 18px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+.e4-archived-toggle {
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: #64748b;
+  cursor: pointer;
+}
+.e4-archived-toggle:hover { color: #0f172a; }
+.e4-archived-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.e4-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.e4-archived-name {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: #334155;
+  cursor: pointer;
+}
+.e4-archived-name:hover { color: #0f172a; text-decoration: underline; }
+.e4-archived-meta {
+  flex: 1;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* ================================================================
+   语义 token 层（UI-1）
+   目标：形状语言与控件统一，三端各自保留色彩身份（不统一颜色）。
+   规则：
+   - 新代码只用语义名（--surface / --text-1 / --line / --brand / 半径刻度 / 控件高度）；
+   - 各工作区用作用域类覆写语义值（E4 见下方 .e4-dashboard；学生端深色主题待后续按页收敛）；
+   - 旧变量（--mentor-*、--e4-*）全部保留，零视觉回归，按页面逐步收敛。
+   ================================================================ */
+:root {
+  /* 表面与文字（默认 = 导师台浅色 B2B 取值，与 --mentor-* 同源） */
+  --surface: #ffffff;
+  --surface-2: #F2F2F7;
+  --surface-3: #FAFAFA;
+  --bg-app: #F2F2F7;
+  --text-1: #000000;
+  --text-2: #525252;
+  --text-3: #8E8E93;
+  --text-muted: #C7C7CC;
+  --line: #E5E5EA;
+  --line-2: #F2F2F7;
+  --line-hover: #D4D4D8;
+
+  /* 语义色（学生端/导师端/E4 各自覆写取值，语义含义一致） */
+  --brand: #B91C1C;
+  --brand-soft: #FEF2F2;
+  --ok: #059669;
+  --warn: #B45309;
+  --err: #B91C1C;
+
+  /* 半径刻度（4px 直角 / 6px 芯片 / 10px 弹窗 / 12-16px 容器） */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* 间距刻度 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* 控件高度：sm=32 / md=36 / lg=44 */
+  --ctl-h-sm: 32px;
+  --ctl-h-md: 36px;
+  --ctl-h-lg: 44px;
+
+  /* 动效 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-normal: 160ms;
+}
+
+/* E4 工作区：语义名映射到 E4 现有暖纸取值（只新增自定义属性，不改既有规则） */
+.e4-dashboard {
+  --surface: #FFFFFF;
+  --surface-2: var(--e4-paper, #F6F3EC);
+  --text-1: var(--e4-ink, #1B2838);
+  --text-2: var(--e4-muted, #64748B);
+  --line: rgba(27, 40, 56, 0.10);
+  --line-2: rgba(27, 40, 56, 0.06);
+  --brand: var(--e4-navy, #2C3E55);
+  --ok: var(--e4-teal, #0D9488);
+  --warn: var(--e4-orange, #D97706);
+  --err: var(--e4-red, #C43B3B);
+}

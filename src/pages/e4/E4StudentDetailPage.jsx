@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getE4Student, listReportsForStudent, deleteReport } from '../../lib/e4Store.js';
+import { fetchY4Markdown } from '../../lib/y4api.js';
 import { pushRecentStudent } from '../../lib/e4Recent.js';
 import { toast } from '../../lib/toast.js';
 import E4Modal from '../../components/e4/E4Modal.jsx';
@@ -55,6 +56,26 @@ export default function E4StudentDetailPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [printTarget, setPrintTarget] = useState(null); // 打印预览浮层中的报告
+  const [y4Open, setY4Open] = useState(false);
+  const [y4Md, setY4Md] = useState('');
+  const [y4Busy, setY4Busy] = useState(false);
+  const [y4Error, setY4Error] = useState('');
+
+  // 查看 Y4 原始报告（只读预览；按需拉取并缓存）
+  async function openY4Report() {
+    setY4Open(true);
+    if (y4Md) return;
+    setY4Busy(true);
+    setY4Error('');
+    try {
+      const md = await fetchY4Markdown(student.y4_report_id);
+      setY4Md(md || '');
+    } catch (err) {
+      setY4Error(err?.message || '读取 Y4 报告失败');
+    } finally {
+      setY4Busy(false);
+    }
+  }
 
   const load = useCallback(() => {
     getE4Student(studentId)
@@ -224,10 +245,15 @@ export default function E4StudentDetailPage() {
             </button>
           </div>
           {student.y4_report_id ? (
-            <dl className="e4-def-list">
-              <div><dt>Y4 学生</dt><dd>{student.y4_student_name || `#${student.y4_student_id}`}</dd></div>
-              <div><dt>Y4 报告</dt><dd>#{student.y4_report_id}{student.y4_report_date ? ` · 测评日期 ${student.y4_report_date}` : ''}</dd></div>
-            </dl>
+            <>
+              <dl className="e4-def-list">
+                <div><dt>Y4 学生</dt><dd>{student.y4_student_name || `#${student.y4_student_id}`}</dd></div>
+                <div><dt>Y4 报告</dt><dd>#{student.y4_report_id}{student.y4_report_date ? ` · 测评日期 ${student.y4_report_date}` : ''}</dd></div>
+              </dl>
+              <button type="button" className="e4-btn-mini" onClick={openY4Report}>
+                {y4Busy ? '加载中…' : '查看 Y4 原始报告'}
+              </button>
+            </>
           ) : (
             <p className="e4-card-hint">尚未关联 Y4 报告。首次报告需要基于一份 Y4 报告生成的 E4 协议。</p>
           )}
@@ -403,6 +429,22 @@ export default function E4StudentDetailPage() {
           </button>
         </div>
       )}
+
+      <E4Modal
+        open={y4Open}
+        onClose={() => setY4Open(false)}
+        title="Y4 原始报告"
+        subtitle={student.y4_student_name ? `${student.y4_student_name} · 报告 #${student.y4_report_id}` : `报告 #${student.y4_report_id}`}
+        width={860}
+      >
+        {y4Error ? (
+          <div className="e4-inline-error">{y4Error}</div>
+        ) : y4Busy ? (
+          <div className="e4-fetch-progress"><div className="e4-spinner" /><span>正在读取 Y4 报告…</span></div>
+        ) : (
+          <pre className="e4-md-preview">{y4Md || '（报告内容为空）'}</pre>
+        )}
+      </E4Modal>
 
       <E4Modal
         open={!!deleteTarget}

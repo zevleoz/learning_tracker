@@ -201,7 +201,7 @@ export function buildPrepDraft(protocol, student = {}) {
       status: '',
     })),
     subjects: Array.from({ length: 6 }, emptySubject),
-    growthMap: null, // { fileName, uploadedAt } 成长地图 PDF 引用（AI 提取后续接入）
+    growthMap: null, // { fileName, path, uploadedAt } 成长地图 PDF（文件存私有 Storage，path 为库内路径）
     moduleJudgments, // 模块级判断（如 E2）：{ verdict, text }，表格上方展示
     prepRows,
   };

@@ -2,6 +2,10 @@
 
 > 生成日期：2026-09-25 · 基于对全仓库的调查（代码、spec、测试实跑、git 状态）
 > 用途：让新加入的 Agent 快速理解项目全貌、当前进度、风险与下一步工作。
+>
+> **2026-10-08 更新**：本文件第 3–8 节的「当前状态」快照已过时（E4 早已提交、测试基线已变为 206 通过 0 失败、
+> `scripts/` 明文凭证已清理、`dist/`/`node_modules` 已退跟踪）。**状态一律以代码与 git 历史为准**；
+> 本次 QC 计划的逐条核销情况与仍未完成的事项见文末「附录：2026-10-08 QC 核销记录」。
 
 ---
 
@@ -182,3 +186,58 @@
 - **进程中会议模板**：待设计。方向是提取「一表人才」当前时间段的追踪数据 + 上一次会议的遗留讨论点，做统一分析后预填模板，让整个流程连贯（会前 → 会后 → 进程中）。
 - **CRM 上传**：首次会议报告完成后，未来可将报告上传到另一套 CRM；本期不做任何实操。
 - **会议驱动的主动提醒已上线（2026-09-29）**：会前准备填入会议日期即同步到 `e4_students.next_meeting_date`（待办从「待安排」变已排期）；会议日期当天结束后，待办页主动提醒导师填写《首次会议记录报告》。首次报告中的下次复盘日期早已会把学生推进到 `progress` 阶段。
+
+---
+
+## 附录：2026-10-08 QC 核销记录
+
+> 来源：`# 一表人才 全平台 QC / 统一修复 / 功能补全 / UI 一致性计划`（2026-10-08）。
+> 基线：main @ bedf15c，Jest 152 通过；本附录对应的工作完成后 **Jest 206 通过 / 22 suites，`npm run build` 通过**。
+
+### 已完成（按计划 ID）
+
+| ID | 结果 |
+|---|---|
+| SEC-1 | `/api/y4/*` 与 `/api/llm/*` 全部接入导师登录态校验：新增 `api-lib/require-mentor.js`（Supabase /auth/v1/user + profiles.role≥2），前端 `y4api.js`/`llm.js` 注入 `Authorization: Bearer`，`vite.config.js` 本地中间件同步校验；Vercel 需新增 `SUPABASE_URL`/`SUPABASE_ANON_KEY`（已写入 `.env.example` 与 DEPLOY_VERCEL.md）。实测匿名请求返回 401 |
+| SEC-2 | 新增 `api-lib/y4-path.js` 路径白名单（四种形态，拒绝 `..`/编码/空段/非法 id），服务端与 dev 代理共用 |
+| SEC-3 | `scripts/` 18+ 文件明文凭证清除，改读 `scripts/env.js` + `.env.scripts`（模板 `.env.scripts.example`）；`insert-fake-data.*`、两个 seed python 同步改造；残留扫描为空 |
+| SEC-4 | `.env.production` 退跟踪 + `.gitignore` 补齐 |
+| SEC-5 | LLM 三端点输入上限：minutes 40000 字 / rows 50 条 / protocolMd 60000 字，超限返回 400 中文提示 |
+| SEC-6 | 产出 `supabase/migrations/005-role-security-consolidation.sql`（含审计 SQL、幂等收敛、验证 SQL）——**待产品方在生产库执行** |
+| BUG-1 | 新增 `src/lib/useAutosave.js` 合并式自动保存，E4 首次报告/会前准备/过程报告三处接入；失败回填 pending，卸载即落盘 |
+| BUG-2/3 | `e4MeetingSync.extractNextReviewDate`（按报告类型取 section07/p8）与 `e4ProgressTemplate.extractCarry`（按上期类型承接，progress 读 p8） |
+| BUG-4 | 新增 `src/lib/rating.js` 统一主观刻度（学生端口径 + 报告口径同值域）；删除 `supabase.js` 死导出 `MASTERY_*` |
+| BUG-5 | `useAuth.loadProfile` 失败改为 fail-closed（role=1 + toast） |
+| BUG-6 | `listTrackerStudents` ilike 转义 `% _ \` |
+| BUG-7 | 过程报告工作日/周末平均改为「有记录的日子」按日平均 |
+| E4-4 | 首次报告定稿后工作台只读（步骤锁定、文档不可编辑、persist 空转），命令栏「最终版」徽标 + 撤回最终版（ConfirmDialog） |
+| STU-1/2/3 | Learning 无效学校过滤删除、编辑记录不再静默改写 unit、`timeoutSignal` 超时放宽通道（导师看板聚合/E4 待办已接入） |
+| MEN-1/2 | 删除 legacy 看板（flag、`SharedDashboard.jsx`、`MentorAnalytics.jsx`、`MentorAnalyticsTest.jsx`、`utils/timeUtils.js` 与其测试，`surfaceHashes.js` 同步）；Mentor.jsx 认证收敛到 `useAuth` |
+| 细查新增 | Review 竞态守卫；Notifications UTC 日期偏移×2 + realtime 守卫；Syllabus 连点防重×2 + InlineInput 重复提交；WeekReviewDashboard/DeepDivePanels/WeekGrid/Mentor 共 5 处 UTC 切片、软删章节名不外显、慢查询 limit/超时、2000 条截断提示；DeepDivePanels 删 3 个死组件与死导入；DateRangeCalendar 双月手势 |
+| FEAT-1 | 成长地图 PDF 真正落库：`006-e4-growth-maps-storage.sql`（私有 bucket + is_mentor RLS）+ `e4Store` 上传/签名链接/删除 + 会前准备页预览/下载/更换/移除 |
+| FEAT-3 | 学生详情页「查看 Y4 原始报告」只读模态（`fetchY4Markdown`，等宽文本渲染） |
+| E4-1 | `listE4Students` / `listUpcomingMeetings` 加防御性 limit 与 30s 超时通道 |
+| E4-2 | 学生软归档：`007-e4-students-archive.sql`（archived_at + 归档/恢复 RPC）+ 列表默认过滤、已归档折叠区、恢复、待办自动隐藏已归档 |
+| UI-1 | `index.css` 顶部新增语义 token 层（surface/text/line/brand/半径/间距/控件高度/动效）+ `.e4-dashboard` 作用域映射；旧变量全部保留（零视觉回归） |
+| UI-2 | 过程报告「复盘周期」改用 `components/ui/date-picker.jsx`（打印文档内的就地编辑字段按计划保留） |
+| UI-6 | `lucide-react` 升级到 1.52.0，8 个在用图标名全部存在（测试 + 构建通过） |
+| DEBT-1 | `dist/`、`node_modules/` 退跟踪；`package-lock.json` 恢复跟踪并从 `.gitignore` 移除 |
+| DEBT-2 | 删除空目录 `css/`、`js/` 与 3 处 `.DS_Store` |
+| DEBT-3 | 30 个手工 patch/seed 文件移入 `supabase/archive/`（含 README：迁移执行清单、baseline 导出命令、deprecated 表清单）；今后只走 `supabase/migrations/` |
+| DEBT-5 | 本附录即状态说明 |
+
+### 待产品方执行（Agent 无法代劳）
+
+1. **跑 3 个迁移**：`005`（角色安全收敛，先跑文件里的审计 SQL 再整段执行）、`006`（成长地图 bucket）、`007`（学生归档）。
+2. **Vercel 新增服务端环境变量**：`SUPABASE_URL`、`SUPABASE_ANON_KEY`（否则 `/api/y4`、`/api/llm` 会返回 503）。
+3. **轮换泄漏凭证**：`admin@yibc.com` 密码、`mentor123`/`password123`/`111111` 测试账号、教师注册密钥 `APPARK2026`（`teacher_keys` 哈希需重算）。
+4. 新建 `scripts/.env.scripts`（模板 `.env.scripts.example`）后，运维脚本才能运行。
+5. 决定是否 BFG 清洗 git 历史（脚本密钥、`.env.production` 曾在库内）。
+6. 执行一次 `supabase db dump` 产出 `000-baseline.sql`（命令见 `supabase/archive/README.md`）。
+
+### 本轮未做（明确留待后续）
+
+- **UI-3/4/5/7**：Spinner/Skeleton 收敛、Modal 统一、全仓硬编码色值清扫、StatusStates/ConfirmDialog 全量推广——均属「按页面滚动收敛」，需要逐页截图目检，未在本轮做。
+- **FEAT-2 打印质检**：过程报告打印版式与基准 PDF 的逐页对照，需人工目检。
+- **UI-2 收尾**：`index.css` 中两处原生 `input[type="date"]` 样式仍被更宽的 base-input 选择器组共享，暂未拆分。
+- 学生端深色主题尚未映射到语义 token（仅 E4 作用域已映射）。

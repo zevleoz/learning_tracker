@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { listE4Students } from '../../lib/e4Store.js';
+import { listE4Students, setE4StudentArchived } from '../../lib/e4Store.js';
+import { toast } from '../../lib/toast.js';
 
 function IconPlus() {
   return (
@@ -113,6 +114,8 @@ export default function E4StudentListPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState({ key: null, dir: 'asc' });
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archiveBusyId, setArchiveBusyId] = useState(null);
 
   function load() {
     listE4Students()
@@ -127,6 +130,19 @@ export default function E4StudentListPage() {
     load();
   }, []);
 
+  async function toggleArchive(student, archived) {
+    setArchiveBusyId(student.id);
+    try {
+      await setE4StudentArchived(student.id, archived);
+      toast(archived ? `已归档 ${student.display_name}` : `已恢复 ${student.display_name}`, { kind: 'success' });
+      load();
+    } catch (err) {
+      toast(err.message || '操作失败，请重试', { kind: 'error' });
+    } finally {
+      setArchiveBusyId(null);
+    }
+  }
+
   function toggleSort(col) {
     setSort((prev) => {
       if (prev.key !== col) return { key: col, dir: 'asc' };
@@ -135,10 +151,19 @@ export default function E4StudentListPage() {
     });
   }
 
+  const activeStudents = useMemo(
+    () => (students || []).filter((s) => !s.archived_at),
+    [students],
+  );
+  const archivedStudents = useMemo(
+    () => (students || []).filter((s) => !!s.archived_at),
+    [students],
+  );
+
   const filtered = useMemo(() => {
     if (!students) return [];
     const q = query.trim().toLowerCase();
-    let rows = students;
+    let rows = activeStudents;
     if (q) {
       rows = rows.filter((s) =>
         [s.display_name, s.grade, s.school, s.y4_student_name]
@@ -154,7 +179,7 @@ export default function E4StudentListPage() {
       });
     }
     return rows;
-  }, [students, query, sort]);
+  }, [students, activeStudents, query, sort]);
 
   return (
     <div className="e4-page">
@@ -179,9 +204,9 @@ export default function E4StudentListPage() {
             placeholder="搜索学生姓名、年级或 Y4 姓名"
           />
         </div>
-        {students && students.length > 0 && (
+        {students && activeStudents.length > 0 && (
           <span className="e4-toolbar-count">
-            共 <strong>{students.length}</strong> 位学生{query.trim() && ` · 匹配 ${filtered.length}`}
+            共 <strong>{activeStudents.length}</strong> 位学生{query.trim() && ` · 匹配 ${filtered.length}`}
           </span>
         )}
       </div>
@@ -208,7 +233,7 @@ export default function E4StudentListPage() {
         </div>
       )}
 
-      {students && students.length === 0 && (
+      {students && activeStudents.length === 0 && archivedStudents.length === 0 && (
         <div className="e4-empty">
           <p>还没有 E4 学生档案</p>
           <span>建立第一位学生的 E4 档案，之后手动关联对应的 Y4 报告</span>
@@ -219,7 +244,7 @@ export default function E4StudentListPage() {
         </div>
       )}
 
-      {students && students.length > 0 && filtered.length === 0 && (
+      {students && activeStudents.length > 0 && filtered.length === 0 && (
         <div className="e4-list-hint">没有匹配的学生</div>
       )}
 
@@ -271,12 +296,63 @@ export default function E4StudentListPage() {
                       ? <LinkState linked primary={s.tracker?.full_name || '已关联'} />
                       : <span className="e4-table-cell-muted">—</span>}
                   </td>
-                  <td className="col-action"><span className="e4-table-chevron"><IconChevron /></span></td>
+                  <td className="col-action">
+                    <span className="e4-row-actions">
+                      <button
+                        type="button"
+                        className="e4-btn-mini"
+                        disabled={archiveBusyId === s.id}
+                        onClick={(e) => { e.stopPropagation(); toggleArchive(s, true); }}
+                      >
+                        {archiveBusyId === s.id ? '处理中…' : '归档'}
+                      </button>
+                      <span className="e4-table-chevron"><IconChevron /></span>
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </motion.div>
+      )}
+
+      {archivedStudents.length > 0 && (
+        <div className="e4-archived-block">
+          <button
+            type="button"
+            className="e4-archived-toggle"
+            aria-expanded={archivedOpen}
+            onClick={() => setArchivedOpen((v) => !v)}
+          >
+            {archivedOpen ? '收起已归档' : `已归档 ${archivedStudents.length} 位学生`}
+          </button>
+          {archivedOpen && (
+            <ul className="e4-archived-list">
+              {archivedStudents.map((s) => (
+                <li key={s.id} className="e4-archived-row">
+                  <button
+                    type="button"
+                    className="e4-archived-name"
+                    onClick={() => nav(`/e4/students/${s.id}`)}
+                  >
+                    {s.display_name}
+                  </button>
+                  <span className="e4-archived-meta">
+                    {s.grade || '—'} · {s.school || '—'}
+                  </span>
+                  <button
+                    type="button"
+                    className="e4-btn-mini"
+                    disabled={archiveBusyId === s.id}
+                    onClick={() => toggleArchive(s, false)}
+                  >
+                    {archiveBusyId === s.id ? '处理中…' : '恢复'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

@@ -2,7 +2,7 @@
 // Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
 import { Y4_API_BASE, forwardViaFetch, jsonError } from '../../api-lib/y4-forward.mjs';
 import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
-import { validateY4Subpath } from '../../api-lib/y4-path.js';
+import { validateY4Subpath, resolveY4Subpath } from '../../api-lib/y4-path.js';
 
 export const config = {
   // e4-protocol 端点实时调用 AI，实测 10-30 秒
@@ -28,10 +28,11 @@ export default async function handler(req, res) {
     return;
   }
 
-  const parts = req.query.path;
-  const rawSubpath = Array.isArray(parts) ? parts.join('/') : parts || '';
+  // 子路径以 req.url 为准（Vercel 的 catch-all 不一定填充 req.query.path，见 resolveY4Subpath）
+  const rawSubpath = resolveY4Subpath(req);
   const check = validateY4Subpath(rawSubpath);
   if (!check.ok) {
+    console.warn('[y4-proxy] 拒绝路径', { url: req.url, rawSubpath, reason: check.reason });
     res.status(400).json({ ok: false, error: check.reason });
     return;
   }

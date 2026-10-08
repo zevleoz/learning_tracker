@@ -4,22 +4,40 @@
 export const Y4_HOST = 'report.p4learning-ark.app';
 export const Y4_API_BASE = `https://${Y4_HOST}/api/v1`;
 
+// 上游偶发「连接挂起」实测可达 30 秒以上（Cloudflare 隧道冷启动/抖动）。
+// 因此每次尝试都带超时，超时即中止并交给 attempts 重试。
+export const DEFAULT_UPSTREAM_TIMEOUT_MS = 7000;
+
 /**
  * 通过服务端到服务端的 fetch 转发 GET 请求（Vercel 云端使用）。
  * API Key 在此注入，浏览器永远接触不到。
  *
- * attempts：网络层失败（fetch 抛错，如 Cloudflare 瞬断）时的尝试次数。
- * 上游偶发连接抖动实测不低，只读列表类请求重试一次可显著降低失败率；
- * e4-protocol 这类会触发上游 AI 生成、耗时 10-30 秒的端点不要重试（保持 1 次）。
+ * attempts：单次尝试失败（网络错误或超时）后的尝试次数。
+ *   只读列表/文档建议 2；e4-protocol 会触发上游 AI 生成（10-30 秒）且不可廉价重放，
+ *   固定 1 次并把 timeoutMs 放大。
+ * timeoutMs：单次尝试的超时（挂起保护）。可传数组作为阶梯，例如 [6000, 12000]
+ *   ——上游正常时 2-5 秒，偶发慢到 7 秒以上，先快速失败再给第二次更长的窗口，
+ *   避免「两次都在短超时内被杀」造成误判失败。
  */
-export async function forwardViaFetch({ base = Y4_API_BASE, apiKey, subpath, search = '', attempts = 1 }) {
+export async function forwardViaFetch({
+  base = Y4_API_BASE,
+  apiKey,
+  subpath,
+  search = '',
+  attempts = 1,
+  timeoutMs = DEFAULT_UPSTREAM_TIMEOUT_MS,
+}) {
   const url = `${base.replace(/\/$/, '')}/${subpath}${search}`;
+  const timeouts = Array.isArray(timeoutMs) ? timeoutMs : [timeoutMs];
+  const tries = Math.max(1, attempts, timeouts.length);
   let lastErr;
-  for (let i = 0; i < Math.max(1, attempts); i += 1) {
+  for (let i = 0; i < tries; i += 1) {
+    const perTryTimeout = timeouts[Math.min(i, timeouts.length - 1)];
     try {
       const upstream = await fetch(url, {
         method: 'GET',
         headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(perTryTimeout),
       });
       const buffer = Buffer.from(await upstream.arrayBuffer());
       return {
@@ -30,7 +48,7 @@ export async function forwardViaFetch({ base = Y4_API_BASE, apiKey, subpath, sea
       };
     } catch (err) {
       lastErr = err;
-      if (i + 1 < attempts) await new Promise((r) => setTimeout(r, 400)); // 稍等再试
+      if (i + 1 < tries) await new Promise((r) => setTimeout(r, 400)); // 稍等再试
     }
   }
   throw lastErr;

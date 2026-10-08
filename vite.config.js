@@ -199,12 +199,16 @@ function y4DevProxy(env) {
         }
         const subpath = check.subpath;
         const search = qIndex >= 0 ? req.url.slice(qIndex) : '';
+        const isProtocol = subpath.endsWith('/e4-protocol');
 
         forwardViaFetch({
           base: env.Y4_API_BASE || Y4_API_BASE,
           apiKey,
           subpath,
           search,
+          // 与线上一致：只读列表用阶梯超时 [6s, 12s] 并重试；协议生成放宽到 50s 且不重试
+          attempts: isProtocol ? 1 : 2,
+          timeoutMs: isProtocol ? 50000 : [6000, 12000],
         })
           .then(({ status, contentType, cacheControl, body }) => {
             res.statusCode = status;

@@ -72,3 +72,96 @@ describe('Y4 API client', () => {
     await expect(fetchProtocol('')).rejects.toBeInstanceOf(Y4ApiError);
   });
 });
+
+// 上游偶发 502/连接中断：列表与文档请求在客户端自动重试一次（4xx 不重试）
+describe('Y4 API client 的自动重试', () => {
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  test('5xx 会重试一次并成功', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 502,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ ok: false, error: '无法连接 Y4 服务' }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true, students: [{ id: 48, name: 'Sean' }] }),
+      };
+    });
+
+    const rows = await listStudents();
+    expect(calls).toBe(2);
+    expect(rows[0].name).toBe('Sean');
+  });
+
+  test('网络错误会重试一次并成功（Sean 报告列表的线上形态）', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError('Failed to fetch');
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true, reports: [{ id: 46 }] }),
+      };
+    });
+
+    const reports = await listReports(48);
+    expect(calls).toBe(2);
+    expect(reports[0].id).toBe(46);
+  });
+
+  test('4xx 不重试，直接失败', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 403,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: false, error: '仅导师及以上账号可使用 Y4 相关功能' }),
+      };
+    });
+
+    await expect(listStudents()).rejects.toMatchObject({ status: 403 });
+    expect(calls).toBe(1);
+  });
+
+  test('两次都失败时报出最终错误', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      throw new TypeError('Failed to fetch');
+    });
+
+    await expect(listReports(48)).rejects.toThrow('无法连接 Y4 代理');
+    expect(calls).toBe(2);
+  });
+
+  test('e4-protocol 不重试（避免重复触发上游 AI 生成）', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 502,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: false, error: '上游 AI 超时' }),
+      };
+    });
+
+    await expect(fetchProtocol(46)).rejects.toMatchObject({ status: 502 });
+    expect(calls).toBe(1);
+  });
+});

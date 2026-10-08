@@ -459,15 +459,22 @@ function AddCourseCard({ onSubmit }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState('');
   const [courseType, setCourseType] = useState(1);
+  const [busy, setBusy] = useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
+    if (busy) return; // 防连点重复插入
     if (!name.trim()) {
       return toast('请填写课程名称', { kind: 'error' });
     }
-    onSubmit({ name, courseType });
-    setName(''); setCourseType(1);
-    setExpanded(false);
+    setBusy(true);
+    try {
+      await onSubmit({ name, courseType });
+      setName(''); setCourseType(1);
+      setExpanded(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!expanded) {
@@ -587,7 +594,9 @@ function AddCourseCard({ onSubmit }) {
             </button>
           </div>
         </div>
-        <button type="submit" className="btn btn-primary">创建课程</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? '创建中…' : '创建课程'}
+        </button>
       </form>
     </div>
   );
@@ -613,8 +622,6 @@ function CourseCard({
     onUpdateCourse(course.id, { name: editName, courseType: editCourseType });
     setEditing(false);
   }
-
-  const courseTypeLabel = editCourseType === 2 ? '校外课程' : '校内课程';
 
   return (
     <div className="course-card">
@@ -873,25 +880,36 @@ function ChapterRow({
 /* ============ 内联输入框（回车提交/Esc 取消） ============ */
 function InlineInput({ placeholder, onSubmit, onCancel, small, initialValue }) {
   const [value, setValue] = useState(initialValue || '');
+  // 提交一次即结束（本组件总是由父级条件渲染，提交/取消后即卸载）：
+  // 防止回车提交后紧接着的 blur 再提交一次，造成重复插入
+  const submittedRef = useRef(false);
+
+  function submitOnce(next) {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+    onSubmit(next);
+  }
 
   function handleKeyDown(e) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (value.trim()) onSubmit(value.trim());
+      if (value.trim()) submitOnce(value.trim());
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      submittedRef.current = true;
       setValue('');
       onCancel();
     }
   }
 
   function handleBlur() {
-    if (value.trim()) onSubmit(value.trim());
+    if (submittedRef.current) return;
+    if (value.trim()) submitOnce(value.trim());
     else onCancel();
   }
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) onSubmit(value.trim()); }}>
+    <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) submitOnce(value.trim()); }}>
       <input
         type="text"
         value={value}
@@ -977,6 +995,7 @@ function DesktopTree({
   const [addingCourse, setAddingCourse] = useState(false);
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseType, setNewCourseType] = useState(1);
+  const [addBusy, setAddBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
 
@@ -991,12 +1010,17 @@ function DesktopTree({
   const visibleShared = sharedCourses.filter(matchesQuery);
 
   async function handleAddCourse() {
-    if (!newCourseName.trim()) return;
-    const newId = await onAddCourse({ name: newCourseName, courseType: newCourseType });
-    if (newId) setSelectedId(newId);
-    setNewCourseName('');
-    setNewCourseType(1);
-    setAddingCourse(false);
+    if (addBusy || !newCourseName.trim()) return; // 防连点重复插入
+    setAddBusy(true);
+    try {
+      const newId = await onAddCourse({ name: newCourseName, courseType: newCourseType });
+      if (newId) setSelectedId(newId);
+      setNewCourseName('');
+      setNewCourseType(1);
+      setAddingCourse(false);
+    } finally {
+      setAddBusy(false);
+    }
   }
 
   function renderCourseItem(c, { shared = false } = {}) {
@@ -1107,11 +1131,13 @@ function DesktopTree({
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     onClick={handleAddCourse}
+                    disabled={addBusy}
                     className="btn btn-primary btn-sm"
                     style={{ flex: 1 }}
-                  >确认</button>
+                  >{addBusy ? '创建中…' : '确认'}</button>
                   <button
                     onClick={() => { setAddingCourse(false); setNewCourseName(''); }}
+                    disabled={addBusy}
                     className="btn btn-ghost btn-sm"
                     style={{ flex: 1 }}
                   >取消</button>
@@ -1196,22 +1222,6 @@ function DesktopTree({
     </div>
   );
 }
-
-/* ---- 桌面端添加按钮样式 ---- */
-const desktopAddBtnStyle = {
-  padding: '5px 10px',
-  fontSize: '12px',
-  color: 'var(--text-soft)',
-  background: 'transparent',
-  border: 'none',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '4px',
-  transition: 'background 140ms ease, color 140ms ease',
-};
 
 const SUBJECT_COLORS = {
   '数学': { bg: 'rgba(99, 102, 241, 0.1)', text: '#4f46e5', border: 'rgba(99, 102, 241, 0.25)' },

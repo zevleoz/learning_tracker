@@ -1,8 +1,8 @@
-import { useMemo, useState, useEffect, useRef, Component, Fragment } from 'react';
+import { useMemo, useState, useEffect, useRef, Component } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  CATEGORY_COLORS, CATEGORY_NAMES, SELF_COLOR, EXTERNAL_COLOR,
-  fmtMins, isSelfForm, scoreColor, scoreToGrade,
+  CATEGORY_COLORS, CATEGORY_NAMES, SELF_COLOR,
+  fmtMins, isSelfForm, scoreToGrade,
 } from './WeekGrid.jsx';
 import { logger } from '../lib/logger.js';
 
@@ -229,7 +229,8 @@ function SubjectAllocationPanel({ sessions }) {
 
   if (subjectData.length === 0) return <div style={emptyStyle}>暂无学科数据</div>;
 
-  const maxMins = subjectData[0].total;
+  // 全零时长时取 1，避免条宽算出 NaN%
+  const maxMins = subjectData[0].total || 1;
   const STU = CATEGORY_COLORS[1];
   const REV = CATEGORY_COLORS[2];
   const PRAC = CATEGORY_COLORS[3];
@@ -326,62 +327,6 @@ function SubjectAllocationPanel({ sessions }) {
   );
 }
 
-// ── 2. 学习-复习-练习循环 ────────────────────────────
-function CategoryCyclePanel({ sessions }) {
-  const data = useMemo(() => {
-    const mins = { 1: 0, 2: 0, 3: 0 };
-    for (const s of sessions) {
-      const c = Number(s.category);
-      if (mins[c] !== undefined) mins[c] += s.duration_minutes || 0;
-    }
-    const total = mins[1] + mins[2] + mins[3];
-    return { mins, total };
-  }, [sessions]);
-
-  if (data.total === 0) return <div style={emptyStyle}>暂无分类数据</div>;
-
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-  const segments = [1, 2, 3].map(c => {
-    const pct = data.total > 0 ? data.mins[c] / data.total : 0;
-    const seg = { c, pct, color: CATEGORY_COLORS[c], dashArray: `${pct * circumference} ${circumference}`, dashOffset: -offset * circumference };
-    offset += pct;
-    return seg;
-  });
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '4px 0' }}>
-      <svg width="100" height="100" viewBox="0 0 100 100">
-        <circle cx="50" cy="50" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="10" />
-        {segments.map((s, i) => (
-          <circle key={i} cx="50" cy="50" r={radius} fill="none"
-            stroke={s.color} strokeWidth="10"
-            strokeDasharray={s.dashArray}
-            strokeDashoffset={s.dashOffset}
-            transform="rotate(-90 50 50)" strokeLinecap="butt" />
-        ))}
-        <text x="50" y="48" textAnchor="middle" fontSize="14" fontWeight="700" fill="#0f172a">
-          {fmtMins(data.total)}
-        </text>
-        <text x="50" y="60" textAnchor="middle" fontSize="9" fill="#94a3b8">总计</text>
-      </svg>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-        {[1, 2, 3].map(c => {
-          const pct = data.total > 0 ? Math.round(data.mins[c] / data.total * 100) : 0;
-          return (
-            <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: CATEGORY_COLORS[c], flexShrink: 0 }} />
-              <span style={{ color: '#475569', fontWeight: 500 }}>{CATEGORY_NAMES[c]}</span>
-              <span style={{ color: '#94a3b8', fontSize: 10 }}>{fmtMins(data.mins[c])}</span>
-              <span style={{ marginLeft: 'auto', fontWeight: 700, color: CATEGORY_COLORS[c] }}>{pct}%</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ── 3. 自主学习趋势 ──────────────────────────────────
 function SelfLearningTrendPanel({ sessions, weeks = [] }) {
@@ -642,8 +587,9 @@ function SubjectPracticeModal({ subject, sessions, onClose }) {
             const scoreVal = s.score != null && s.score !== '' ? Number(s.score) : null;
             const selfLabel = s.self_rating != null ? (SELF_RATING_LABELS[Number(s.self_rating)] || null) : null;
             const dateStr = s.date ? String(s.date).slice(5) : '—';
-            const chapterName = s.chapter?.name || null;
-            const unitName = s.unit?.name || null;
+            // 章节/单元被软删除后不再显示其名称（软删内容不泄漏）
+            const chapterName = s.chapter && !s.chapter.deleted_at ? s.chapter.name : null;
+            const unitName = s.unit && !s.unit.deleted_at ? s.unit.name : null;
 
             return (
               <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
@@ -717,59 +663,6 @@ function SubjectPracticeModal({ subject, sessions, onClose }) {
   );
 }
 
-// ── 5. 反馈密度时间线 ────────────────────────────────
-function FeedbackDensityPanel({ sessions }) {
-  const data = useMemo(() => {
-    const byDate = {};
-    for (const s of sessions) {
-      const d = s.date?.split('T')[0];
-      if (!d) continue;
-      const hasFeedback = (s.score != null && s.score !== '') || s.self_rating != null;
-      if (!byDate[d]) byDate[d] = { total: 0, feedback: 0, sessions: [] };
-      byDate[d].total++;
-      if (hasFeedback) byDate[d].feedback++;
-      byDate[d].sessions.push(s);
-    }
-    return Object.entries(byDate)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-21); // last 21 active days
-  }, [sessions]);
-
-  if (data.length === 0) return <div style={emptyStyle}>暂无反馈数据</div>;
-
-  const maxFeedback = Math.max(...data.map(([, d]) => d.feedback), 1);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {data.map(([date, d]) => {
-        const rate = d.total > 0 ? d.feedback / d.total : 0;
-        return (
-          <div key={date} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
-            <span style={{ width: 42, color: '#94a3b8', flexShrink: 0 }}>
-              {date.slice(5)}
-            </span>
-            <div style={{ flex: 1, display: 'flex', gap: 1, height: 12, alignItems: 'center' }}>
-              {Array.from({ length: d.total }).map((_, i) => (
-                <div key={i} style={{
-                  width: 6, height: 6, borderRadius: 2,
-                  background: i < d.feedback ? SELF_COLOR : '#e2e8f0', // SELF_COLOR = 天蓝，分类色空间不撞
-                }} />
-              ))}
-            </div>
-            <span style={{ width: 28, textAlign: 'right', color: SELF_COLOR, fontWeight: 600, flexShrink: 0 }}>
-              {Math.round(rate * 100)}%
-            </span>
-          </div>
-        );
-      })}
-      <div style={{ marginTop: 4, fontSize: 9, color: '#94a3b8' }}>
-        <span><span style={{ color: SELF_COLOR }}>■</span> 有反馈</span>
-        {'  '}
-        <span><span style={{ color: '#e2e8f0' }}>■</span> 无反馈</span>
-      </div>
-    </div>
-  );
-}
 
 // ── 6. 教育诊断结论 ──────────────────────────────────
 function generateDiagnosis(sessions) {
@@ -978,214 +871,6 @@ function DiagnosisPanel({ sessions }) {
   );
 }
 
-// ── 作业顺序偏好热力图（一格一 tile，填满格子高度，gap 4px） ──
-function SubjectOrderPreferenceChart({ sessions }) {
-  const HOUR_BUCKETS = [14, 15, 16, 17, 18, 19, 20, 21, 22]; // 9 个 1h 桶（14:00-23:00）
-  const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五'];
-  const WORKDAY_DOWS = [1, 2, 3, 4, 5];
-
-  function inferStartHour(s) {
-    if (s.time) {
-      const h = Number((s.time || '').split(':')[0]);
-      if (!Number.isNaN(h) && h >= 14 && h <= 23) return h;
-    }
-    const f = (s.form || '');
-    if (f.includes('学校课堂')) return 14;
-    if (f.includes('学校作业')) return 17;
-    if (f.includes('校外线上')) return 19;
-    if (f.includes('校外线下')) return 18;
-    return 18;
-  }
-
-  // session 级学科色分配器（当前学生分析页面内 0 重色）
-  const getSubjectColor = useSubjectColors(sessions);
-
-  // 每个格子最多 1 个 session（用户确认：同一天同一时段不会有多个记录）
-  // acc[rowIdx][hour] = { subject, mins } | null
-  const { grid, legendItems, facts } = useMemo(() => {
-    const acc = WORKDAY_DOWS.map(() =>
-      HOUR_BUCKETS.reduce((o, h) => { o[h] = null; return o; }, {})
-    );
-    const subjStats = new Map(); // name -> {count, totalMins}
-
-    for (const s of sessions) {
-      const d = s.date?.split('T')[0];
-      if (!d) continue;
-      const dow = new Date(d + 'T00:00:00').getDay();
-      if (!WORKDAY_DOWS.includes(dow)) continue;
-      const rowIdx = dow - 1;
-      const startH = Math.max(14, Math.min(22, inferStartHour(s)));
-      const mins = Number(s.duration_minutes) || 0;
-      if (mins <= 0) continue;
-      const subj = s.subject || '未分类';
-      // 一格一 tile：后到的覆盖先到的（极少见）
-      acc[rowIdx][startH] = { subject: subj, mins };
-      const cur = subjStats.get(subj) || { count: 0, totalMins: 0 };
-      cur.count += 1;
-      cur.totalMins += mins;
-      subjStats.set(subj, cur);
-    }
-
-    // 右侧图例：按出现次数 desc 排序
-    const legendItems = Array.from(subjStats.entries())
-      .map(([name, st]) => ({
-        name,
-        count: st.count,
-        avgMins: Math.round(st.totalMins / Math.max(st.count, 1)),
-      }))
-      .sort((a, b) => b.count - a.count);
-
-    // 2-3 条纯客观事实（无主观评价，不编造术语）
-    const factLines = [];
-    // ① 频次最高的时段桶
-    const hourCounts = {};
-    for (let row of acc) {
-      for (const h of HOUR_BUCKETS) {
-        hourCounts[h] = (hourCounts[h] || 0) + (row[h] ? 1 : 0);
-      }
-    }
-    const peak = HOUR_BUCKETS.map(h => ({ h, n: hourCounts[h] || 0 }))
-      .sort((a, b) => b.n - a.n)[0];
-    if (peak && peak.n > 0) {
-      factLines.push(`频次最高时段：${peak.h}:00-${peak.h + 1}:00（${peak.n} 次）`);
-    }
-    // ② 平均单节时长最长的学科
-    if (legendItems.length > 0) {
-      const longest = [...legendItems].sort((a, b) => b.avgMins - a.avgMins)[0];
-      if (longest.avgMins > 0) {
-        factLines.push(`平均单节最长：${longest.name}（${longest.avgMins} 分钟/节）`);
-      }
-    }
-    // ③ 安排最密的一天
-    let busiestDay = null, busiestCount = 0;
-    for (let rIdx = 0; rIdx < DAY_LABELS.length; rIdx++) {
-      let c = 0;
-      for (const h of HOUR_BUCKETS) if (acc[rIdx][h]) c++;
-      if (c > busiestCount) { busiestCount = c; busiestDay = DAY_LABELS[rIdx]; }
-    }
-    if (busiestDay && busiestCount > 0) {
-      factLines.push(`${busiestDay} 安排最密（${busiestCount} 节）`);
-    }
-
-    return { grid: acc, legendItems, facts: factLines.slice(0, 3) };
-  }, [sessions]);
-
-  const hasAny = grid.some(r => HOUR_BUCKETS.some(h => r[h] !== null));
-  if (!hasAny) return <div style={emptyStyle}>暂无工作日作业时序数据</div>;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        {/* 左侧：网格（一格一 tile，填满高度） */}
-        <div style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns: '40px repeat(9, minmax(0,1fr))',
-          gridAutoRows: '32px',
-          rowGap: 4, columnGap: 4,
-          minWidth: 0,
-        }}>
-          {/* 表头：时间刻度 */}
-          <div />
-          {HOUR_BUCKETS.map(h => (
-            <div key={`th-${h}`} style={{
-              fontSize: 9, color: '#94a3b8', textAlign: 'center',
-              paddingBottom: 2, borderBottom: '1px solid #f1f5f9',
-              display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-            }}>
-              {h}
-            </div>
-          ))}
-          {/* 每天一行 */}
-          {DAY_LABELS.map((lbl, rIdx) => (
-            <Fragment key={`row-${rIdx}`}>
-              <div style={{
-                fontSize: 10, fontWeight: 600, color: '#64748b',
-                display: 'flex', alignItems: 'center',
-                paddingRight: 4,
-              }}>
-                {lbl}
-              </div>
-              {HOUR_BUCKETS.map(h => {
-                const cell = grid[rIdx][h];
-                return (
-                  <div key={`${rIdx}-${h}`} style={{
-                    background: '#f8fafc',
-                    borderRadius: 6,
-                    display: 'flex',
-                    alignItems: 'stretch',
-                    padding: 0,
-                    overflow: 'hidden',
-                  }}>
-                    {cell && (
-                      <div
-                        title={`${cell.subject} · ${cell.mins} 分钟 · ${h}:00 时段`}
-                        style={{
-                          flex: 1,
-                          borderRadius: 6,
-                          background: getSubjectColor(cell.subject),
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)',
-                          cursor: 'default',
-                        }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </Fragment>
-          ))}
-        </div>
-
-        {/* 右侧图例 */}
-        <div style={{
-          width: 160, flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 10,
-          padding: '8px 10px',
-          borderRadius: 10,
-          background: 'rgba(248,250,252,0.5)',
-          border: '1px solid rgba(15,23,42,0.05)',
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>学科出现次数</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {legendItems.map(l => (
-              <div key={l.name} style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                fontSize: 10,
-              }}>
-                <span style={{
-                  width: 10, height: 10, borderRadius: 3, flexShrink: 0,
-                  background: getSubjectColor(l.name),
-                }} />
-                <span style={{ color: '#0f172a', fontWeight: 600, minWidth: 0,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {l.name}
-                </span>
-                <span style={{
-                  marginLeft: 'auto', fontWeight: 700,
-                  color: '#64748b',
-                }}>×{l.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* 客观事实统计（只讲数据，不做评价） */}
-      {facts.length > 0 && (
-        <div style={{
-          marginTop: 10, padding: '8px 10px', borderRadius: 8,
-          background: 'rgba(79,70,229,0.05)',
-          border: '1px solid rgba(79,70,229,0.10)',
-          fontSize: 10, color: '#475569', lineHeight: 1.7,
-        }}>
-          {facts.map((f, i) => (
-            <div key={i}>· {f}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── 学习趋势识别（文本输出，替代热力图） ──
 function LearningPatternInsightPanel({ sessions, studentName = '学生' }) {

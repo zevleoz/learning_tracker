@@ -1,28 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '../lib/supabase.js';
+import { supabase, timeoutSignal } from '../lib/supabase.js';
 import { updateWorkspace } from '../lib/e4Store.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
-import { ReviewDashboard } from '../components/SharedDashboard.jsx';
 import MentorLayout from '../components/MentorLayout.jsx';
-import MentorAnalyticsPage from './MentorAnalytics.jsx';
 import ProfileEditor from '../components/ProfileEditor.jsx';
 import WorkspacePreference from '../components/WorkspacePreference.jsx';
 import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
-import { AnimatedNumber, Skeleton, SlideUp } from '../components/animations';
+import { AnimatedNumber, Skeleton } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
 import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { toLocalDateStr } from '../lib/date.js';
-
-// ═══════════════════════════════════════════════════════════
-// FEATURE FLAG: 设为 true 可切换回旧版仪表盘 (ReviewDashboard)
-// 旧版组件保留在 SharedDashboard.jsx，标记为 @legacy
-// 旧版图表保留在 MentorAnalytics.jsx，标记为 @legacy
-// ═══════════════════════════════════════════════════════════
-const USE_LEGACY_DASHBOARD = false;
+import { useAuth } from '../lib/useAuth.js';
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -32,99 +24,19 @@ function fmtMinutes(mins) {
   return m ? `${h}h ${m}min` : `${h} 小时`;
 }
 
-const statCardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: (i) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.1,
-      duration: 0.4,
-      ease: [0.4, 0, 0.2, 1],
-    },
-  }),
-};
-
-function StatCard({ label, value, color }) {
-  return (
-    <div style={{
-      padding: '12px 10px',
-      borderRadius: 12,
-      background: 'rgba(255,255,255,0.6)',
-      border: '1px solid rgba(0,0,0,0.06)',
-      textAlign: 'center',
-    }}>
-      <div style={{
-        fontSize: 20,
-        fontWeight: 700,
-        color: color,
-        lineHeight: 1.2,
-        marginBottom: 4,
-      }}>{value}</div>
-      <div style={{
-        fontSize: 11,
-        color: '#94a3b8',
-        fontWeight: 500,
-      }}>{label}</div>
-    </div>
-  );
-}
-
-const rowVariants = {
-  hidden: { opacity: 0, x: -20 },
-  visible: {
-    opacity: 1,
-    x: 0,
-    transition: {
-      duration: 0.3,
-      ease: [0.4, 0, 0.2, 1],
-    },
-  },
-  exit: {
-    opacity: 0,
-    x: 20,
-    transition: {
-      duration: 0.2,
-    },
-  },
-};
-
-const detailPanelVariants = {
-  hidden: { opacity: 0, x: 20 },
-  visible: {
-    opacity: 1,
-    x: 0,
-    transition: {
-      type: 'spring',
-      damping: 25,
-      stiffness: 200,
-    },
-  },
-};
-
-/* Spinner：inline loading indicator，用于按钮 busy 态 */
-function Spinner({ size = 14, color = 'currentColor' }) {
-  return (
-    <motion.svg
-      width={size} height={size} viewBox="0 0 50 50"
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
-      style={{ display: 'inline-block', verticalAlign: 'middle' }}
-    >
-      <circle cx="25" cy="25" r="20" fill="none" stroke={color} strokeOpacity="0.25" strokeWidth="5" />
-      <path d="M25 5 a20 20 0 0 1 20 20" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" />
-    </motion.svg>
-  );
-}
-
 export default function Mentor() {
   const nav = useNavigate();
+  // 角色与账号信息统一来自 useAuth（数据库 profile 为权威来源），
+  // 不在本页重复实现认证，避免与 ProtectedRoute 逻辑漂移（MEN-2）
+  const { user: authUser, profile: authProfile, loading: authLoading } = useAuth();
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const bootstrappedRef = useRef(false);
   const [students, setStudents] = useState([]);
   const [connections, setConnections] = useState([]);
   const [picked, setPicked] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [sessionsTruncated, setSessionsTruncated] = useState(false); // 命中 2000 条上限时提示
   const [busy, setBusy] = useState(false);
   const [deployCheck, setDeployCheck] = useState({ ok: true, message: '' });
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,7 +48,6 @@ export default function Mentor() {
   const [studentScores, setStudentScores] = useState([]);
   const [studentScoresLoading, setStudentScoresLoading] = useState(false);
   const [inviteNotes, setInviteNotes] = useState({});
-  const [sub, setSub] = useState(null);
   const [schools, setSchools] = useState([]);
   const [classStats, setClassStats] = useState({});
   const [editingSchoolId, setEditingSchoolId] = useState(null);
@@ -145,7 +56,6 @@ export default function Mentor() {
   const [editingAliasValue, setEditingAliasValue] = useState('');
   const [deleteBusyId, setDeleteBusyId] = useState(null);  // 永久删除 per-student busy
   const [inviteBusyId, setInviteBusyId] = useState(null);  // 发送/撤回邀请 per-student busy
-  const [isLoading, setIsLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   // 确认对话框状态（替代原生 confirm()）
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '确认', variant: 'danger', onConfirm: null });
@@ -157,15 +67,6 @@ export default function Mentor() {
     () => [...sessions].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
     [sessions],
   );
-
-  // 组件卸载或 sub 变更时清理 realtime subscription，防止内存泄漏与重复订阅
-  useEffect(() => {
-    return () => {
-      if (sub) {
-        try { sub.unsubscribe(); } catch (_) {}
-      }
-    };
-  }, [sub]);
 
   useEffect(() => {
     // 导师端：仅真实手机（触屏 + 无 hover + ≤480px）才走移动版
@@ -216,47 +117,30 @@ export default function Mentor() {
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (authLoading || !authUser || bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
     (async () => {
       try {
-        const { data: { user: u } } = await supabase.auth.getUser();
-        if (!u) return;
-        // 角色检查：仅 role >= 2 可访问导师页面，学生直接重定向
-        // 必须从 profiles 表读取权威 role（user_metadata 不再包含 role，
-        // 否则导师会被误判为学生并重定向，导致无法进入导师页面）
-        let role = 1;
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role, default_workspace')
-          .eq('id', u.id)
-          .maybeSingle();
-        if (profileError) {
-          // 读取失败时不要误把学生分支的跳转套到导师身上，提示重试即可
-          toast('账号信息加载失败，请刷新重试', { kind: 'error' });
-          return;
-        }
-        if (profile?.role != null) role = Number(profile.role);
-
+        const role = Number(authProfile?.role || 1);
         if (role < 2) {
           toast('仅老师账号可访问导师页面', { kind: 'error' });
           nav('/', { replace: true });
           return;
         }
-        setUser(u);
+        setUser(authUser);
         // 记住上次打开的工作区：下次登录直接落到一表人才
-        if (profile?.default_workspace !== 'tracker') {
-          updateWorkspace(u.id, 'tracker').catch(() => {});
+        if (authProfile?.default_workspace !== 'tracker') {
+          updateWorkspace(authUser.id, 'tracker').catch(() => {});
         }
         const admin = role >= 3;
         setIsAdmin(admin);
-        await loadData(u.id, admin);
+        await loadData(authUser.id, admin);
       } catch (err) {
         logger.error('Mentor init failed:', err);
         toast('加载失败，请刷新重试', { kind: 'error' });
-      } finally {
-        setIsLoading(false);
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authLoading, authUser, authProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData(teacherId, admin = isAdmin) {
     logger.log('===== 老师端加载数据 =====');
@@ -296,11 +180,11 @@ export default function Mentor() {
         ? '需要在 Supabase SQL Editor 运行 schema.patch-invites.sql 创建邀请表。'
         : '请检查数据库表和 RLS 策略是否已部署。';
       setDeployCheck({ ok: false, message: `邀请系统未就绪（${cRes.error.code || 'error'}: ${cRes.error.message}）— ${hint}` });
-    } else if (user) {
+    } else if (teacherId) {
       const pRes2 = await supabase
         .from('profiles')
         .select('id, role, full_name')
-        .eq('id', user.id)
+        .eq('id', teacherId)
         .single();
       logger.log('老师身份查询结果:', pRes2);
       if (pRes2.error) {
@@ -344,10 +228,10 @@ export default function Mentor() {
     const schoolSet = new Set((sRes.data || []).map((p) => p.school_name).filter(Boolean));
     setSchools(Array.from(schoolSet).sort());
 
-    await loadClassStats(teacherId, map, pRes.data || [], admin);
+    await loadClassStats(map, pRes.data || [], admin);
   }
 
-  async function loadClassStats(teacherId, connectionsMap, allStudents, admin) {
+  async function loadClassStats(connectionsMap, allStudents, admin) {
     // admin 看全部学生；普通导师只看已连接（status === 1）的学生
     const targetStudents = admin
       ? (allStudents || []).map((s) => s.id)
@@ -370,7 +254,9 @@ export default function Mentor() {
       .select('student_id, duration_minutes, eval_type, score')
       .in('student_id', targetStudents)
       .is('deleted_at', null)
-      .gte('session_date', toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000)));
+      .gte('session_date', toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000)))
+      .limit(20000) // 防御：admin 可能覆盖数百名学生，避免无上限全量拉取
+      .abortSignal(timeoutSignal(30000)); // 聚合查询放宽到 30s
 
     if (error) {
       logger.error('loadClassStats error:', error);
@@ -401,26 +287,6 @@ export default function Mentor() {
     });
   }
 
-  function startRealtime(teacherId) {
-    if (sub) {
-      sub.unsubscribe();
-    }
-    const channelName = `teacher_connections_${teacherId}`;
-    const subscription = supabase
-      .channel(channelName)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'teacher_student_connections',
-        filter: `teacher_id=eq.${teacherId}`,
-      }, (payload) => {
-        logger.log('Connection realtime event:', payload);
-        loadData(teacherId);
-      })
-      .subscribe();
-    setSub(subscription);
-  }
-
   const pickedIdRef = useRef(null);
 
   async function fetchPickedSessions(studentId, { silent = false } = {}) {
@@ -431,7 +297,7 @@ export default function Mentor() {
         id, session_date, start_time, duration_minutes, category, form, eval_type,
         score, self_rating, grade_label, notes, course_id, created_at,
         course:course_id(name, subject),
-        chapter:chapter_id(name), unit:unit_id(name)
+        chapter:chapter_id(name, deleted_at), unit:unit_id(name, deleted_at)
       `)
       .eq('student_id', studentId)
       .is('deleted_at', null)
@@ -455,6 +321,7 @@ export default function Mentor() {
           subject: s.course?.name || s.course?.subject || '未分类',
         }))
       );
+      setSessionsTruncated((data || []).length >= 2000);
     }
     if (!silent) setBusy(false);
   }
@@ -1496,7 +1363,7 @@ export default function Mentor() {
                                 <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginBottom: 6 }}>最新提交（按提交时间，含补填）</div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                   {recentSubmitted.slice(0, 8).map((s, i) => {
-                                    const isBackfill = s.created_at && s.date && String(s.created_at).slice(0, 10) !== s.date;
+                                    const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
                                     return (
                                       <div key={i} style={{
                                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -1621,17 +1488,14 @@ export default function Mentor() {
               </div>
 
               {picked ? (
-                USE_LEGACY_DASHBOARD ? (
-                  <MentorAnalyticsPage
-                    user={user}
-                    students={students}
-                    connections={Array.isArray(connections) ? connections : Object.values(connections)}
-                    onSelectStudent={(s) => { setPicked(s); }}
-                  />
-                ) : (
-                  sessions.length > 0 ? (
-                    <>
-                      <WeekReviewDashboard sessions={sessions} student={picked} />
+                sessions.length > 0 ? (
+                  <>
+                    {sessionsTruncated && (
+                      <div style={{ fontSize: 12, color: '#b45309', marginBottom: 10 }}>
+                        该学生记录较多，这里只显示最近 2000 条，更早的记录未纳入统计。
+                      </div>
+                    )}
+                    <WeekReviewDashboard sessions={sessions} student={picked} />
 
                       {/* ── 成绩概览：数据分析最底部 ── */}
                       <div style={{ marginTop: 24 }}>
@@ -1777,7 +1641,6 @@ export default function Mentor() {
                       <div>{busy ? '加载中…' : '该学生暂无学习记录'}</div>
                     </div>
                   )
-                )
               ) : (
                 <div className="mentor-empty-state" style={{ padding: 60 }}>
                   <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
@@ -2150,7 +2013,7 @@ export default function Mentor() {
                     <div className="m-student-card__info">
                       <div className="m-student-card__name">{s.full_name || '(未命名)'}</div>
                       <div className="m-student-card__meta">
-                        {s.school_name || '未设置学校'} · {String(s.created_at || '').slice(0, 10)}
+                        {s.school_name || '未设置学校'} · {s.created_at ? toLocalDateStr(new Date(s.created_at)) : ''}
                       </div>
                     </div>
                     <span className={`m-status-pill m-status-pill--${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
@@ -2412,7 +2275,7 @@ export default function Mentor() {
                               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最新提交</div>
                               {recentSubmitted.slice(0, 3).map((s, i) => {
                                 const subjC = subjectColor((s.subject || '未分类').trim());
-                                const isBackfill = s.created_at && s.date && String(s.created_at).slice(0, 10) !== s.date;
+                                const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
                                 return (
                                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < 2 ? '1px solid #f1f5f9' : 'none' }}>
                                     <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>{fmtD(s.date)}</span>
@@ -2489,25 +2352,21 @@ export default function Mentor() {
             </div>
           </section>
           {picked ? (
-            USE_LEGACY_DASHBOARD ? (
-              <div className="m-analytics-container">
-                <MentorAnalyticsPage
-                  user={user}
-                  students={students}
-                  connections={Array.isArray(connections) ? connections : Object.values(connections)}
-                  onSelectStudent={(s) => { setPicked(s); }}
-                />
-              </div>
-            ) : (
               sessions.length > 0 ? (
-                <WeekReviewDashboard sessions={sessions} student={picked} />
+                <>
+                  {sessionsTruncated && (
+                    <div className="m-empty-state__text" style={{ color: '#b45309', marginBottom: 8 }}>
+                      记录较多，只显示最近 2000 条。
+                    </div>
+                  )}
+                  <WeekReviewDashboard sessions={sessions} student={picked} />
+                </>
               ) : (
                 <div className="m-empty-state">
                   <div className="m-empty-state__text">{busy ? '加载中…' : '该学生暂无学习记录'}</div>
                 </div>
               )
-            )
-          ) : (
+            ) : (
             <div className="m-empty-state">
               <div className="m-empty-state__text">请选择一位学生</div>
             </div>

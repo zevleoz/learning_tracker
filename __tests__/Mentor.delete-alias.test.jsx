@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Mentor from '../src/pages/Mentor';
 import { supabase } from '../src/__mocks__/supabase';
+import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth.js';
 
 // ───────────────────────────────────────────────────────────────
 // Mentor desktop view — delete + alias features
@@ -16,6 +17,9 @@ function setupAdmin() {
     user: { id: 'admin-1', email: 'admin@test.com' },
     session: { user: { id: 'admin-1', email: 'admin@test.com' } },
   });
+  // Mentor.jsx 的角色判定统一来自 useAuth（MEN-2），测试需同步注入登录态
+  setAuthUser({ id: 'admin-1', email: 'admin@test.com' });
+  setAuthProfile({ id: 'admin-1', role: 3, full_name: '管理员', default_workspace: 'tracker' });
   supabase.__setTableData('profiles', [
     { id: 'admin-1', role: 3, full_name: '管理员', school_name: '学校A' },
     { id: 'student-1', role: 1, full_name: '王小明', school_name: '学校A', created_at: '2024-01-01' },
@@ -33,6 +37,8 @@ function setupMentor() {
     user: { id: 'mentor-1', email: 'mentor@test.com' },
     session: { user: { id: 'mentor-1', email: 'mentor@test.com' } },
   });
+  setAuthUser({ id: 'mentor-1', email: 'mentor@test.com' });
+  setAuthProfile({ id: 'mentor-1', role: 2, full_name: '老师', default_workspace: 'tracker' });
   supabase.__setTableData('profiles', [
     { id: 'mentor-1', role: 2, full_name: '老师', school_name: '学校A' },
     { id: 'student-1', role: 1, full_name: '王小明', school_name: '学校A', created_at: '2024-01-01' },

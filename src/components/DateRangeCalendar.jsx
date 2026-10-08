@@ -138,12 +138,7 @@ function MonthGrid({
                     : 'transparent',
               }}
             >
-              {middle && !isEdge && (
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'rgba(79,70,229,0.12)',
-                }} />
-              )}
+              {/* 中段底色已在容器 background 上处理，这里不再重复铺一层 */}
               {isStart && rangeEnd && !isSameDay(rangeStart, rangeEnd) && (
                 <div style={{
                   position: 'absolute', right: '50%', top: 0, bottom: 0,
@@ -426,6 +421,9 @@ export default function DateRangeCalendar({
             onDateClick={handleDateClick}
             onDateHover={handleDateHover}
             onLeaveGrid={() => setHoverDate(null)}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             cellHeight={cellHeight}
             isMobile={isMobile}
           />

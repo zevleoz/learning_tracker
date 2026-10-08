@@ -4,6 +4,14 @@ import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import { toLocalDateStr } from '../lib/date.js';
+
+// created_at 是 timestamptz（UTC）：直接 slice(0,10) 会在 UTC+8 的早 8 点前偏一天
+function formatLocalDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : toLocalDateStr(d);
+}
 
 // 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
 function friendlyError(err, fallback = '操作失败，请稍后再试') {
@@ -61,6 +69,7 @@ export default function Notifications() {
           table: 'teacher_student_connections',
           filter: `student_id=eq.${u.id}`,
         }, (payload) => {
+          if (cancelled) return; // 卸载后不再触发刷新
           if (payload.eventType === 'INSERT' && payload.new?.status === 0) {
             toast('收到新的老师邀请！', { kind: 'success' });
           }
@@ -224,7 +233,7 @@ export default function Notifications() {
               <div>
                 <div style={{ fontWeight: 600, color: '#0f172a' }}>{c.teacher_name}</div>
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                  从 {String(c.created_at || '').slice(0, 10)} 起可以查看你的学习数据
+                  从 {formatLocalDate(c.created_at)} 起可以查看你的学习数据
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -285,7 +294,7 @@ function InviteRow({ invite, onAccept, onReject, busy }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{invite.teacher_name}</div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-            邀请时间：{String(invite.created_at || '').slice(0, 10)}
+            邀请时间：{formatLocalDate(invite.created_at)}
           </div>
           {invite.note && (
             <div style={{ fontSize: 12, color: '#475569', marginTop: 6, padding: '6px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: 8 }}>

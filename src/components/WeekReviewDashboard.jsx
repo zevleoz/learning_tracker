@@ -135,7 +135,8 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
     const weekAgo = toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000));
     return sessions.filter(s => {
       if (!s.created_at) return false;
-      const submitted = String(s.created_at).slice(0, 10);
+      // created_at 是 UTC 时间戳：按本地日期比较，避免 UTC+8 早 8 点前偏一天
+      const submitted = toLocalDateStr(new Date(s.created_at));
       if (submitted < weekAgo) return false;
       const d = s.date?.split('T')[0];
       return d && (d < startStr || d > endStr);
@@ -381,7 +382,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
 
       {/* ── 深度分析（key 跟随时间维度变化，强制面板重挂载以重新展开 + 测量高度）── */}
       <DeepDivePanels
-        key={`${presetId}-${range.start.toISOString()}-${range.end.toISOString()}`}
+        key={`${presetId}-${toLocalDateStr(range.start)}-${toLocalDateStr(range.end)}`}
         sessions={periodSessions}
         weeks={weeks}
         studentName={studentName}

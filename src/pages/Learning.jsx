@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
+import { SUBJECTIVE_STEPS } from '../lib/rating.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
@@ -26,15 +27,6 @@ const FORM_PRESET_BY_CATEGORY = {
   3: ['自主练习', '校外线上', '校外线下', '课外作业', '学校作业'],          // 练习
 };
 const ALL_FORM_PRESET = Array.from(new Set(Object.values(FORM_PRESET_BY_CATEGORY).flat()));
-
-// 主观评估 5 档
-const SUBJECTIVE_STEPS = [
-  { value: 20, label: '没有听课' },
-  { value: 40, label: '像在听天书' },
-  { value: 60, label: '有不少没掌握' },
-  { value: 80, label: '基本掌握' },
-  { value: 100, label: '完全掌握' },
-];
 
 // 客观评估 13 档
 const OBJECTIVE_STEPS = [
@@ -387,24 +379,14 @@ export default function LearningPage() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('school_name')
-        .eq('id', user.id)
-        .maybeSingle();
-      const mySchool = profile?.school_name;
-
+      // 课程可见性完全由 RLS（courses_select）决定，前端不再做无效的学校过滤（STU-1）
       const { data, error } = await supabase
         .from('courses')
         .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
       if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
-      const list = (data || []).filter(c => {
-        if (c.created_by === user.id) return true;
-        if (!mySchool) return false;
-        return true;
-      }).map(c => ({
+      const list = (data || []).map(c => ({
         ...c,
         chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
           .sort((a,b)=>a.order_idx-b.order_idx)
@@ -837,8 +819,9 @@ export default function LearningPage() {
     const course = (courses || []).find(c => c.id === r.course_id);
     const chapter = (course?.chapters || []).find(ch => ch.id === r.chapter_id);
     if (chapter) setChapterId(chapter.id);
-    if (chapter?.units?.length) setUnitId(chapter.units[0].id);
-    if (r.unit_id) setUnitId(r.unit_id);
+    // 只按记录本身的 unit_id 回填；记录没有单元时保持为空，
+    // 避免保存时把「无单元」的记录静默改成第一单元（STU-2）
+    setUnitId(r.unit_id || '');
 
     setDateStr(String(r.session_date || toDateStr(new Date())));
     setStartStr(String(r.start_time || toTimeStr(new Date())).slice(0, 5));

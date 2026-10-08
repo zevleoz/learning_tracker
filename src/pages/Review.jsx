@@ -11,13 +11,16 @@ export default function Review() {
   const [loadError, setLoadError] = useState(null);
   const location = useLocation();
 
-  async function fetchSessions() {
+  // shouldIgnore() 返回 true 时说明本次请求已过期（组件卸载或路由切换），丢弃结果
+  async function fetchSessions(shouldIgnore = () => false) {
     setLoading(true);
     setLoadError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (shouldIgnore()) return;
       if (!user) { setLoading(false); return; }
 
+      // 课程名保留历史值：课程被软删除后，旧记录仍显示当时的课程名（不隐藏记录本身）
       const { data, error } = await supabase
         .from('learning_sessions')
         .select(`
@@ -51,17 +54,21 @@ export default function Review() {
           subjectCategory: courseSubject || null,
         };
       });
+      if (shouldIgnore()) return;
       setSessions(list);
     } catch (err) {
+      if (shouldIgnore()) return;
       logger.error('Review fetch failed:', err);
       setLoadError('数据加载失败，请刷新页面重试');
     } finally {
-      setLoading(false);
+      if (!shouldIgnore()) setLoading(false);
     }
   }
 
   useEffect(() => {
-    fetchSessions();
+    let cancelled = false;
+    fetchSessions(() => cancelled);
+    return () => { cancelled = true; };
   }, [location.pathname]);
 
   if (loading) {

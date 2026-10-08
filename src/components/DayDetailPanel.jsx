@@ -31,7 +31,11 @@ function RecordRow({ record: r }) {
   const cat = Number(r.category);
   const catColor = CATEGORY_COLORS[cat] || '#94a3b8';
   const catName = CATEGORY_NAMES[cat] || '—';
-  const path = [r.chapter?.name, r.unit?.name].filter(Boolean).join(' · ');
+  // 章节/单元被软删除后不再显示其名称（软删内容不泄漏）
+  const path = [
+    r.chapter && !r.chapter.deleted_at ? r.chapter.name : null,
+    r.unit && !r.unit.deleted_at ? r.unit.name : null,
+  ].filter(Boolean).join(' · ');
   const hasSubjective = r.self_rating != null;
   const hasObjective = cat === 3 && (r.grade_label || r.score != null);
 

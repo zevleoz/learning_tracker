@@ -12,7 +12,6 @@ export const CATEGORY_COLORS = {
 export const CATEGORY_NAMES  = { 1: '学', 2: '复', 3: '练' };
 export const SELF_FORMS = ['自主预习', '自主复习', '自主练习'];
 export const SELF_COLOR = '#2563EB';      // 自主 = Blue 600（跟随 Study 主色）
-export const EXTERNAL_COLOR = '#A78BFA';  // 外部/辅导 = Violet 400 淡紫
 export const EMPTY_COLOR = '#e2e8f0';
 
 export function isSelfForm(form) {
@@ -287,7 +286,9 @@ function DayCard({ dayName, date, daySessions, isMobile, onClick, isSelected }) 
 
 // ── 周历网格 ──────────────────────────────────────────
 export default function WeekGrid({ sessions = [], weekStart, isMobile = false, onDayClick, selectedDate }) {
+  // 依赖取「时间值」而非每次新建的 Date 对象，useMemo 缓存才有效
   const monday = getMonday(weekStart || new Date());
+  const mondayMs = monday.getTime();
 
   const days = useMemo(() => {
     const byDay = Array.from({ length: 7 }, () => []);
@@ -299,7 +300,7 @@ export default function WeekGrid({ sessions = [], weekStart, isMobile = false, o
       if (diff >= 0 && diff <= 6) byDay[diff].push(s);
     }
     return byDay;
-  }, [sessions, monday]);
+  }, [sessions, mondayMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isMobile) {
     return (

@@ -43,7 +43,7 @@ export const SURFACE_SEEDS = {
     'src/pages/Review.jsx',
     'src/pages/Notifications.jsx',
   ],
-  mentor: ['src/pages/Mentor.jsx', 'src/pages/MentorAnalytics.jsx', 'src/pages/MentorAnalyticsTest.jsx'],
+  mentor: ['src/pages/Mentor.jsx'],
   e4: [],
 };
 

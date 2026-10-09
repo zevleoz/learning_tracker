@@ -301,3 +301,59 @@
 1. DevTools → Network 抄失败请求完整 URL + 响应体（UI 与浏览器 console 现在都会带上游原文）。
 2. origin 查上游日志中该请求的 path 原文与状态，确认是否上游应用自身 404（`sudo tail -f` 应用日志 + `pm2 list` / `systemctl status`）。
 3. 若属上游数据窗口（id 变动/导入中）：用 Y4LinkModal 重新关联受影响学生的 `y4_student_id`。
+
+## 2026-10-09 QC 第二轮：E4 关联持久化 + 浅色模式 + 完整性复核
+
+### R1 建档时 Y4 关联被静默丢弃（核心 bug，已修）
+
+`createE4Student` 用固定字段白名单组 row，`y4_student_id / y4_report_id / y4_student_name / y4_report_date` 全部被丢掉，从未写库。后果：只要没当场生成报告（拉协议失败 / 关页面 / 稍后再做），档案里关联为空 → 学生详情页显示「未关联」→ 导师被迫重新选一遍学生和报告。
+
+- 修复：`e4Store.createE4Student` 增加这四个字段的透传（仅在传入时写入，避免覆盖成 null）。
+- 兜底：建档 Step 2 新增「先建档，稍后选报告」（报告列表失败或确实为空时出现），只写 `y4_student_id / y4_student_name`。
+- 已关联免重选：`Y4LinkModal` 新增 `initialY4Student`，学生详情页在「有 Y4 学生、缺报告」时直接进选报告那一步；`NewFirstFlow` / `NewPrepFlow` 增加「已关联 Y4 报告 #X（测评日期 Y）」确认语，404 时按钮变为「更换关联」。
+- 存量数据：无法自动恢复（当初选了哪份报告从未落库）。`scripts/list-unlinked-e4-students.mjs` 列出 `y4_report_id IS NULL` 的学生，导师用 Y4LinkModal 逐个补（约 10 秒/人）。
+
+### R3 浅色模式 hover（已修，系统性核对）
+
+- 报障点：`.e4-modal .e4-y4-item:hover` 落在深色代的 `#1C2126`（黑底黑字），浅色补丁漏了 `:hover`。
+- 核对方法：深色代（11556-12900 之前的 `.e4-dashboard` / `.e4-modal` 覆写层）中所有带 hover/focus/selected/disabled/::placeholder 的规则逐条比对 `body.e4-light` 是否有对应覆盖，重点看深色特征值 `#1C2126 / #0F1215 / #15191D / rgba(255,255,255,…)`。
+- 本轮补齐：`.e4-modal .e4-y4-item:hover`、`.e4-modal .e4-btn-ghost`（含 hover，深色代与 mini 同组、浅色补丁此前只补了 mini）、`.e4-jchip/:hover/.active`、`.e4-jpill/:hover/.active`、`.e4-matrix-row:hover/.is-open`、`.e4-dim-rail-item:hover`（深色代用白色叠加，浅色下等于没生效，统一改为墨色叠加）。
+- 其余同类规则均已有浅色覆盖（`.e4-cmdk`、`.e4-search-item`、`.e4-doc-toolbar`、`.e4-context-menu`、`.e4-print-toolbar`、`.e4-table-row`、`.e4-prep-row-head`、聚焦环 `:focus-visible` 等）。
+- 未发现 `prefers-color-scheme` 媒体查询在不该生效时生效。
+
+### R4 DatePicker 配色改由「表面作用域」提供（已修）
+
+原先每个调用点传 `buttonClassName / contentClassName`，而多数调用点没传或传不齐，弹层只能吃 `:root` 的静态浅色。现改为把 shadcn 变量按表面作用域化：
+
+- `.e4-dashboard`：E4 深色石墨色板（16 个变量）。
+- `body:not(.e4-light):has(.e4-dashboard)`：同一套深色值，用于覆盖 **portal 到 body 的弹层**；离开 E4 后 `.e4-dashboard` 卸载、变量随之失效，因此不会像早年全局 `.dark` 那样污染学生端。
+- `body.e4-light`：E4 浅色暖灰色板（覆盖 dashboard + 全部 portal 弹层）。
+- `.e4-print-doc / .e4-print-page`：还原为浅色（纸张内不能跟着暗下来），打印视觉不变。
+- 调用点补丁已删除：`E4IntakePage`、`E4TodosPage` 的 `buttonClassName/contentClassName`；`E4ReportBuilderPage`、`E4ProgressPage` 的 `dateFieldCls` 去掉硬编码 `text-slate-900`（保留尺寸排版）。
+- 已知遗留：`DatePicker` 不接受 `trigger / defaultOpen / clearable / boundary` 参数，`DocField` 传入的这四个 prop 一直是无效的（日期单元格渲染的是默认触发器，`index.css` 中 `.e4-doc-date-trigger` 相应未被使用）——属既有偏差，未在本轮改动。
+
+### Phase 4 完整性复核（复核表）
+
+上轮 QC 落地抽查：SEC-1 已落地（`require-mentor.js` + 4 个端点 + 前端注入）；BUG-1 已落地（`updateReport` 只写传入键，协议快照不被覆盖）；BUG-2/3 已落地（`e4MeetingSync` 按报告类型分派 + 测试存在）；E4-2 已落地（007 迁移 + 列表默认隐藏归档）；FEAT-1 已落地（Storage 上传 + 签名链接）；E4-4 部分落地（见 INT-3）。
+
+三端巡检与 UI 扫尾偏差：
+
+| 编号 | 偏差 | 位置 |
+|---|---|---|
+| INT-1 | 成绩 tab 的计数角标只在切到该 tab 后才有值（懒加载 `examScores`），首屏不显示角标 | `Learning.jsx:532-534`、`:1098` |
+| INT-2 | 导师端邀请/撤回/断开走直连 supabase，而备注名/学校/删除走 RPC，读写策略不统一 | `Mentor.jsx:455,503,539` vs `:560-627` |
+| INT-3 | progress / prep 工作台只有只读锁定，没有 final 的「定稿 / 撤回」入口，与首次报告工作台不对等 | `E4ProgressPage.jsx:187`、`E4PrepPage.jsx:171` |
+| INT-4 | （符合）协议快照只在建报告时拉取，重开走 `protocol_md` | — |
+| INT-5 | （符合）待办日期链 prep → first → progress 闭环 | `e4MeetingSync` + `E4TodosPage:231-244` |
+| INT-6 | （符合）打印与屏幕同源取数（同一 form） | `E4ReportBuilderPage.jsx:1027/1073` |
+| INT-7 | `E4TodosPage` 使用 tailwind 的 `animate-pulse` / amber / red 类，未走 `--e4-*` 变量；E4 各处自建 spinner/skeleton/空态 | `E4TodosPage.jsx:179-275` |
+| INT-8 | 三端 loading/empty/error 控件未统一：`StatusStates.jsx` 定义完整但零引用（死代码），`Mentor.jsx` 与 `Learning.jsx` 各写各的 | `src/components/StatusStates.jsx` |
+| INT-9 | 少量硬编码色值残留在打印/文档组件（`#8F897B`、`#C4535A` 等） | `E4PrepPage.jsx:515`、`PrepPrint.jsx:391,427`、`DocField.jsx:11-14` |
+| INT-10 | `DatePicker` 未实现 `trigger / defaultOpen / clearable / boundary`，`DocField` 的传参无效 | `date-picker.jsx:14-21` |
+
+### 需用户决策（Agent 不擅自改）
+
+1. INT-3：progress / prep 工作台是否补「定稿 / 撤回」入口。
+2. INT-2：导师端邀请/断开是否统一改走 RPC。
+3. 数据库侧待办仍未执行：`005 / 006 / 007 / 008` 迁移与 Storage bucket（006）——未执行时归档、上传、角色提权收敛都会降级。
+

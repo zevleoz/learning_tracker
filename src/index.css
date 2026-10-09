@@ -12722,8 +12722,11 @@ body.e4-light .e4-dashboard {
 body.e4-light .e4-dashboard { color-scheme: light; }
 
 /* ---- shadcn 组件浅色适配：primary 用 E4 navy 而非近黑；其余按暖灰纸面配色 ----
-   挂在 body 上，因此 portal 弹层（DatePicker 的 Popover/Calendar）也一并正确 */
-body.e4-light {
+   同时挂到 body（portal 弹层）与 .e4-dashboard 本身：
+   CSS 变量按「最近的祖先」继承，若只写 body，仪表盘内部元素会从 .e4-dashboard
+   读到上面那块深色变量，浅色模式下反而变暗 */
+body.e4-light,
+body.e4-light .e4-dashboard {
   --background: 48 19% 95%;          /* #F4F3EF */
   --foreground: 43 10% 14%;          /* #26241F */
   --card: 45 29% 97%;                /* #FAF9F6 */

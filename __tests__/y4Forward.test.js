@@ -1,4 +1,4 @@
-import { forwardViaFetch } from '../api-lib/y4-forward.mjs';
+import { forwardViaFetch, createTtlCache } from '../api-lib/y4-forward.mjs';
 
 // 上游（Cloudflare 隧道）实测存在偶发连接抖动：fetch 直接抛错。
 // 只读列表类请求允许重试一次；e4-protocol（触发上游 AI，10-30 秒）不重试。
@@ -169,5 +169,32 @@ describe('forwardViaFetch 的鉴权头形态', () => {
     await forwardViaFetch({ apiKey: 'secret-key', subpath: 'students', authHeader: 'x-api-key' });
     expect(calls[0].headers).toEqual({ 'X-Api-Key': 'secret-key' });
     expect(calls[0].headers.Authorization).toBeUndefined();
+  });
+});
+
+// 代理侧短缓存：完全不依赖上游或 Cloudflare 的加速手段（默认关闭）
+describe('createTtlCache', () => {
+  test('ttlMs=0 时完全关闭（不存不取）', () => {
+    const cache = createTtlCache({ ttlMs: 0 });
+    cache.set('k', 'v');
+    expect(cache.get('k')).toBeNull();
+  });
+
+  test('TTL 内命中，超时后失效', async () => {
+    const cache = createTtlCache({ ttlMs: 25 });
+    cache.set('students', { status: 200 });
+    expect(cache.get('students')).toEqual({ status: 200 });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(cache.get('students')).toBeNull();
+  });
+
+  test('超过 max 时淘汰最旧的一条', () => {
+    const cache = createTtlCache({ ttlMs: 1000, max: 2 });
+    cache.set('a', 1);
+    cache.set('b', 2);
+    cache.set('c', 3);
+    expect(cache.get('a')).toBeNull();
+    expect(cache.get('b')).toBe(2);
+    expect(cache.get('c')).toBe(3);
   });
 });

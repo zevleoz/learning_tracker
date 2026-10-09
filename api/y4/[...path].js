@@ -1,8 +1,11 @@
 // 同源 Y4 代理：浏览器只请求 /api/y4/*，
 // Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
-import { Y4_API_BASE, forwardViaFetch, jsonError } from '../../api-lib/y4-forward.mjs';
+import { Y4_API_BASE, forwardViaFetch, jsonError, createTtlCache } from '../../api-lib/y4-forward.mjs';
 import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
 import { validateY4Subpath, resolveY4Subpath } from '../../api-lib/y4-path.js';
+
+// 只读列表的极短缓存：每个 serverless 实例各持一份，默认关闭（Y4_CACHE_TTL_MS=0）
+const cache = createTtlCache();
 
 export const config = {
   // e4-protocol 端点实时调用 AI，实测 10-30 秒
@@ -42,6 +45,23 @@ export default async function handler(req, res) {
   // 其余只读列表/文档：单次 7 秒超时 + 失败重试一次（防上游连接挂起）
   const isProtocol = subpath.endsWith('/e4-protocol');
 
+  // 只读列表的短缓存（默认 Y4_CACHE_TTL_MS=0 关闭；e4-protocol 永不缓存）
+  cache.ttlMs = Number(process.env.Y4_CACHE_TTL_MS) || 0;
+  const cacheKey = `${subpath}${search}`;
+  const cacheable = !isProtocol && cache.ttlMs > 0;
+
+  if (cacheable) {
+    const hit = cache.get(cacheKey);
+    if (hit) {
+      res.status(hit.status);
+      res.setHeader('Content-Type', hit.contentType);
+      res.setHeader('Cache-Control', `private, max-age=${Math.floor(cache.ttlMs / 1000)}`);
+      res.setHeader('X-Y4-Cache', 'HIT');
+      res.send(hit.body);
+      return;
+    }
+  }
+
   try {
     const result = await forwardViaFetch({
       base: process.env.Y4_API_BASE || Y4_API_BASE,
@@ -55,9 +75,14 @@ export default async function handler(req, res) {
       // 上游支持 X-Api-Key 后设为 x-api-key，可让 Cloudflare 缓存规则命中
       authHeader: process.env.Y4_AUTH_HEADER || 'authorization',
     });
+    if (cacheable && result.status === 200 && !search) {
+      // 只缓存不带查询串的成功响应，避免把变体参数的结果混在一起
+      cache.set(cacheKey, { status: result.status, contentType: result.contentType, body: result.body });
+    }
     res.status(result.status);
     res.setHeader('Content-Type', result.contentType);
     if (result.cacheControl) res.setHeader('Cache-Control', result.cacheControl);
+    if (cacheable) res.setHeader('X-Y4-Cache', 'MISS');
     res.send(result.body);
   } catch (err) {
     const e = jsonError(502, `无法连接 Y4 服务：${err.message || 'network error'}`);

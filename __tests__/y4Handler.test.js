@@ -88,4 +88,47 @@ describe('Y4 代理 handler 的路径解析', () => {
     expect(res.code).toBe(200);
     expect(calls.some((u) => u.endsWith('/api/v1/reports/27/y4-md?include_raw=1'))).toBe(true);
   });
+
+  // 代理侧短缓存：默认关闭，开启后重复查询不再打上游（不依赖上游/Cloudflare 任何改动）
+  test('Y4_CACHE_TTL_MS 开启后，第二次相同请求命中缓存', async () => {
+    process.env.Y4_CACHE_TTL_MS = '5000';
+    const calls = mockUpstream();
+    const upstreamHits = () => calls.filter((u) => u.includes('p4learning-ark')).length;
+
+    const res1 = makeRes();
+    await handler({ method: 'GET', url: '/api/y4/students/48/reports', headers: { authorization: 'Bearer t' }, query: {} }, res1);
+    expect(res1.code).toBe(200);
+    expect(res1.headers['X-Y4-Cache']).toBe('MISS');
+    const afterFirst = upstreamHits();
+
+    const res2 = makeRes();
+    await handler({ method: 'GET', url: '/api/y4/students/48/reports', headers: { authorization: 'Bearer t' }, query: {} }, res2);
+    expect(res2.code).toBe(200);
+    expect(res2.headers['X-Y4-Cache']).toBe('HIT');
+    expect(upstreamHits()).toBe(afterFirst); // 第二次没再打上游
+  });
+
+  test('默认（未设 Y4_CACHE_TTL_MS）不缓存，两次请求都打上游', async () => {
+    delete process.env.Y4_CACHE_TTL_MS;
+    const calls = mockUpstream();
+    const upstreamHits = () => calls.filter((u) => u.includes('p4learning-ark')).length;
+
+    await handler({ method: 'GET', url: '/api/y4/students', headers: { authorization: 'Bearer t' }, query: {} }, makeRes());
+    const afterFirst = upstreamHits();
+    await handler({ method: 'GET', url: '/api/y4/students', headers: { authorization: 'Bearer t' }, query: {} }, makeRes());
+    expect(upstreamHits()).toBeGreaterThan(afterFirst);
+  });
+
+  test('e4-protocol 永不缓存（即使开了 Y4_CACHE_TTL_MS）', async () => {
+    process.env.Y4_CACHE_TTL_MS = '5000';
+    const calls = mockUpstream({ y4Body: '{"ok":true,"protocol":"..."}' });
+    const upstreamHits = () => calls.filter((u) => u.includes('p4learning-ark')).length;
+
+    await handler({ method: 'GET', url: '/api/y4/reports/46/e4-protocol', headers: { authorization: 'Bearer t' }, query: {} }, makeRes());
+    const afterFirst = upstreamHits();
+    const res2 = makeRes();
+    await handler({ method: 'GET', url: '/api/y4/reports/46/e4-protocol', headers: { authorization: 'Bearer t' }, query: {} }, res2);
+    expect(upstreamHits()).toBe(afterFirst + 1); // 又打了一次上游
+    expect(res2.headers['X-Y4-Cache']).toBeUndefined();
+  });
 });

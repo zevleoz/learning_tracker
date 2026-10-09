@@ -74,3 +74,40 @@ export async function forwardViaFetch({
 export function jsonError(status, error) {
   return { status, body: JSON.stringify({ ok: false, error }), contentType: 'application/json; charset=utf-8' };
 }
+
+/**
+ * 极短 TTL 的内存缓存（每个 serverless 实例各持一份，不跨实例共享）。
+ *
+ * 用途：只读列表的重复查询（例如反复点选同一位学生）不必再走一次跨境往返。
+ * 代价：TTL 内看不到刚生成的新数据 —— 因此默认关闭（ttlMs = 0），
+ * 需要时用 Y4_CACHE_TTL_MS 打开，建议不超过 30 秒。
+ * 绝不要用于 e4-protocol（会触发上游 AI 生成）。
+ */
+export function createTtlCache({ ttlMs = 0, max = 200 } = {}) {
+  const store = new Map();
+  const config = { ttlMs: Number(ttlMs) || 0, max };
+  return {
+    // ttlMs 可在运行期调整（例如按环境变量逐请求同步），0 表示关闭
+    get ttlMs() {
+      return config.ttlMs;
+    },
+    set ttlMs(value) {
+      config.ttlMs = Number(value) || 0;
+    },
+    get(key) {
+      if (!config.ttlMs) return null;
+      const hit = store.get(key);
+      if (!hit) return null;
+      if (Date.now() - hit.at >= config.ttlMs) {
+        store.delete(key);
+        return null;
+      }
+      return hit.value;
+    },
+    set(key, value) {
+      if (!config.ttlMs) return;
+      if (!store.has(key) && store.size >= config.max) store.delete(store.keys().next().value);
+      store.set(key, { at: Date.now(), value });
+    },
+  };
+}

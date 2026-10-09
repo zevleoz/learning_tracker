@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Y4_API_BASE, forwardViaFetch } from './api-lib/y4-forward.mjs';
+import { Y4_API_BASE, forwardViaFetch, createTtlCache } from './api-lib/y4-forward.mjs';
 import { requireMentor } from './api-lib/require-mentor.js';
 import { validateY4Subpath } from './api-lib/y4-path.js';
 import { reachableFiles, SURFACE_SEEDS, SURFACES } from './scripts/surfaceHashes.js';
@@ -167,7 +167,9 @@ async function requireMentorForDev(req, res) {
 // （report.p4learning-ark.app），必须通过域名 + 正常 SNI 访问；
 // 旧的「直连 IP + 不发 SNI」方案对 Cloudflare 已不可用。
 // 与线上共用 api-lib/y4-forward.mjs 的转发实现。
-// ----------------------------------------------------------------
+//
+// 只读列表的极短缓存：模块级一份，与线上 serverless 实例级缓存的语义一致。
+const y4DevCache = createTtlCache();
 
 function y4DevProxy(env) {
   return {
@@ -201,6 +203,22 @@ function y4DevProxy(env) {
         const search = qIndex >= 0 ? req.url.slice(qIndex) : '';
         const isProtocol = subpath.endsWith('/e4-protocol');
 
+        // 与线上一致：只读列表的短缓存（默认关闭，Y4_CACHE_TTL_MS=0）
+        y4DevCache.ttlMs = Number(env.Y4_CACHE_TTL_MS) || 0;
+        const cacheKey = `${subpath}${search}`;
+        const cacheable = !isProtocol && y4DevCache.ttlMs > 0;
+        if (cacheable) {
+          const hit = y4DevCache.get(cacheKey);
+          if (hit) {
+            res.statusCode = hit.status;
+            res.setHeader('Content-Type', hit.contentType);
+            res.setHeader('Cache-Control', `private, max-age=${Math.floor(y4DevCache.ttlMs / 1000)}`);
+            res.setHeader('X-Y4-Cache', 'HIT');
+            res.end(hit.body);
+            return;
+          }
+        }
+
         forwardViaFetch({
           base: env.Y4_API_BASE || Y4_API_BASE,
           // 与线上一致：只读请求在主端点失败后回退备用端点；e4-protocol 不回退
@@ -214,9 +232,13 @@ function y4DevProxy(env) {
           authHeader: env.Y4_AUTH_HEADER || 'authorization',
         })
           .then(({ status, contentType, cacheControl, body }) => {
+            if (cacheable && status === 200 && !search) {
+              y4DevCache.set(cacheKey, { status, contentType, body });
+            }
             res.statusCode = status;
             res.setHeader('Content-Type', contentType);
             if (cacheControl) res.setHeader('Cache-Control', cacheControl);
+            if (cacheable) res.setHeader('X-Y4-Cache', 'MISS');
             res.end(body);
           })
           .catch((err) => {

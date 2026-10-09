@@ -25,7 +25,7 @@
 ## 2. 技术栈与常用命令
 
 - React 18 + Vite 5 + React Router 6 + Tailwind 3 + Supabase JS v2（纯 RLS，无后端业务层）+ recharts + framer-motion
-- Vercel Serverless Functions（`api/`）只做两件事：**Y4 代理**（`api/y4/[...path].js` + `api-lib/y4-forward.mjs`，服务端持有 `Y4_API_KEY`）和 **LLM 生成**（`api/llm/` 下 3 个 POST：meeting-notes / cell-note / prep-prefill，OpenAI 兼容接口，默认火山 ARK doubao，env 可切模型）
+- Vercel Serverless Functions（`api/`）只做两件事：**Y4 代理**（`api/y4/index.js` + `api-lib/y4-forward.mjs`，服务端持有 `Y4_API_KEY`；路由为单段 `/api/y4`，子路径经 `?path=` 传入）和 **LLM 生成**（`api/llm/` 下 3 个 POST：meeting-notes / cell-note / prep-prefill，OpenAI 兼容接口，默认火山 ARK doubao，env 可切模型）
 - 测试：`npm test`（Jest 30 + jsdom + babel，mock 在 `src/__mocks__/`，`jest.config.js` 用 `moduleNameMapper` 重定向 supabase/useAuth）
 - 构建：`npm run build`（纯 vite，无 tsc/lint）
 - 部署：push `main` → Vercel 自动部署（`vercel.json`，SPA rewrite + `/api/*` serverless）
@@ -266,12 +266,32 @@
 | `reports/46/e4-protocol`（Sean 报告，生产同款调用） | 200，20 秒 / 20KB markdown |
 | 域名根 `openapi.json` / `/docs` | 404 / 405（上游非 FastAPI 文档形态，取不到路由表） |
 
-排除分支：A 前缀被吃、B 部署回滚、C 隧道指错、E 路由改名。当前上游端点完全健康，404 不是稳定可复现态；最可能是上游瞬时状态（重启/数据导入窗口）被一次性展示。
+排除分支：A 前缀被吃、B 部署回滚、C 隧道指错、E 路由改名。
+
+### 根因（当日最终定位，用户提供线上域名后确认）
+
+线上站点 `tracker.p4learning-ark.app` 实测：
+
+| 请求 | 结果 |
+|---|---|
+| `/api/y4/students`（动态 1 段） | 401（函数执行，`x-vercel-id: sfo1::iad1::…`） |
+| `/api/y4/students/48`（2 段） | 404 `The page could not be found NOT_FOUND`（Vercel 页面，函数未执行） |
+| `/api/y4/students/48/reports`（3 段） | 同上，与用户报错一字不差 |
+| `/api/llm/meeting-notes`（静态 2 段） | 405（函数执行） |
+
+即 **Vercel 把 `api/y4/[...path].js` 注册成了「单段参数路由」而非 catch-all**：多段路径根本进不了函数，被 Vercel 边缘直接 404。这与我们的代码无关（handler 只可能返回 400/401/403/405/502/503 或上游状态码），也排除了上游（上游全链路无任何 Vercel 痕迹，404 一律 Flask/JSON）。
+
+**修复**：不再依赖 catch-all 语义。
+
+- `api/y4/[...path].js` → `api/y4/index.js`（单段静态路由 `/api/y4`，与已验证可达的 `/api/llm/*` 同形态）
+- 子路径改经 `?path=` 传递：前端 `src/lib/y4api.js` 请求 `/api/y4?path=<encodeURIComponent(子路径)>`
+- `api-lib/y4-path.js` 新增 `resolveY4Target` / `resolveY4Search`：从 `?path=` 取「子路径 + 自带查询串」，旧 URL 形态仍兼容；`validateY4Subpath` 白名单不变
+- 本地 dev 代理同样改用 `resolveY4Target`，保证与线上一致
 
 ### 本轮加固（下次故障自带根因）
 
 1. `src/lib/y4api.js`：报错消息拼接上游原文（截 200 字符，形如 `｜上游：报告不存在`），并 `console.warn` 输出 `{ path, status, detail }`。
-2. `api/y4/[...path].js` 与 `vite.config.js` dev 代理：上游 ≥400 时 `console.warn('[y4-proxy] upstream', { subpath, status, ms, body 前 120 字 })`，Vercel Runtime Logs 直接可查。
+2. `api/y4/index.js` 与 `vite.config.js` dev 代理：上游 ≥400 时 `console.warn('[y4-proxy] upstream', { subpath, status, ms, body 前 120 字 })`，Vercel Runtime Logs 直接可查。
 3. `E4IntakePage.jsx`：失败区内联显示 `HTTP 状态码 + 查询对象 Y4 学生 #id`，保留「重新加载」原地重试。
 4. 契约 fixtures：`__tests__/fixtures/y4_students.json`、`y4_reports.json`（线上真实响应脱敏）+ 契约测试，上游字段漂移时测试先红。
 5. 诊断脚本 `scripts/diag-y4-upstream.mjs`（可重复用：`--all` 全量扫学生、`--origin` 换直连地址）。

@@ -1,8 +1,8 @@
-import handler from '../api/y4/[...path].js';
+import handler from '../api/y4/index.js';
 
-// 线上回归：Vercel 的 catch-all 路由实测不填充 req.query.path，
-// 旧实现只读 query → 子路径为空 → 误报「缺少 Y4 接口路径」。
-// 这里直接调用 serverless handler，确认在 query 缺失时仍按 URL 正确转发。
+// 线上回归（2026-10-09）：Vercel 只把「一段」路径交给 api/y4/[...path].js，
+// /api/y4/students/48/reports 被 Vercel 直接 404（函数未执行）。
+// 因此路由固定为单段 /api/y4，子路径经 ?path= 传入；这里同时覆盖两种形态。
 function makeRes() {
   return {
     code: null,
@@ -156,5 +156,42 @@ describe('Y4 代理 handler 的路径解析', () => {
       expect.objectContaining({ subpath: 'students/48/reports', status: 404 }),
     );
     warn.mockRestore();
+  });
+
+  // 生产主形态：/api/y4?path=<子路径>（Vercel 只把单段路径交给函数，见文件头注释）
+  test('子路径经 ?path= 传入时正确转发（生产主形态）', async () => {
+    const calls = mockUpstream({ y4Body: '{"ok":true,"reports":[{"id":46}]}' });
+    const res = makeRes();
+    await handler(
+      { method: 'GET', url: '/api/y4?path=students%2F48%2Freports', headers: { authorization: 'Bearer t' }, query: {} },
+      res,
+    );
+    expect(res.code).toBe(200);
+    expect(calls.some((u) => u === 'https://report.p4learning-ark.app/api/v1/students/48/reports')).toBe(true);
+  });
+
+  test('?path= 里自带的查询串一并转给上游（y4-md?include_raw=1）', async () => {
+    const calls = mockUpstream({ y4Body: '# 报告' });
+    const res = makeRes();
+    const packed = encodeURIComponent('reports/46/y4-md?include_raw=1');
+    await handler({ method: 'GET', url: `/api/y4?path=${packed}`, headers: { authorization: 'Bearer t' }, query: {} }, res);
+    expect(res.code).toBe(200);
+    expect(calls.some((u) => u.endsWith('/api/v1/reports/46/y4-md?include_raw=1'))).toBe(true);
+  });
+
+  test('?path= 白名单外仍被拒（400），不触达 Y4', async () => {
+    const calls = mockUpstream();
+    const res = makeRes();
+    await handler({ method: 'GET', url: '/api/y4?path=courses', headers: { authorization: 'Bearer t' }, query: {} }, res);
+    expect(res.code).toBe(400);
+    expect(calls.every((u) => !u.includes('p4learning-ark'))).toBe(true);
+  });
+
+  test('?path= 缺失时仍报「缺少 Y4 接口路径」', async () => {
+    mockUpstream();
+    const res = makeRes();
+    await handler({ method: 'GET', url: '/api/y4', headers: { authorization: 'Bearer t' }, query: {} }, res);
+    expect(res.code).toBe(400);
+    expect(String(res.body?.error)).toContain('缺少');
   });
 });

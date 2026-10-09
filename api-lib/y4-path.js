@@ -9,19 +9,46 @@
 const ID_RE = /^\d{1,15}$/;
 
 /**
- * 从请求里解析 Y4 子路径（未校验，交给 validateY4Subpath）。
+ * 从请求里解析 Y4 的「子路径 + 查询串」（未校验，交给 validateY4Subpath）。
  *
- * 为什么不能只读 req.query.path：Vercel 的 catch-all 路由在部分部署形态下
- * 并不会填充 req.query.path（线上实测为空），而本地 vite 中间件读取的是 URL。
- * 这里与本地实现对齐：以 req.url 为准，并为「挂载前缀被裁掉」的形态兜底，
- * 最后才回退 req.query.path。
+ * 为什么子路径走 ?path= 而不是 URL 路径段：线上实测（2026-10-09）
+ * Vercel 只把「一段」路径交给 api/y4/[...path].js ——
+ *   /api/y4/students            → 进函数（401，鉴权生效）
+ *   /api/y4/students/48         → Vercel 直接 404，函数根本没被调用
+ *   /api/y4/students/48/reports → 同上
+ * 即 catch-all 实际被注册成单段参数路由。因此前端改为请求
+ * /api/y4?path=<子路径>，函数固定落在单段静态路由上（与 /api/llm/* 同形态）。
+ *
+ * 兼容：URL 路径自带子路径的历史形态仍能解析（本地中间件、旧调用）。
  *
  * @param {object} req 请求对象（只需 url / query）
- * @returns {string}
+ * @returns {{ subpath: string, search: string }} search 形如 '?include_raw=1' 或 ''
  */
-export function resolveY4Subpath(req) {
+export function resolveY4Target(req) {
   const url = String(req?.url || '');
-  const pathOnly = url.split('?')[0];
+  const qIndex = url.indexOf('?');
+  const rawQuery = qIndex >= 0 ? url.slice(qIndex + 1) : '';
+  const pathOnly = qIndex >= 0 ? url.slice(0, qIndex) : url;
+
+  if (rawQuery) {
+    const packed = new URLSearchParams(rawQuery).get('path');
+    if (packed && packed.trim()) {
+      // 子路径里可能带自己的查询串：reports/46/y4-md?include_raw=1
+      const qi = packed.indexOf('?');
+      return {
+        subpath: qi >= 0 ? packed.slice(0, qi) : packed,
+        search: qi >= 0 ? packed.slice(qi) : '',
+      };
+    }
+  }
+
+  return {
+    subpath: subpathFromUrlPath(pathOnly, req),
+    search: rawQuery ? `?${rawQuery}` : '',
+  };
+}
+
+function subpathFromUrlPath(pathOnly, req) {
   const marker = '/api/y4/';
 
   let rest;
@@ -47,6 +74,16 @@ export function resolveY4Subpath(req) {
   const parts = req?.query?.path;
   if (Array.isArray(parts)) return parts.filter(Boolean).join('/');
   return typeof parts === 'string' ? parts.replace(/^\/+|\/+$/g, '') : '';
+}
+
+/** 只取子路径（不含查询串）。 */
+export function resolveY4Subpath(req) {
+  return resolveY4Target(req).subpath;
+}
+
+/** 只取需要转发给上游的查询串（形如 '?include_raw=1' 或 ''）。 */
+export function resolveY4Search(req) {
+  return resolveY4Target(req).search;
 }
 
 /**

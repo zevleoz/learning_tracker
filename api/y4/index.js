@@ -1,8 +1,13 @@
-// 同源 Y4 代理：浏览器只请求 /api/y4/*，
-// Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
+// 同源 Y4 代理（路由固定为单段 /api/y4）：
+// 浏览器只请求 /api/y4?path=<子路径>，Y4_API_KEY 仅存在于 Vercel 环境变量，从不下发到前端。
+//
+// 为什么不是 api/y4/[...path].js：线上实测（2026-10-09）Vercel 只把「一段」路径
+// 交给该 catch-all —— /api/y4/students 能进函数，/api/y4/students/48(/reports)
+// 直接被 Vercel 以 404 拦在函数之外。改用单段静态路由 + ?path= 后不再依赖
+// catch-all 语义（与 api/llm/* 同形态，线上已验证可达）。
 import { Y4_API_BASE, forwardViaFetch, jsonError, createTtlCache } from '../../api-lib/y4-forward.mjs';
 import { requireMentor, sendDenied } from '../../api-lib/require-mentor.js';
-import { validateY4Subpath, resolveY4Subpath } from '../../api-lib/y4-path.js';
+import { validateY4Subpath, resolveY4Subpath, resolveY4Search } from '../../api-lib/y4-path.js';
 
 // 只读列表的极短缓存：每个 serverless 实例各持一份，默认关闭（Y4_CACHE_TTL_MS=0）
 const cache = createTtlCache();
@@ -31,7 +36,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  // 子路径以 req.url 为准（Vercel 的 catch-all 不一定填充 req.query.path，见 resolveY4Subpath）
+  // 子路径与查询串统一由 resolveY4Target 解析（以 req.url 为准，见 api-lib/y4-path.js）
   const rawSubpath = resolveY4Subpath(req);
   const check = validateY4Subpath(rawSubpath);
   if (!check.ok) {
@@ -40,9 +45,9 @@ export default async function handler(req, res) {
     return;
   }
   const subpath = check.subpath;
-  const search = req.url.includes('?') ? `?${req.url.slice(req.url.indexOf('?') + 1)}` : '';
+  const search = resolveY4Search(req);
   // e4-protocol 会触发上游 AI 生成（10-30 秒）：不重试，超时放宽到 50 秒；
-  // 其余只读列表/文档：单次 7 秒超时 + 失败重试一次（防上游连接挂起）
+  // 其余只读列表/文档：阶梯超时 + 失败重试一次（防上游连接挂起）
   const isProtocol = subpath.endsWith('/e4-protocol');
 
   // 只读列表的短缓存（默认 Y4_CACHE_TTL_MS=0 关闭；e4-protocol 永不缓存）

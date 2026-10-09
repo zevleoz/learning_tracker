@@ -1,7 +1,33 @@
-import { validateY4Subpath, resolveY4Subpath } from '../api-lib/y4-path.js';
+import { validateY4Subpath, resolveY4Subpath, resolveY4Target, resolveY4Search } from '../api-lib/y4-path.js';
 
-// 线上回归：Vercel 的 catch-all 路由不一定填充 req.query.path，
-// 导致只读 query 的实现拿到空路径 → 误报「缺少 Y4 接口路径」。
+// 线上回归（2026-10-09）：Vercel 只把「一段」路径交给 api/y4/[...path].js，
+// 多段路径直接被 Vercel 404、函数不被调用。故子路径改由 ?path= 传递。
+describe('resolveY4Target（?path= 主形态）', () => {
+  test('从 ?path= 取子路径（生产实际请求形态）', () => {
+    expect(resolveY4Target({ url: '/api/y4?path=students' })).toEqual({ subpath: 'students', search: '' });
+    expect(resolveY4Target({ url: `/api/y4?path=${encodeURIComponent('students/48/reports')}` }))
+      .toEqual({ subpath: 'students/48/reports', search: '' });
+  });
+
+  test('?path= 里自带的查询串被拆出来单独转给上游', () => {
+    const packed = encodeURIComponent('reports/46/y4-md?include_raw=1');
+    expect(resolveY4Target({ url: `/api/y4?path=${packed}` }))
+      .toEqual({ subpath: 'reports/46/y4-md', search: '?include_raw=1' });
+    expect(resolveY4Search({ url: `/api/y4?path=${packed}` })).toBe('?include_raw=1');
+  });
+
+  test('?path= 为空时按「缺少路径」处理，不误取其它参数', () => {
+    expect(resolveY4Subpath({ url: '/api/y4?path=' })).toBe('');
+    expect(resolveY4Subpath({ url: '/api/y4?other=students' })).toBe('');
+  });
+
+  test('旧形态（URL 路径自带子路径）仍可解析', () => {
+    expect(resolveY4Target({ url: '/api/y4/students/25/reports' }))
+      .toEqual({ subpath: 'students/25/reports', search: '' });
+    expect(resolveY4Search({ url: '/api/y4/reports/27/y4-md?include_raw=1' })).toBe('?include_raw=1');
+  });
+});
+
 describe('resolveY4Subpath（从请求解析子路径）', () => {
   test('req.query.path 为空时从 req.url 解析（线上实测形态）', () => {
     expect(resolveY4Subpath({ url: '/api/y4/students', query: {} })).toBe('students');

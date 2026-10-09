@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Y4_API_BASE, forwardViaFetch, createTtlCache } from './api-lib/y4-forward.mjs';
 import { requireMentor } from './api-lib/require-mentor.js';
-import { validateY4Subpath } from './api-lib/y4-path.js';
+import { validateY4Subpath, resolveY4Target } from './api-lib/y4-path.js';
 import { reachableFiles, SURFACE_SEEDS, SURFACES } from './scripts/surfaceHashes.js';
 
 // ----------------------------------------------------------------
@@ -161,12 +161,13 @@ async function requireMentorForDev(req, res) {
 }
 
 // ----------------------------------------------------------------
-// 本地开发用 Y4 代理（生产环境由 Vercel Function api/y4/[...path].js 承担）
+// 本地开发用 Y4 代理（生产环境由 Vercel Function api/y4/index.js 承担）
 //
 // 上游自 2026-09-26 起迁移到 Cloudflare Tunnel 域名
 // （report.p4learning-ark.app），必须通过域名 + 正常 SNI 访问；
 // 旧的「直连 IP + 不发 SNI」方案对 Cloudflare 已不可用。
-// 与线上共用 api-lib/y4-forward.mjs 的转发实现。
+// 与线上共用 api-lib/y4-forward.mjs 的转发实现；线上路由固定为单段
+// /api/y4，子路径经 ?path= 传入（见 api-lib/y4-path.js）。
 //
 // 只读列表的极短缓存：模块级一份，与线上 serverless 实例级缓存的语义一致。
 const y4DevCache = createTtlCache();
@@ -185,24 +186,17 @@ function y4DevProxy(env) {
           return;
         }
 
-        const qIndex = req.url.indexOf('?');
-        const rawPath = qIndex >= 0 ? req.url.slice(1, qIndex) : req.url.slice(1);
-        let decoded;
-        try {
-          decoded = decodeURIComponent(rawPath);
-        } catch {
-          sendJson(res, 400, { ok: false, error: 'Y4 接口路径编码无效' });
-          return;
-        }
-        const check = validateY4Subpath(decoded);
+        // 与线上一致的取值方式：子路径经 ?path= 传入（见 api-lib/y4-path.js），
+        // 同时兼容 URL 路径自带子路径的历史形态。
+        const target = resolveY4Target(req);
+        const check = validateY4Subpath(target.subpath);
         if (!check.ok) {
           sendJson(res, 400, { ok: false, error: check.reason });
           return;
         }
         const subpath = check.subpath;
-        const search = qIndex >= 0 ? req.url.slice(qIndex) : '';
+        const search = target.search;
         const isProtocol = subpath.endsWith('/e4-protocol');
-
         // 与线上一致：只读列表的短缓存（默认关闭，Y4_CACHE_TTL_MS=0）
         y4DevCache.ttlMs = Number(env.Y4_CACHE_TTL_MS) || 0;
         const cacheKey = `${subpath}${search}`;

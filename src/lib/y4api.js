@@ -1,6 +1,10 @@
 // Y4 综合测评 API 客户端。
-// 浏览器只调用同源 /api/y4/* 代理；API Key 由服务端注入，此处不持有任何密钥。
+// 浏览器只调用同源 /api/y4?path=<子路径>；API Key 由服务端注入，此处不持有任何密钥。
 // 代理要求导师及以上登录态，请求携带 Supabase access_token。
+//
+// 为什么用 ?path= 而不是路径段：线上实测 Vercel 只把「一段」路径交给
+// api/y4/[...path].js（多段路径直接被 Vercel 404，函数不被调用），
+// 详见 api-lib/y4-path.js 的注释。
 
 import { getAccessToken } from './supabase.js';
 
@@ -54,7 +58,7 @@ async function request(path, { signal, attempts = 1 } = {}) {
     if (i > 0) await sleep(400); // 稍等再试
     try {
       const token = await getAccessToken();
-      const res = await fetch(`${BASE}/${path}`, {
+      const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`, {
         method: 'GET',
         signal,
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,

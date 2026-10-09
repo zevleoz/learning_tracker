@@ -23,7 +23,8 @@ describe('Y4 API client', () => {
     const fn = mockFetch({ body: { ok: true, students: [{ id: 1, name: 'Leo' }] } });
     await listStudents();
     expect(fn).toHaveBeenCalledTimes(1);
-    expect(fn.mock.calls[0][0]).toBe('/api/y4/students');
+    // 子路径经 ?path= 传递：Vercel 只把单段路径交给函数（见 api-lib/y4-path.js）
+    expect(fn.mock.calls[0][0]).toBe('/api/y4?path=students');
   });
 
   test('client-side name filter', async () => {
@@ -39,7 +40,7 @@ describe('Y4 API client', () => {
     const fn = mockFetch({ ok: true, body: '# E4 协议', contentType: 'text/markdown' });
     const md = await fetchProtocol(25);
     expect(md).toBe('# E4 协议');
-    expect(fn.mock.calls[0][0]).toBe('/api/y4/reports/25/e4-protocol');
+    expect(fn.mock.calls[0][0]).toBe(`/api/y4?path=${encodeURIComponent('reports/25/e4-protocol')}`);
   });
 
   test('reports list endpoint', async () => {

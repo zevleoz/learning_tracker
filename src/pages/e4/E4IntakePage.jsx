@@ -148,6 +148,20 @@ export default function E4IntakePage() {
   }
 
   // Step 2：建档案 → 自动拉协议 → 建报告
+  function studentPayload(displayName, y4 = {}) {
+    return {
+      display_name: displayName,
+      gender: info.gender || null,
+      grade: info.grade.trim() || null,
+      school: info.school.trim() || null,
+      advisor_id: profile.id,
+      created_by: profile.id,
+      next_meeting_type: info.next_meeting_type,
+      next_meeting_date: info.next_meeting_date || null,
+      ...y4,
+    };
+  }
+
   async function confirmAndGenerate() {
     const displayName = info.display_name.trim();
     if (!displayName) {
@@ -161,24 +175,19 @@ export default function E4IntakePage() {
     setCreating(true);
     try {
       const report = chosen ? reports.find((r) => r.id === selectedReport) : null;
-      const student = await createE4Student({
-        display_name: displayName,
-        gender: info.gender || null,
-        grade: info.grade.trim() || null,
-        school: info.school.trim() || null,
-        advisor_id: profile.id,
-        created_by: profile.id,
-        next_meeting_type: info.next_meeting_type,
-        next_meeting_date: info.next_meeting_date || null,
-        ...(chosen
-          ? {
-              y4_student_id: chosen.id,
-              y4_report_id: report.id,
-              y4_student_name: chosen.name,
-              y4_report_date: report.report_date || null,
-            }
-          : {}),
-      });
+      const student = await createE4Student(
+        studentPayload(
+          displayName,
+          chosen
+            ? {
+                y4_student_id: chosen.id,
+                y4_report_id: report.id,
+                y4_student_name: chosen.name,
+                y4_report_date: report.report_date || null,
+              }
+            : {},
+        ),
+      );
       setCreatedStudentId(student.id);
 
       // 无 Y4：档案建好即结束，引导去学生页稍后关联
@@ -208,6 +217,29 @@ export default function E4IntakePage() {
       setFetchError(err instanceof Y4ApiError ? err.message : `生成失败：${err.message || '未知错误'}`);
       setStep(3);
       setFetching(false);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // 兜底路径：报告列表拉不到（上游抖动）或该学生确实还没有报告时，
+  // 先把已确认的 Y4 学生身份存下来，避免白选一遍（报告稍后在学生页选择）。
+  async function createWithY4Only() {
+    const displayName = info.display_name.trim();
+    if (!displayName) {
+      toast('学生姓名不能为空', { kind: 'error' });
+      return;
+    }
+    if (!chosen) return;
+    setCreating(true);
+    try {
+      const student = await createE4Student(
+        studentPayload(displayName, { y4_student_id: chosen.id, y4_student_name: chosen.name }),
+      );
+      toast('已建档并关联该 Y4 学生，去学生页选一份报告即可生成首次报告', { kind: 'success' });
+      nav(`/e4/students/${student.id}`);
+    } catch (err) {
+      toast(err.message || '建档失败', { kind: 'error' });
     } finally {
       setCreating(false);
     }
@@ -349,8 +381,6 @@ export default function E4IntakePage() {
                   value={info.next_meeting_date}
                   onChange={(v) => setInfo((f) => ({ ...f, next_meeting_date: v }))}
                   placeholder="待安排"
-                  buttonClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg)] text-[var(--e4-ink)] hover:bg-[var(--e4-bg-3)] hover:text-[var(--e4-ink)]"
-                  contentClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)]"
                 />
               </label>
             </div>
@@ -409,6 +439,11 @@ export default function E4IntakePage() {
               <button type="button" className="e4-btn-ghost" onClick={() => setStep(1)} disabled={creating}>
                 上一步
               </button>
+              {chosen && !loadingReports && !selectedReport && (
+                <button type="button" className="e4-btn-ghost" onClick={createWithY4Only} disabled={creating}>
+                  先建档，稍后选报告
+                </button>
+              )}
               <button type="button" className="e4-btn-primary" onClick={confirmAndGenerate} disabled={creating}>
                 {creating
                   ? '建档中…'

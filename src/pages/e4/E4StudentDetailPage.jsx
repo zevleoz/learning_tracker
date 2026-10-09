@@ -412,7 +412,19 @@ export default function E4StudentDetailPage() {
       </section>
 
       <StudentFormModal open={editOpen} initial={student} onClose={() => setEditOpen(false)} onSaved={load} />
-      <Y4LinkModal open={linkOpen} student={student} onClose={() => setLinkOpen(false)} onSaved={load} />
+      <Y4LinkModal
+        open={linkOpen}
+        student={student}
+        // 已关联 Y4 学生但缺报告时（建档兜底路径留下的一半关联），
+        // 打开直接进选报告那一步，不必重搜学生
+        initialY4Student={
+          student.y4_student_id && !student.y4_report_id
+            ? { id: student.y4_student_id, name: student.y4_student_name }
+            : null
+        }
+        onClose={() => setLinkOpen(false)}
+        onSaved={load}
+      />
 
       {ctxMenu && (
         <div

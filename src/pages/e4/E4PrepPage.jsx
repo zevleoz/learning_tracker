@@ -58,6 +58,7 @@ function NewPrepFlow({ studentId }) {
   const [student, setStudent] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | fetching | error
   const [error, setError] = useState('');
+  const [errorStatus, setErrorStatus] = useState(0);
   const abortRef = useRef(null);
 
   useEffect(() => {
@@ -70,6 +71,7 @@ function NewPrepFlow({ studentId }) {
     abortRef.current = controller;
     setPhase('fetching');
     setError('');
+    setErrorStatus(0);
     try {
       const md = await fetchProtocol(student.y4_report_id, { signal: controller.signal });
       const draft = buildPrepDraft(parseE4Protocol(md), student);
@@ -87,6 +89,7 @@ function NewPrepFlow({ studentId }) {
         return;
       }
       setError(err instanceof Y4ApiError ? err.message : `拉取 E4 协议失败：${err.message}`);
+      setErrorStatus(err instanceof Y4ApiError ? err.status : 0);
       setPhase('error');
     }
   }
@@ -101,6 +104,13 @@ function NewPrepFlow({ studentId }) {
         <p className="e4-page-subtitle">
           {student?.display_name || '该学生'} · Y4 报告 #{student?.y4_report_id || '—'}
         </p>
+        {student?.y4_report_id && (
+          <p className="e4-card-hint">
+            已关联 Y4 报告 #{student.y4_report_id}
+            {student.y4_report_date ? `（测评日期 ${student.y4_report_date}）` : ''}
+            ，将基于它生成 E4 协议；如需更换请返回学生页面。
+          </p>
+        )}
         {!student?.y4_report_id && (
           <div className="e4-inline-error">该学生尚未关联 Y4 报告，请先返回学生页面完成关联。</div>
         )}
@@ -116,10 +126,15 @@ function NewPrepFlow({ studentId }) {
             </div>
           )}
           {error && <div className="e4-inline-error">{error}</div>}
+          {errorStatus === 404 && (
+            <p className="e4-card-hint">
+              该 Y4 报告在上游已不存在（可能被清理或重新生成过），请返回学生页面更换关联后再试。
+            </p>
+          )}
         </div>
         <div className="e4-fetch-actions">
           <button type="button" className="e4-btn-ghost" onClick={() => nav(`/e4/students/${studentId}`)}>
-            取消
+            {errorStatus === 404 ? '更换关联' : '取消'}
           </button>
           {phase === 'fetching' ? (
             <button type="button" className="e4-btn-ghost" onClick={() => abortRef.current?.abort()}>

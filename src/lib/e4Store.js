@@ -70,6 +70,12 @@ export async function createE4Student(input) {
     notes: input.notes || null,
     created_by: input.created_by || null,
   };
+  // 建档时一并落库 Y4 关联（R1）。此前这四个字段被白名单丢掉：只要没当场生成报告
+  // （拉协议失败 / 关页面 / 稍后再做），关联就是空的，学生详情页显示「未关联」，
+  // 导师被迫重新选一遍学生和报告。仅在传入时写入，避免覆盖成 null。
+  for (const key of ['y4_student_id', 'y4_report_id', 'y4_student_name', 'y4_report_date']) {
+    if (input[key] !== undefined) row[key] = input[key] ?? null;
+  }
   if (!row.display_name) throw new E4StoreError('学生姓名不能为空');
   return unwartch(supabase.from('e4_students').insert(row).select().single(), '创建 E4 学生');
 }

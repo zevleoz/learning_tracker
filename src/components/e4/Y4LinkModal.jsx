@@ -5,7 +5,9 @@ import { updateE4Student } from '../../lib/e4Store.js';
 import { toast } from '../../lib/toast.js';
 
 // 手动把 E4 学生关联到 Y4 学生及其某一份报告
-export default function Y4LinkModal({ open, onClose, onSaved, student }) {
+// initialY4Student：档案里已有 Y4 学生（只缺报告）时传入 { id, name }，
+// 打开即进入选报告那一步，不必再搜一遍学生。
+export default function Y4LinkModal({ open, onClose, onSaved, student, initialY4Student = null }) {
   const [step, setStep] = useState(1);
   const [query, setQuery] = useState('');
   const [students, setStudents] = useState([]);
@@ -19,12 +21,18 @@ export default function Y4LinkModal({ open, onClose, onSaved, student }) {
 
   useEffect(() => {
     if (!open) return;
-    setStep(1);
     setQuery('');
     setChosen(null);
     setReports([]);
     setSelectedReport(null);
     setError('');
+    if (initialY4Student?.id) {
+      setStep(2);
+      openReports(initialY4Student);
+    } else {
+      setStep(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在打开时重置，避免列表刷新打断当前选择
   }, [open]);
 
   // 打开时加载完整列表（约几十人，客户端过滤）

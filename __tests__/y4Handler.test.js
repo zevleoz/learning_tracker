@@ -131,4 +131,30 @@ describe('Y4 代理 handler 的路径解析', () => {
     expect(upstreamHits()).toBe(afterFirst + 1); // 又打了一次上游
     expect(res2.headers['X-Y4-Cache']).toBeUndefined();
   });
+
+  // 线上症状回归：上游对报告列表返回 404 时，代理原样透传并留下可排障的结构化日志
+  test('上游 404 原样透传，并打印 subpath/status/耗时日志', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = jest.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('/auth/v1/user')) return { ok: true, status: 200, json: async () => ({ id: 'uid-1' }) };
+      if (u.includes('/rest/v1/profiles')) return { ok: true, status: 200, json: async () => [{ role: 2 }] };
+      return {
+        ok: false,
+        status: 404,
+        arrayBuffer: async () => Buffer.from('{"ok":false,"code":"NOT_FOUND","error":"报告不存在"}'),
+        headers: { get: () => 'application/json; charset=utf-8' },
+      };
+    });
+
+    const res = makeRes();
+    await handler({ method: 'GET', url: '/api/y4/students/48/reports', headers: { authorization: 'Bearer t' }, query: {} }, res);
+    expect(res.code).toBe(404);
+    expect(String(res.body)).toContain('报告不存在');
+    expect(warn).toHaveBeenCalledWith(
+      '[y4-proxy] upstream',
+      expect.objectContaining({ subpath: 'students/48/reports', status: 404 }),
+    );
+    warn.mockRestore();
+  });
 });

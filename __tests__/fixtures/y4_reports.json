@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "reports": [
+    {
+      "created_at": "2026-10-08T06:56:30.313325",
+      "has_interpretation": false,
+      "id": 201,
+      "report_date": "2026-10-08"
+    },
+    {
+      "created_at": "2026-09-30T02:11:04.120000",
+      "has_interpretation": true,
+      "id": 200,
+      "report_date": "2026-09-29"
+    }
+  ]
+}

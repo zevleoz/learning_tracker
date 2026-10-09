@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "students": [
+    {
+      "grade": "初一",
+      "id": 101,
+      "latest_report_date": "2026-10-08",
+      "name": "Sample Student A",
+      "report_count": 2,
+      "school": "Sample School"
+    },
+    {
+      "grade": null,
+      "id": 102,
+      "latest_report_date": null,
+      "name": "示例学生乙",
+      "report_count": 0,
+      "school": null
+    }
+  ]
+}

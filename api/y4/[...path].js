@@ -63,6 +63,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const startedAt = Date.now();
     const result = await forwardViaFetch({
       base: process.env.Y4_API_BASE || Y4_API_BASE,
       // 备用端点：主端点（如直连 origin）全部尝试失败时自动回退，默认回到 CF 域名
@@ -75,6 +76,16 @@ export default async function handler(req, res) {
       // 上游支持 X-Api-Key 后设为 x-api-key，可让 Cloudflare 缓存规则命中
       authHeader: process.env.Y4_AUTH_HEADER || 'authorization',
     });
+    const ms = Date.now() - startedAt;
+    if (result.status >= 400) {
+      // 上游 4xx/5xx 进 Vercel Runtime Logs：线上排障直接看状态、耗时与上游原文
+      console.warn('[y4-proxy] upstream', {
+        subpath,
+        status: result.status,
+        ms,
+        body: String(result.body).slice(0, 120),
+      });
+    }
     if (cacheable && result.status === 200 && !search) {
       // 只缓存不带查询串的成功响应，避免把变体参数的结果混在一起
       cache.set(cacheKey, { status: result.status, contentType: result.contentType, body: result.body });
@@ -85,6 +96,7 @@ export default async function handler(req, res) {
     if (cacheable) res.setHeader('X-Y4-Cache', 'MISS');
     res.send(result.body);
   } catch (err) {
+    console.warn('[y4-proxy] upstream error', { subpath, error: err.message || 'network error' });
     const e = jsonError(502, `无法连接 Y4 服务：${err.message || 'network error'}`);
     res.status(e.status);
     res.setHeader('Content-Type', e.contentType);

@@ -249,3 +249,35 @@
 | 线上 E4 建档全部报「缺少 Y4 接口路径」 | Vercel catch-all 不填充 `req.query.path`，新增 `resolveY4Subpath(req)` 改为按 `req.url` 解析（commit `4ed4e1d`） |
 | 线上建档「找不到学生的报告」 | 报告列表加载失败时错误地落到「暂无报告」空态，误导排查方向。E4IntakePage 拆出 `reportsError` 状态：失败显示内联错误 + 「重新加载」，只有真正 0 报告才显示空态提示（上游约 30% 请求存在瞬时 `fetch failed`） |
 | Y4 上游偶发连接抖动 | `forwardViaFetch` 增加 `attempts`：只读列表/文档重试一次（400ms 间隔）；`e4-protocol`（触发上游 AI，10-30 秒）保持 1 次不重试 |
+
+## 2026-10-09 Y4「报告列表 404」诊断结论与加固
+
+### 症状
+
+线上 E4 建档选完学生后报「报告列表加载失败：Y4 中未找到该资源（学生或报告可能不存在 / 报告文件已被清理）」。该文案 = `src/lib/y4api.js` 的 `STATUS_MESSAGES[404]`，仅在报告列表步骤出现。
+
+### 当日分层探测（脚本 `scripts/diag-y4-upstream.mjs`，结论：**无法复现**）
+
+| 探测 | 结果 |
+|---|---|
+| `GET /students` | 200，45 位学生 |
+| 全量 45 位逐个 `GET /students/{id}/reports` | **全部 200**；对 48 号连测 15 次全 200 |
+| `students/48/reports` 直连 origin（HTTP + Host 头，绕 CF） | 200，无中间层吃前缀 |
+| `reports/46/e4-protocol`（Sean 报告，生产同款调用） | 200，20 秒 / 20KB markdown |
+| 域名根 `openapi.json` / `/docs` | 404 / 405（上游非 FastAPI 文档形态，取不到路由表） |
+
+排除分支：A 前缀被吃、B 部署回滚、C 隧道指错、E 路由改名。当前上游端点完全健康，404 不是稳定可复现态；最可能是上游瞬时状态（重启/数据导入窗口）被一次性展示。
+
+### 本轮加固（下次故障自带根因）
+
+1. `src/lib/y4api.js`：报错消息拼接上游原文（截 200 字符，形如 `｜上游：报告不存在`），并 `console.warn` 输出 `{ path, status, detail }`。
+2. `api/y4/[...path].js` 与 `vite.config.js` dev 代理：上游 ≥400 时 `console.warn('[y4-proxy] upstream', { subpath, status, ms, body 前 120 字 })`，Vercel Runtime Logs 直接可查。
+3. `E4IntakePage.jsx`：失败区内联显示 `HTTP 状态码 + 查询对象 Y4 学生 #id`，保留「重新加载」原地重试。
+4. 契约 fixtures：`__tests__/fixtures/y4_students.json`、`y4_reports.json`（线上真实响应脱敏）+ 契约测试，上游字段漂移时测试先红。
+5. 诊断脚本 `scripts/diag-y4-upstream.mjs`（可重复用：`--all` 全量扫学生、`--origin` 换直连地址）。
+
+### 若再次发生的取证顺序
+
+1. DevTools → Network 抄失败请求完整 URL + 响应体（UI 与浏览器 console 现在都会带上游原文）。
+2. origin 查上游日志中该请求的 path 原文与状态，确认是否上游应用自身 404（`sudo tail -f` 应用日志 + `pm2 list` / `systemctl status`）。
+3. 若属上游数据窗口（id 变动/导入中）：用 Y4LinkModal 重新关联受影响学生的 `y4_student_id`。

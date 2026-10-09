@@ -24,6 +24,25 @@ const STATUS_MESSAGES = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 尽力读取上游/代理的错误原文（截 200 字符）。罐头文案保留，但拼上上游细节，
+// 让用户截图报障时直接带根因（否则只看到「未找到该资源」这类概括描述）。
+async function readErrorDetail(res) {
+  try {
+    const text = await res.text();
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = JSON.parse(text);
+      return String((data && (data.error || data.message)) || '').slice(0, 200);
+    }
+    const trimmed = text.trim();
+    // 非 JSON 的短文本（如代理的明文错误）；HTML 错误页不取
+    if (trimmed && trimmed.length <= 200 && !trimmed.startsWith('<')) return trimmed;
+  } catch {
+    /* 无法读取：保留罐头文案 */
+  }
+  return '';
+}
+
 // attempts：网络错误（连接失败/中断）或 5xx（含我们代理的 502）时自动重试的次数。
 // 4xx 属确定性问题（未授权、路径不允许等）不重试；AbortError（用户取消）立即抛出。
 // 只读列表/文档传 2；e4-protocol 会触发上游 AI 生成，保持 1 次不重试。
@@ -42,17 +61,13 @@ async function request(path, { signal, attempts = 1 } = {}) {
       });
 
       if (!res.ok) {
-        const contentType = res.headers.get('content-type') || '';
-        let message = STATUS_MESSAGES[res.status] || '';
-        try {
-          if (contentType.includes('application/json')) {
-            const data = await res.json();
-            message = message || (data && data.error) || `Y4 请求失败（HTTP ${res.status}）`;
-          }
-        } catch {
-          /* 保留默认消息 */
-        }
-        const err = new Y4ApiError(message || `Y4 请求失败（HTTP ${res.status}）`, res.status);
+        const friendly = STATUS_MESSAGES[res.status] || '';
+        const base = friendly || `Y4 请求失败（HTTP ${res.status}）`;
+        const detail = await readErrorDetail(res);
+        const message = detail && !base.includes(detail) ? `${base}｜上游：${detail}` : base;
+        // 生产环境同样打印：用户报障时 DevTools 控制台/截图即可见状态与上游原文
+        console.warn('[y4api] Y4 请求失败', { path, status: res.status, detail });
+        const err = new Y4ApiError(message, res.status);
         if (res.status >= 500 && i + 1 < max) {
           lastErr = err;
           continue;

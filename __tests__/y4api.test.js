@@ -1,4 +1,6 @@
 import { listStudents, listReports, fetchProtocol, Y4ApiError } from '../src/lib/y4api.js';
+import studentsFixture from './fixtures/y4_students.json';
+import reportsFixture from './fixtures/y4_reports.json';
 
 describe('Y4 API client', () => {
   afterEach(() => {
@@ -163,5 +165,56 @@ describe('Y4 API client 的自动重试', () => {
 
     await expect(fetchProtocol(46)).rejects.toMatchObject({ status: 502 });
     expect(calls).toBe(1);
+  });
+});
+
+// 契约测试：fixtures 取自线上真实响应（已脱敏）。
+// 上游字段漂移时（改名/包裹层变化/null 语义变化）这些用例会先红，而不是线上用户先撞到。
+describe('Y4 响应形状契约（fixtures）', () => {
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  function fixtureFetch(body) {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'application/json' : null) },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    }));
+  }
+
+  test('students：字段与 null 语义保持稳定', async () => {
+    fixtureFetch(studentsFixture);
+    const all = await listStudents();
+    expect(all).toHaveLength(2);
+    expect(all[0]).toMatchObject({ id: 101, name: 'Sample Student A', report_count: 2, grade: '初一' });
+    // 空字段必须原样保留 null（建档向导依赖 latest_report_date 为空时不渲染日期）
+    expect(all[1]).toMatchObject({ id: 102, latest_report_date: null, school: null });
+  });
+
+  test('reports：倒序列表字段解析（最新在前）', async () => {
+    fixtureFetch(reportsFixture);
+    const rs = await listReports(101);
+    expect(rs.map((r) => r.id)).toEqual([201, 200]);
+    expect(rs[1].has_interpretation).toBe(true);
+  });
+
+  test('上游 404：把上游原文拼进报错信息（供线上报障截图定位）', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 404,
+      headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify({ ok: false, code: 'NOT_FOUND', error: '报告不存在' }),
+    }));
+
+    await expect(listReports(101)).rejects.toMatchObject({
+      status: 404,
+      message: expect.stringContaining('报告不存在'),
+    });
+    expect(warn).toHaveBeenCalledWith('[y4api] Y4 请求失败', expect.objectContaining({ status: 404, detail: '报告不存在' }));
+    warn.mockRestore();
   });
 });

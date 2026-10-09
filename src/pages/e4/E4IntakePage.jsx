@@ -53,7 +53,7 @@ export default function E4IntakePage() {
   const [reports, setReports] = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [loadingReports, setLoadingReports] = useState(false);
-  const [reportsError, setReportsError] = useState(''); // 加载失败与「确实没有报告」必须区分
+  const [reportsError, setReportsError] = useState(null); // { message, status } | null：加载失败与「确实没有报告」必须区分
 
   // 档案信息（可改）
   const [info, setInfo] = useState({ display_name: '', gender: '', grade: '', school: '', next_meeting_type: 'first', next_meeting_date: '' });
@@ -130,7 +130,7 @@ export default function E4IntakePage() {
   function loadReports(y4StudentId) {
     if (!y4StudentId) return;
     setLoadingReports(true);
-    setReportsError('');
+    setReportsError(null);
     setReports([]);
     setSelectedReport(null);
     listReports(y4StudentId)
@@ -140,7 +140,8 @@ export default function E4IntakePage() {
       })
       .catch((err) => {
         const message = err instanceof Y4ApiError ? err.message : 'Y4 报告列表加载失败';
-        setReportsError(message);
+        // 记下状态码：报障时能区分「上游 404（关联失效）」与「502/超时（上游抖动）」
+        setReportsError({ message, status: err instanceof Y4ApiError ? err.status : 0 });
         toast(message, { kind: 'error' });
       })
       .finally(() => setLoadingReports(false));
@@ -369,7 +370,12 @@ export default function E4IntakePage() {
                   ))}
                   {!loadingReports && reportsError && (
                     <div className="e4-inline-error e4-y4-list-error">
-                      <span>报告列表加载失败：{reportsError}</span>
+                      <span>
+                        报告列表加载失败：{reportsError.message}
+                        {reportsError.status
+                          ? `（HTTP ${reportsError.status}，查询对象 Y4 学生 #${chosen?.id ?? '—'}）`
+                          : ''}
+                      </span>
                       <button type="button" className="e4-btn-mini" onClick={() => loadReports(chosen?.id)}>
                         重新加载
                       </button>

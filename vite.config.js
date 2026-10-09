@@ -219,6 +219,7 @@ function y4DevProxy(env) {
           }
         }
 
+        const startedAt = Date.now();
         forwardViaFetch({
           base: env.Y4_API_BASE || Y4_API_BASE,
           // 与线上一致：只读请求在主端点失败后回退备用端点；e4-protocol 不回退
@@ -232,6 +233,15 @@ function y4DevProxy(env) {
           authHeader: env.Y4_AUTH_HEADER || 'authorization',
         })
           .then(({ status, contentType, cacheControl, body }) => {
+            // 与线上一致：上游 4xx/5xx 打结构化日志
+            if (status >= 400) {
+              console.warn('[y4-proxy] upstream', {
+                subpath,
+                status,
+                ms: Date.now() - startedAt,
+                body: String(body).slice(0, 120),
+              });
+            }
             if (cacheable && status === 200 && !search) {
               y4DevCache.set(cacheKey, { status, contentType, body });
             }
@@ -242,6 +252,7 @@ function y4DevProxy(env) {
             res.end(body);
           })
           .catch((err) => {
+            console.warn('[y4-proxy] upstream error', { subpath, error: err.message || 'network error' });
             res.statusCode = 502;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.end(JSON.stringify({ ok: false, error: `本地代理连接 Y4 失败：${err.message}` }));

@@ -8,7 +8,9 @@ import { Calendar } from '@/components/ui/calendar.jsx';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.jsx';
 
 // 单日期选择器：value 为 'YYYY-MM-DD' 或 ''，onChange 回传同格式。
-// 默认用 shadcn 中性变量；深色 E4 页面通过 buttonClassName / contentClassName 覆盖。
+// 配色全部取自 shadcn 变量，而变量按表面作用域化（.e4-dashboard 深色 /
+// body.e4-light 浅色 / A4 纸张内还原浅色，见 index.css），因此无需在调用点传
+// buttonClassName / contentClassName；className 只用于排版尺寸。
 export function DatePicker({
   value,
   onChange,

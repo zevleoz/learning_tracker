@@ -11574,6 +11574,34 @@ textarea::placeholder { color: #9ca3af; }
   color-scheme: dark;
 }
 
+/* shadcn 变量按「表面」作用域化（R4）：DatePicker / Popover / Button 默认即取到这些值，
+   不再依赖各调用点传 buttonClassName / contentClassName 打补丁。
+   第二个选择器用 :has 覆盖 portal（弹层挂在 body 下）：离开 E4 后 .e4-dashboard 卸载，
+   变量随之失效，因此不会像早年全局 .dark 那样污染学生端。
+   注：E4 深色只作用于 @media print 之外的屏幕显示，打印纸张内部另有还原（见下）。 */
+.e4-dashboard,
+body:not(.e4-light):has(.e4-dashboard) {
+  --background: 210 17% 7%;          /* #0F1215 */
+  --foreground: 44 19% 89%;          /* #E8E5DD */
+  --card: 210 16% 10%;               /* #15191D */
+  --card-foreground: 44 19% 89%;
+  --popover: 210 16% 10%;            /* #15191D */
+  --popover-foreground: 44 19% 89%;
+  --primary: 212 38% 64%;            /* #7FA0C5 */
+  --primary-foreground: 210 20% 8%;  /* 与 .e4-btn-primary 的墨色字一致 */
+  --secondary: 210 15% 13%;          /* #1C2126 */
+  --secondary-foreground: 44 19% 89%;
+  --muted: 210 15% 13%;
+  --muted-foreground: 40 7% 40%;     /* #6E695F */
+  --accent: 210 15% 13%;
+  --accent-foreground: 44 19% 89%;
+  --destructive: 4 45% 60%;          /* #C4706F */
+  --destructive-foreground: 210 20% 8%;
+  --border: 210 11% 23%;             /* rgba(255,255,255,.13) 合成在 #15191D 上 */
+  --input: 210 11% 23%;
+  --ring: 212 38% 64%;
+}
+
 /* A4 纸张内部：还原浅色令牌，打印视觉不变 */
 .e4-dashboard .e4-print-doc,
 .e4-dashboard .e4-print-page {
@@ -11581,6 +11609,24 @@ textarea::placeholder { color: #9ca3af; }
   --e4-ink-2: #4A5563;
   --e4-ink-3: #8F897B;
   --e4-navy: #2C3E55;
+  /* shadcn 变量同理由深色还原为浅色：纸张内的日期触发器不能跟着暗下来 */
+  --background: 0 0% 100%;
+  --foreground: 43 10% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 43 10% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 43 10% 14%;
+  --primary: 208 24% 45%;
+  --primary-foreground: 45 29% 97%;
+  --secondary: 48 19% 95%;
+  --secondary-foreground: 43 10% 14%;
+  --muted: 48 19% 95%;
+  --muted-foreground: 42 8% 53%;
+  --accent: 48 19% 95%;
+  --accent-foreground: 43 10% 14%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 208 24% 45%;
   color-scheme: light;
 }
 
@@ -12675,13 +12721,28 @@ body.e4-light .e4-dashboard {
 }
 body.e4-light .e4-dashboard { color-scheme: light; }
 
-/* ---- shadcn 组件浅色适配：primary 用 E4 navy 而非近黑 ---- */
+/* ---- shadcn 组件浅色适配：primary 用 E4 navy 而非近黑；其余按暖灰纸面配色 ----
+   挂在 body 上，因此 portal 弹层（DatePicker 的 Popover/Calendar）也一并正确 */
 body.e4-light {
+  --background: 48 19% 95%;          /* #F4F3EF */
+  --foreground: 43 10% 14%;          /* #26241F */
+  --card: 45 29% 97%;                /* #FAF9F6 */
+  --card-foreground: 43 10% 14%;
+  --popover: 45 29% 97%;
+  --popover-foreground: 43 10% 14%;
   --primary: 215 25% 27%;
   --primary-foreground: 40 30% 98%;
+  --secondary: 45 14% 89%;           /* #EAE8E1 */
+  --secondary-foreground: 43 10% 14%;
+  --muted: 45 14% 89%;
+  --muted-foreground: 42 8% 53%;     /* #928C7E */
   --ring: 215 25% 27%;
   --accent: 40 16% 92%;
   --accent-foreground: 215 25% 20%;
+  --destructive: 356 33% 52%;        /* #B35654 */
+  --destructive-foreground: 45 29% 97%;
+  --border: 40 12% 86%;
+  --input: 40 12% 86%;
 }
 
 /* ---- 主题切换按钮（两主题通用，跟随令牌） ---- */
@@ -12782,6 +12843,16 @@ body.e4-light .e4-dashboard .e4-finish-all-done { color: #5E7D57; }
 /* ---- 矩阵 / 维度 ---- */
 body.e4-light .e4-dashboard .e4-matrix-row.is-supplement { background: rgba(34, 31, 26, 0.015); }
 body.e4-light .e4-dashboard .e4-dim-rail-track { background: rgba(34, 31, 26, 0.1); }
+
+/* 深色代用「白色叠加」表达 hover / 选中，浅色下等于没生效；
+   这里换成墨色叠加，保持同一套中性灰阶（R3 系统核对） */
+body.e4-light .e4-dashboard .e4-matrix-row:hover { background: rgba(34, 31, 26, 0.022); }
+body.e4-light .e4-dashboard .e4-matrix-row.is-open { background: rgba(34, 31, 26, 0.035); }
+body.e4-light .e4-dashboard .e4-dim-rail-item:hover { background: rgba(34, 31, 26, 0.04); }
+body.e4-light .e4-dashboard .e4-jchip:hover,
+body.e4-light .e4-dashboard .e4-jpill:hover { background: rgba(34, 31, 26, 0.045); color: #26241F; }
+body.e4-light .e4-dashboard .e4-jchip.active,
+body.e4-light .e4-dashboard .e4-jpill.active { background: rgba(34, 31, 26, 0.06); color: #26241F; }
 
 /* ---- 纪要 dock / 面板 ---- */
 body.e4-light .e4-dashboard .e4-minutes-dock-text mark { background: rgba(201, 164, 92, 0.3); color: #7A5E28; }
@@ -12898,6 +12969,14 @@ body.e4-light .e4-modal .e4-btn-primary { background: #57758F; border-color: #57
 body.e4-light .e4-modal .e4-btn-primary:hover:not(:disabled) { background: #456078; border-color: #456078; }
 body.e4-light .e4-modal .e4-btn-mini { border-color: rgba(34, 31, 26, 0.16); color: #5E5A4F; }
 body.e4-light .e4-modal .e4-btn-mini:hover:not(:disabled) { background: #F4F3EF; color: #26241F; }
+/* R3：深色代的 .e4-y4-item:hover 落在 #1C2126（黑底黑字），浅色下必须换成墨色浅底 */
+body.e4-light .e4-modal .e4-y4-item:hover:not(:disabled):not(.is-skeleton) {
+  background: rgba(34, 31, 26, 0.03);
+  border-color: rgba(34, 31, 26, 0.14);
+}
+/* 深色代里 .e4-btn-ghost 与 .e4-btn-mini 同组，浅色补丁此前只补了 mini */
+body.e4-light .e4-modal .e4-btn-ghost { border-color: rgba(34, 31, 26, 0.16); color: #5E5A4F; }
+body.e4-light .e4-modal .e4-btn-ghost:hover:not(:disabled) { background: #F4F3EF; color: #26241F; }
 body.e4-light .e4-modal .e4-inline-error {
   background: rgba(179, 86, 85, 0.08);
   border-color: rgba(179, 86, 85, 0.3);

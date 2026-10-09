@@ -100,8 +100,6 @@ function ScheduleDialog({ item, onClose, onSaved }) {
               value={date}
               onChange={setDate}
               placeholder="待安排"
-              buttonClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg)] text-[var(--e4-ink)] hover:bg-[var(--e4-bg-3)] hover:text-[var(--e4-ink)]"
-              contentClassName="border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)]"
             />
           </div>
         </div>

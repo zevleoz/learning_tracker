@@ -18,7 +18,8 @@ import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
 import DatePicker from '../../components/ui/date-picker.jsx';
 
 // 与其它 E4 工作台一致的日期控件外观（UI-2：不再使用原生 date input）
-const dateFieldCls = 'h-auto rounded-[9px] px-3 py-[9px] text-[13.5px] font-normal text-slate-900';
+// 仅排版（尺寸/圆角/字号）；配色交给作用域化的 shadcn 变量，主题切换自动跟随
+const dateFieldCls = 'h-auto rounded-[9px] px-3 py-[9px] text-[13.5px] font-normal';
 
 // A4 文档固定 210mm：左栏预览按容器宽度整体缩放，高度随内容联动
 function ScaledDoc({ children }) {

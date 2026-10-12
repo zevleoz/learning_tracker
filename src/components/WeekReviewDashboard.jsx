@@ -7,6 +7,7 @@ import DeepDivePanels from './DeepDivePanels.jsx';
 import DateRangeCalendar from './DateRangeCalendar.jsx';
 import { toast } from '../lib/toast.js';
 import { toLocalDateStr } from '../lib/date.js';
+import { outsideRangeStats } from '../lib/periodOutside.js';
 
 // ── 时段预设 ─────────────────────────────────────────
 const PRESETS = [
@@ -68,7 +69,8 @@ function shiftRange(range, direction) {
 
 // ── 主组件 ───────────────────────────────────────────
 export default function WeekReviewDashboard({ sessions = [], student }) {
-  const [presetId, setPresetId] = useState('thisWeek');
+  // 默认「近4周」：学生补填旧日期记录是常态，默认只显示本周会把补填记录藏掉
+  const [presetId, setPresetId] = useState('4weeks');
   const [customRange, setCustomRange] = useState(null);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [customStart, setCustomStart] = useState('');
@@ -128,7 +130,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
   }, [selectedDay]);
 
   // 近 7 天新提交（含补填）但落在当前所选时段之外的记录。
-  // 学生补填旧日期记录时，默认「本周」视图完全看不到——这是"学生填了老师看不到"的根源。
+  // 学生补填旧日期记录时，若所选时段没覆盖到就看不到——需要显式提醒。
   const newOutsideRange = useMemo(() => {
     const startStr = toLocalDateStr(range.start);
     const endStr = toLocalDateStr(range.end);
@@ -149,6 +151,26 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
     const start = new Date(dates[0] + 'T00:00:00');
     const end = new Date();
     end.setHours(0, 0, 0, 0);
+    setCustomRange({ start, end });
+    setPresetId('custom');
+    setShowCustomPicker(false);
+  }
+
+  // 时段外全部记录（不限提交时间）。琥珀色横幅只覆盖近 7 天新提交，
+  // 更早的记录需要这条常驻提示兜底，否则会在所有默认视图里彻底隐形。
+  const outsideStats = useMemo(
+    () => outsideRangeStats(sessions, toLocalDateStr(range.start), toLocalDateStr(range.end)),
+    [sessions, range],
+  );
+  const olderOutsideCount = outsideStats.total - newOutsideRange.length;
+
+  // 一键把时段扩展到覆盖该学生全部历史记录
+  function showAllOutsideRecords() {
+    if (!outsideStats.earliest) return;
+    const start = new Date(outsideStats.earliest + 'T00:00:00');
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    if (end < start) end.setTime(start.getTime());
     setCustomRange({ start, end });
     setPresetId('custom');
     setShowCustomPicker(false);
@@ -318,6 +340,32 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
             }}
           >
             查看全部新提交
+          </button>
+        </div>
+      )}
+
+      {/* ── 常驻兜底：任何落在时段之外的记录（不限提交时间）── */}
+      {olderOutsideCount > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '8px 12px', borderRadius: 10,
+          background: 'rgba(100,116,139,0.06)',
+          border: '1px solid rgba(100,116,139,0.18)',
+          fontSize: 12, color: '#475569', lineHeight: 1.5,
+        }}>
+          <span style={{ flex: 1, minWidth: 200 }}>
+            所选时段之外还有 <strong>{olderOutsideCount}</strong> 条记录
+            {outsideStats.earliest && `（最早 ${fmtDateShort(new Date(outsideStats.earliest + 'T00:00:00'))}）`}
+          </span>
+          <button
+            onClick={showAllOutsideRecords}
+            style={{
+              padding: '4px 12px', fontSize: 11, fontWeight: 600,
+              borderRadius: 6, border: '1px solid rgba(100,116,139,0.35)', cursor: 'pointer',
+              background: 'transparent', color: '#475569', flexShrink: 0,
+            }}
+          >
+            查看全部记录
           </button>
         </div>
       )}

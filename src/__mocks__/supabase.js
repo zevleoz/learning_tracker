@@ -12,6 +12,7 @@ let mockTables = {
 
 let mockRpcResponses = {};        // per-RPC-name override: { [rpcName]: { data, error } }
 let mockRpcDefault = { data: null, error: null };  // fallback for any RPC
+let mockInsertErrors = {};        // per-table insert 故障注入: { [tableName]: error }
 
 let mockStorage = {};             // bucket -> { [path]: fileName }
 
@@ -27,6 +28,7 @@ function resetMocks() {
   };
   mockRpcResponses = {};
   mockRpcDefault = { data: null, error: null };
+  mockInsertErrors = {};
   mockStorage = {};
   callHistory.length = 0;
 }
@@ -123,6 +125,17 @@ function createMockQueryBuilder(tableName) {
 
     insert(data) {
       trackCall('insert', tableName, data);
+      if (mockInsertErrors[tableName]) {
+        const error = mockInsertErrors[tableName];
+        const failed = {
+          select: () => ({
+            single: async () => ({ data: null, error }),
+            then: async (resolve) => { resolve({ data: null, error }); },
+          }),
+          then: async (resolve) => { resolve({ data: null, error }); },
+        };
+        return failed;
+      }
       const table = mockTables[tableName] || [];
       const inserted = Array.isArray(data) ? data : [data];
       let results = [];
@@ -426,6 +439,10 @@ const supabase = {
   __setAuthState: (state) => { mockAuthState = state; },
   __setTableData: (tableName, data) => { mockTables[tableName] = data; },
   __getTableData: (tableName) => mockTables[tableName],
+  __setInsertError: (tableName, error) => {
+    if (error) mockInsertErrors[tableName] = error;
+    else delete mockInsertErrors[tableName];
+  },
   __setRpcResponse: (name, response) => { mockRpcResponses[name] = response; },
   __setRpcDefault: (response) => { mockRpcDefault = response; },
 };

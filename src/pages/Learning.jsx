@@ -7,6 +7,7 @@ import { SUBJECTIVE_STEPS } from '../lib/rating.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
 
 /* ---------- 常量定义 ---------- */
@@ -343,6 +344,9 @@ export default function LearningPage() {
   /* --- 提交状态 / 最近记录 --- */
   const [busy, setBusy] = useState(false);
   const [recent, setRecent] = useState([]);
+  // 保存失败的本机暂存队列（网络中断/会话失效时兜底，恢复后自动重试）
+  const [outboxItems, setOutboxItems] = useState(() => loadOutbox());
+  const [outboxRetrying, setOutboxRetrying] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
@@ -704,6 +708,82 @@ export default function LearningPage() {
     return mins;
   }
 
+  /* ========== 最近记录刷新（提交成功 / 队列冲刷后共用） ========== */
+  async function refreshRecent() {
+    const { data } = await supabase
+      .from('learning_sessions')
+      .select(`
+        id, session_date, start_time, end_time, duration_minutes,
+        category, form, eval_type, self_rating, grade_label, notes,
+        course:courses(id,name,subject,course_type),
+        chapter:chapters(id,name),
+        unit:units(id,name)
+      `)
+      .eq('student_id', user.id)
+      .is('deleted_at', null)
+      .order('session_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(10);
+    setRecent(data || []);
+  }
+
+  /* ========== 失败队列：自动/手动重试 ========== */
+  // 网络中断或会话失效导致 insert 失败时，记录已暂存本机（outbox）。
+  // 恢复后逐条重试：先做与 onSubmit 相同的时段重叠检查（暂存期间学生可能已手动补了同一时段），再写入。
+  async function flushOutbox() {
+    const items = loadOutbox();
+    if (!items.length || !user || outboxRetrying) return;
+    setOutboxRetrying(true);
+    let conflictDropped = 0;
+    let succeeded = 0;
+    try {
+      for (const item of items) {
+        if (item.kind !== 'learning_session') { removeFromOutbox(item.id); continue; }
+        const p = item.payload;
+        const { data: conflicts, error: conflictErr } = await supabase
+          .from('learning_sessions')
+          .select('id')
+          .eq('student_id', p.student_id)
+          .eq('session_date', p.session_date)
+          .is('deleted_at', null)
+          .lt('start_time', p.end_time)
+          .gt('end_time', p.start_time);
+        if (conflictErr) break;            // 网络/会话仍不可用，停止本轮，保留队列
+        if (conflicts && conflicts.length > 0) {
+          removeFromOutbox(item.id);       // 已有同时段记录：丢弃暂存，不重复写
+          conflictDropped += 1;
+          continue;
+        }
+        const { error } = await supabase.from('learning_sessions').insert(p);
+        if (error) break;                  // 仍失败，保留队列等待下次
+        removeFromOutbox(item.id);
+        succeeded += 1;
+      }
+    } catch {
+      // fetch 级别的异常同样保留队列
+    } finally {
+      setOutboxRetrying(false);
+      setOutboxItems(loadOutbox());
+    }
+    if (conflictDropped > 0) {
+      toast(`${conflictDropped} 条暂存记录与已有记录时间重叠，未重复保存`, { kind: 'error' });
+    }
+    if (succeeded > 0) {
+      toast(`${succeeded} 条暂存记录已补传成功`, { kind: 'success' });
+      await refreshRecent();
+      await loadPending();
+    }
+  }
+
+  // 挂载后 + 网络恢复时自动冲刷失败队列
+  useEffect(() => {
+    if (!user) return;
+    flushOutbox();
+    const onOnline = () => flushOutbox();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ========== 提交 ========== */
   async function onSubmit(e) {
     e.preventDefault();
@@ -727,6 +807,27 @@ export default function LearningPage() {
     const newStartTime = startStr + ':00';
     const newEndTime = endStr + ':00';
 
+    const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
+    const gradeLabelValue = category === 3
+      ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
+      : null;
+    const payload = {
+      student_id: user.id,
+      course_id: courseId,
+      chapter_id: chapterId || null,
+      unit_id: unitId || null,
+      category,
+      form: formValue,
+      eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
+      duration_minutes: duration,
+      notes: notes.trim() || null,
+      session_date: dateStr,
+      start_time: newStartTime,
+      end_time: newEndTime,
+      self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
+      grade_label: gradeLabelValue,
+    };
+
     setBusy(true);
     try {
       const { data: conflicts, error: conflictError } = await supabase
@@ -747,27 +848,6 @@ export default function LearningPage() {
         return;
       }
 
-      const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
-      const gradeLabelValue = category === 3
-        ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
-        : null;
-      const payload = {
-        student_id: user.id,
-        course_id: courseId,
-        chapter_id: chapterId || null,
-        unit_id: unitId || null,
-        category,
-        form: formValue,
-        eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
-        duration_minutes: duration,
-        notes: notes.trim() || null,
-        session_date: dateStr,
-        start_time: newStartTime,
-        end_time: newEndTime,
-        self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-        grade_label: gradeLabelValue,
-      };
-
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
 
@@ -783,30 +863,22 @@ export default function LearningPage() {
       setObjDeferred(false);
       setIsObjNA(false);
 
-      const { data } = await supabase
-        .from('learning_sessions')
-        .select(`
-          id, session_date, start_time, end_time, duration_minutes,
-          category, form, eval_type, self_rating, grade_label, notes,
-          course:courses(id,name,subject,course_type),
-          chapter:chapters(id,name),
-          unit:units(id,name)
-        `)
-        .eq('student_id', user.id)
-        .is('deleted_at', null)
-        .order('session_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(10);
-      setRecent(data || []);
+      await refreshRecent();
       await loadPending();
+      flushOutbox();  // 网络已通，顺带冲刷暂存队列（不阻塞本次提交）
     } catch (err) {
+      // 保存失败：暂存本机，常驻横幅会持续提示并自动重试——绝不让记录无声丢失
+      enqueueOutbox({ kind: 'learning_session', payload });
+      setOutboxItems(loadOutbox());
       let msg = err.message || '保存失败';
       if (msg.includes('row-level security')) {
-        msg = '权限不足：您只能操作自己的学习记录。';
+        msg = '权限不足：登录状态可能已过期，请重新登录';
       } else if (msg.includes('self_rating') || msg.includes('not-null') || msg.includes('constraint')) {
         msg = '数据库配置需要更新';
+      } else if (msg.includes('fetch')) {
+        msg = '网络连接失败';
       }
-      toast(msg, { kind: 'error' });
+      toast(`${msg}。本条已暂存本机，恢复后会自动重试`, { kind: 'error' });
     } finally {
       setBusy(false);
     }
@@ -1100,6 +1172,38 @@ export default function LearningPage() {
           )}
         </button>
       </div>
+
+      {/* ====== 失败暂存队列：常驻横幅（消失=已全部补传成功） ====== */}
+      {outboxItems.length > 0 && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '10px 14px', margin: '10px 0 4px', borderRadius: 12,
+            background: 'rgba(220,38,38,0.08)',
+            border: '1px solid rgba(220,38,38,0.3)',
+            fontSize: 13, color: '#991b1b', lineHeight: 1.5,
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 200 }}>
+            有 <strong>{outboxItems.length}</strong> 条记录未保存成功，已暂存在本机。
+            恢复网络或重新登录后会自动补传；在横幅消失前请不要认为它们已保存。
+          </span>
+          <button
+            type="button"
+            onClick={flushOutbox}
+            disabled={outboxRetrying}
+            style={{
+              padding: '5px 14px', fontSize: 12, fontWeight: 600,
+              borderRadius: 8, border: 'none', cursor: outboxRetrying ? 'default' : 'pointer',
+              background: '#dc2626', color: 'white', flexShrink: 0,
+              opacity: outboxRetrying ? 0.6 : 1,
+            }}
+          >
+            {outboxRetrying ? '重试中…' : '立即重试'}
+          </button>
+        </div>
+      )}
 
       {view === 'scores' ? (
         /* ====== 成绩视图 ====== */

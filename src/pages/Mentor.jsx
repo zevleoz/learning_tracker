@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronDown, Search } from 'lucide-react';
 import { supabase, timeoutSignal } from '../lib/supabase.js';
 import { updateWorkspace } from '../lib/e4Store.js';
 import { toast } from '../lib/toast.js';
@@ -13,6 +14,12 @@ import { AnimatedNumber, Skeleton } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
 import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { Button } from '../components/ui/button.jsx';
+import { Badge } from '../components/ui/badge.jsx';
+import { Card } from '../components/ui/card.jsx';
+import { Sheet, SheetContent, SheetHeader } from '../components/ui/sheet.jsx';
+import { consultantColor, consultantKey, groupByConsultant, parseConsultant } from '../utils/consultant.js';
+import { evaluateInactivity, formatInactivity } from '../utils/inactivity.js';
 import { toLocalDateStr } from '../lib/date.js';
 import { useAuth } from '../lib/useAuth.js';
 
@@ -22,6 +29,17 @@ function fmtMinutes(mins) {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}min` : `${h} 小时`;
+}
+
+const STATUS_META = {
+  1: { key: 'connected', label: '已连接' },
+  0: { key: 'invited', label: '邀请中' },
+  2: { key: 'rejected', label: '已拒绝' },
+  '-1': { key: 'uninvited', label: '未邀请' },
+};
+
+function statusMeta(status) {
+  return STATUS_META[status] || STATUS_META['-1'];
 }
 
 export default function Mentor() {
@@ -42,6 +60,8 @@ export default function Mentor() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSchool, setFilterSchool] = useState('all');
+  const [filterConsultant, setFilterConsultant] = useState('all'); // 顾问筛选：'all' | consultantKey
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set()); // 折叠的顾问分区
   const [activeView, setActiveView] = useState('students');
   const [syllabusCourses, setSyllabusCourses] = useState([]);
   const [syllabusLoading, setSyllabusLoading] = useState(false);
@@ -238,12 +258,14 @@ export default function Mentor() {
   }
 
   async function loadClassStats(connectionsMap, allStudents, admin) {
-    // admin 看全部学生；普通导师只看已连接（status === 1）的学生
-    const targetStudents = admin
+    // admin 看全部学生；普通导师只看已连接（status === 1）的学生。
+    // 虚拟连接（admin 自动建连失败时的占位）读不到学习记录，参与判定会全量误报，先排除。
+    const rawTargets = admin
       ? (allStudents || []).map((s) => s.id)
       : Object.values(connectionsMap || {})
           .filter((c) => c.status === 1)
           .map((c) => c.student_id);
+    const targetStudents = rawTargets.filter((id) => !connectionsMap?.[id]?.virtual);
 
     if (targetStudents.length === 0) {
       setClassStats({
@@ -251,13 +273,15 @@ export default function Mentor() {
         avgDailyMinutes: 0,
         avgScore: 0,
         activeStudents: 0,
+        inactiveCount: 0,
+        inactiveByStudent: {},
       });
       return;
     }
 
     const { data: sessionData, error } = await supabase
       .from('learning_sessions')
-      .select('student_id, duration_minutes, eval_type, score')
+      .select('student_id, session_date, duration_minutes, eval_type, score')
       .in('student_id', targetStudents)
       .is('deleted_at', null)
       .gte('session_date', toLocalDateStr(new Date(Date.now() - 7 * 24 * 3600 * 1000)))
@@ -285,11 +309,23 @@ export default function Mentor() {
     const totalMins = Object.values(studentMins).reduce((a, b) => a + b, 0);
     const activeStudents = Object.keys(studentMins).length;
 
+    // 连续两天未填写：复用同一批记录判定（学习日粒度，与「本周活跃」同口径）
+    const targetSet = new Set(targetStudents);
+    const targetMetas = (allStudents || []).filter((s) => targetSet.has(s.id));
+    const { inactiveByStudent, inactiveCount } = evaluateInactivity(
+      sessionData || [],
+      targetMetas,
+      toLocalDateStr(new Date()),
+      { truncated: (sessionData || []).length >= 20000 },
+    );
+
     setClassStats({
       totalStudents: targetStudents.length,
       avgDailyMinutes: targetStudents.length > 0 ? Math.round(totalMins / targetStudents.length / 7) : 0,
       avgScore: scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0,
       activeStudents,
+      inactiveCount,
+      inactiveByStudent,
     });
   }
 
@@ -681,6 +717,49 @@ export default function Mentor() {
     });
   }, [students, connections, searchQuery, filterStatus, filterSchool]);
 
+  // 按顾问分组（基于筛选后的学生，顾问归属从备注名的括号里解析）
+  const consultantGroups = useMemo(
+    () => groupByConsultant(filteredStudents, connections),
+    [filteredStudents, connections],
+  );
+
+  // 顾问数：全部学生里的顾问数量（不受筛选影响）
+  const consultantCount = useMemo(() => {
+    const keys = new Set();
+    for (const s of students) {
+      const { consultant } = parseConsultant(connections[s.id]?.mentor_alias || '');
+      if (consultant) keys.add(consultantKey(consultant));
+    }
+    return keys.size;
+  }, [students, connections]);
+
+  // 移动端分组小标题：仅当存在具名顾问时显示，避免全部未分配时的噪音
+  const showConsultantHeadings = consultantCount > 0;
+
+  const visibleGroups = useMemo(
+    () => (filterConsultant === 'all'
+      ? consultantGroups
+      : consultantGroups.filter((g) => consultantKey(g.consultant) === filterConsultant)),
+    [consultantGroups, filterConsultant],
+  );
+
+  const toggleGroup = (key) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const overviewItems = useMemo(() => ([
+    { label: '学生总数', value: String(stats.total) },
+    { label: '顾问', value: String(consultantCount) },
+    { label: '已连接', value: String(stats.connected) },
+    { label: '本周活跃', value: String(classStats.activeStudents || 0) },
+    { label: '本周日均', value: fmtMinutes(classStats.avgDailyMinutes || 0) },
+    { label: '未填写', value: String(classStats.inactiveCount || 0) },
+  ]), [stats, consultantCount, classStats]);
+
   if (!user) {
     return (
       <div className="mentor-page" style={{ padding: 40, fontSize: 14, color: '#475569' }}>
@@ -725,717 +804,421 @@ export default function Mentor() {
                 </div>
               </motion.div>
 
-              {/* ====== 动态布局 ======
-                  未选中学生：单列全宽（搜索 + 卡片网格）
-                  选中学生：两列（左侧搜索+学生列表，右侧详情）*/}
+              {/* 概览条：复用 stats / classStats，零新增请求 */}
               <motion.div
-                className="mentor-split-layout"
+                className="mentor-overview-bar"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05, duration: 0.3 }}
+              >
+                {overviewItems.map((item) => (
+                  <div key={item.label} className="mentor-overview-block">
+                    <div className="mentor-overview-value">{item.value}</div>
+                    <div className="mentor-overview-label">{item.label}</div>
+                  </div>
+                ))}
+              </motion.div>
+
+              {/* 工具栏：搜索 + 学校/状态筛选 + 顾问筛选 chip */}
+              <motion.div
+                className="mentor-toolbar"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1, duration: 0.3 }}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: picked ? '320px 1fr' : '0px 1fr',
-                  gap: picked ? 20 : 0,
-                  minHeight: 500,
-                  transition: 'grid-template-columns 0.35s cubic-bezier(0.4, 0, 0.2, 1), gap 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
               >
-                {/* ── 左侧栏：仅在选中学生时显示（搜索 + 学生列表，搜索始终可用） ── */}
-                <AnimatePresence initial={false}>
-                {picked && (
-                <motion.div
-                  key="left-sidebar"
-                  initial={{ opacity: 0, x: -24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -24 }}
-                  transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-                  style={{
-                  background: '#fff',
-                  borderRadius: 16,
-                  border: '1px solid rgba(15,23,42,0.06)',
-                  overflow: 'hidden',
-                  display: 'flex', flexDirection: 'column',
-                }}>
-                  <div style={{
-                    padding: '14px 16px 10px',
-                    borderBottom: '1px solid #f1f5f9',
-                    display: 'flex', flexDirection: 'column', gap: 8,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-                        {isAdmin ? '全部学生' : '我的学生'}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                        {isAdmin
-                          ? `${students.length} 位学生`
-                          : `${Object.values(connections).filter(c => c.status === 1).length} 位已连接`}
-                      </div>
-                    </div>
-                    {/* 搜索 + 筛选（选中学生后也能搜索） */}
+                <div className="mentor-toolbar-row">
+                  <div className="mentor-search-field">
+                    <Search className="mentor-search-icon" aria-hidden="true" />
                     <input
                       type="text"
                       placeholder="搜索学生…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      style={{
-                        padding: '7px 10px', fontSize: 12,
-                        border: '1px solid #e2e8f0', borderRadius: 8,
-                        background: '#fff', color: '#0f172a',
-                        outline: 'none', width: '100%',
-                      }}
+                      className="mentor-search-input"
                     />
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <select
-                        value={filterSchool}
-                        onChange={(e) => setFilterSchool(e.target.value)}
-                        style={{
-                          flex: 1, padding: '6px 8px', fontSize: 11,
-                          border: '1px solid #e2e8f0', borderRadius: 8,
-                          background: '#fff', color: '#0f172a',
-                          outline: 'none',
-                        }}
-                      >
-                        <option value="all">所有学校</option>
-                        {schools.map((school) => (
-                          <option key={school} value={school}>{school}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                        style={{
-                          flex: 1, padding: '6px 8px', fontSize: 11,
-                          border: '1px solid #e2e8f0', borderRadius: 8,
-                          background: '#fff', color: '#0f172a',
-                          outline: 'none',
-                        }}
-                      >
-                        <option value="all">全部状态</option>
-                        <option value="connected">已连接</option>
-                        <option value="invited">邀请中</option>
-                        <option value="rejected">已拒绝</option>
-                        <option value="uninvited">未邀请</option>
-                      </select>
-                    </div>
                   </div>
-                  <div style={{ overflowY: 'auto', flex: 1, padding: '8px 10px' }}>
-                    {(() => {
-                      const connected = isAdmin
-                        ? students
-                        : students.filter(s => connections[s.id]?.status === 1);
-                      const sorted = [...connected].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-                      if (sorted.length === 0) {
-                        return (
-                          <div style={{
-                            textAlign: 'center', padding: '40px 20px',
-                            color: '#94a3b8', fontSize: 13,
-                          }}>
-                            {isAdmin ? '暂无学生' : '暂无已连接学生'}
-                            <div style={{ fontSize: 11, marginTop: 4 }}>
-                              {isAdmin ? '暂未注册学生账号' : '从右侧搜索并邀请学生'}
-                            </div>
-                          </div>
-                        );
-                      }
-                      return sorted.map((s) => {
-                        const isActive = picked?.id === s.id;
-                        const conn = connections[s.id];
-                        const alias = conn?.mentor_alias || '';
-                        const displayName = alias || s.full_name || '(未命名)';
-                        return (
-                          <motion.div
-                            key={s.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            onClick={() => { setPicked(s); }}
-                            style={{
-                              padding: '12px 14px',
-                              borderRadius: 12,
-                              cursor: 'pointer',
-                              marginBottom: 4,
-                              background: isActive ? 'rgba(99,102,241,0.06)' : 'transparent',
-                              border: isActive ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
-                              transition: 'all 160ms ease',
-                            }}
-                            whileHover={{ background: isActive ? 'rgba(99,102,241,0.08)' : '#f8fafc' }}
-                          >
-                            <div style={{
-                              display: 'flex', alignItems: 'center', gap: 10,
-                            }}>
-                              <div style={{
-                                width: 36, height: 36, borderRadius: 10,
-                                background: '#f1f5f9',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 14, fontWeight: 700, color: '#475569',
-                                flexShrink: 0,
-                              }}>
-                                {(displayName || '?').charAt(0).toUpperCase()}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{
-                                  fontSize: 13, fontWeight: 600, color: '#0f172a',
-                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                }}>
-                                  {displayName}
-                                </div>
-                                <div style={{
-                                  fontSize: 11, color: '#94a3b8',
-                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                  marginTop: 2,
-                                }}>
-                                  {alias ? `本名：${s.full_name || '-'}` : `${s.school_name || '-'} · 已连接`}
-                                </div>
-                              </div>
-                            </div>
-                          </motion.div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </motion.div>
-                )}
-                </AnimatePresence>
-
-                {/* ── 右侧：未选中时显示搜索+卡片网格；选中时显示学生详情 ── */}
-                <div style={{
-                  gridColumn: '2',
-                  background: '#fff',
-                  borderRadius: 16,
-                  border: '1px solid rgba(15,23,42,0.06)',
-                  overflow: 'hidden',
-                  display: 'flex', flexDirection: 'column',
-                  minHeight: 500,
-                }}>
-                  <AnimatePresence mode="wait" initial={false}>
-                  {!picked ? (
-                  <motion.div
-                    key="right-grid"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                    style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                  <select
+                    className="mentor-select"
+                    value={filterSchool}
+                    onChange={(e) => setFilterSchool(e.target.value)}
                   >
-                  <div style={{
-                    padding: '16px 18px 12px',
-                    borderBottom: '1px solid #f1f5f9',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    gap: 12,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>全部学生</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                        {filteredStudents.length} 位学生
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        placeholder="搜索学生…"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{
-                          padding: '7px 12px', fontSize: 13,
-                          border: '1px solid #e2e8f0', borderRadius: 8,
-                          background: '#fff', color: '#0f172a',
-                          outline: 'none', minWidth: 180,
-                        }}
-                      />
-                      <select
-                        value={filterSchool}
-                        onChange={(e) => setFilterSchool(e.target.value)}
-                        style={{
-                          padding: '7px 10px', fontSize: 13,
-                          border: '1px solid #e2e8f0', borderRadius: 8,
-                          background: '#fff', color: '#0f172a',
-                          outline: 'none',
-                        }}
+                    <option value="all">所有学校</option>
+                    {schools.map((school) => (
+                      <option key={school} value={school}>{school}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="mentor-select"
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="connected">已连接</option>
+                    <option value="invited">邀请中</option>
+                    <option value="rejected">已拒绝</option>
+                    <option value="uninvited">未邀请</option>
+                  </select>
+                </div>
+
+                <div className="mentor-chip-row">
+                  <button
+                    type="button"
+                    className={`mentor-chip ${filterConsultant === 'all' ? 'mentor-chip--active' : ''}`}
+                    onClick={() => setFilterConsultant('all')}
+                  >
+                    <span className="mentor-chip-dot" style={{ background: 'var(--mentor-color-text-muted)' }} />
+                    全部
+                    <span className="mentor-chip-count">{filteredStudents.length}</span>
+                  </button>
+                  {consultantGroups.map((g) => {
+                    const key = consultantKey(g.consultant);
+                    const active = filterConsultant === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`mentor-chip ${active ? 'mentor-chip--active' : ''}`}
+                        onClick={() => setFilterConsultant(active ? 'all' : key)}
                       >
-                        <option value="all">所有学校</option>
-                        {schools.map((school) => (
-                          <option key={school} value={school}>{school}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                        style={{
-                          padding: '7px 10px', fontSize: 13,
-                          border: '1px solid #e2e8f0', borderRadius: 8,
-                          background: '#fff', color: '#0f172a',
-                          outline: 'none',
-                        }}
-                      >
-                        <option value="all">全部状态</option>
-                        <option value="connected">已连接</option>
-                        <option value="invited">邀请中</option>
-                        <option value="rejected">已拒绝</option>
-                        <option value="uninvited">未邀请</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* 学生卡片网格 */}
-                  <div style={{
-                    overflowY: 'auto', flex: 1,
-                    padding: '12px 14px',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                    gap: 10,
-                  }}>
-                      {filteredStudents.map((s) => {
-                            const conn = connections[s.id];
-                            const status = conn?.status ?? -1;
-                            const alias = conn?.mentor_alias || '';
-                            const isDeleting = deleteBusyId === s.id;
-                            const isAliasEditing = editingAliasId === s.id;
-                            // 别名优先；无别名回退到真实名
-                            const displayName = alias || s.full_name || '(未命名)';
-                            return (
-                              <motion.div
-                                key={s.id}
-                                onClick={() => setPicked(s)}
-                                style={{
-                                  padding: '14px 16px',
-                                  borderRadius: 12,
-                                  border: '1px solid rgba(15,23,42,0.06)',
-                                  background: '#fff',
-                                  display: 'flex', flexDirection: 'column', gap: 8,
-                                  transition: 'all 160ms ease',
-                                  opacity: isDeleting ? 0.55 : 1,
-                                  cursor: 'pointer',
-                                }}
-                                whileHover={{
-                                  borderColor: 'rgba(15,23,42,0.12)',
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                                }}
-                              >
-                                <div style={{
-                                  display: 'flex', alignItems: 'center', gap: 10,
-                                }}>
-                                  <div style={{
-                                    width: 40, height: 40, borderRadius: 10,
-                                    background: '#f1f5f9',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 15, fontWeight: 700, color: '#475569',
-                                    flexShrink: 0,
-                                  }}>
-                                    {(displayName || '?').charAt(0).toUpperCase()}
-                                  </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{
-                                      display: 'flex', alignItems: 'center', gap: 6,
-                                      minWidth: 0,
-                                    }}>
-                                      <div style={{
-                                        fontSize: 13, fontWeight: 600, color: '#0f172a',
-                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                        minWidth: 0,
-                                      }}>
-                                        {displayName}
-                                      </div>
-                                      {alias && (
-                                        <span style={{
-                                          fontSize: 9, fontWeight: 600, color: '#475569',
-                                          padding: '1px 5px', borderRadius: 4,
-                                          background: 'rgba(148,163,184,0.15)',
-                                          flexShrink: 0,
-                                        }}>备注</span>
-                                      )}
-                                    </div>
-                                    <div style={{
-                                      fontSize: 11, color: '#94a3b8',
-                                      marginTop: 2,
-                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                    }}>
-                                      {alias ? `本名：${s.full_name || '-'}` : (s.school_name || '-')}
-                                    </div>
-                                  </div>
-                                </div>
-                                {/* Status + Actions */}
-                                <div style={{
-                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                  marginTop: 4, gap: 6,
-                                }}>
-                                  <span style={{
-                                    fontSize: 11, fontWeight: 600,
-                                    color: status === 1 ? '#0f172a' : status === 0 ? '#64748b' : '#94a3b8',
-                                    padding: '3px 8px', borderRadius: 6,
-                                    background: status === 1 ? 'rgba(15,23,42,0.06)' : 'rgba(148,163,184,0.1)',
-                                    flexShrink: 0,
-                                  }}>
-                                    {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
-                                  </span>
-                                  <div style={{
-                                    display: 'flex', gap: 6, flexWrap: 'wrap',
-                                    justifyContent: 'flex-end', marginTop: 2,
-                                  }}>
-                                    {!isAdmin && status === -1 && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                        style={{
-                                          padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                          border: 'none', borderRadius: 6,
-                                          background: '#0f172a', color: '#fff',
-                                          cursor: 'pointer', fontFamily: 'inherit',
-                                        }}
-                                      >邀请</button>
-                                    )}
-                                    {!isAdmin && status === 0 && (
-                                      <>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}
-                                          style={{
-                                            padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                            border: '1px solid #e2e8f0', borderRadius: 6,
-                                            background: '#fff', color: '#475569',
-                                            cursor: 'pointer', fontFamily: 'inherit',
-                                          }}
-                                        >撤回</button>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                          style={{
-                                            padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                            border: 'none', borderRadius: 6,
-                                            background: '#0f172a', color: '#fff',
-                                            cursor: 'pointer', fontFamily: 'inherit',
-                                          }}
-                                        >重发</button>
-                                      </>
-                                    )}
-                                    {!isAdmin && status === 2 && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                        style={{
-                                          padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                          border: 'none', borderRadius: 6,
-                                          background: '#0f172a', color: '#fff',
-                                          cursor: 'pointer', fontFamily: 'inherit',
-                                        }}
-                                      >再次邀请</button>
-                                    )}
-                                    {!isAdmin && status === 1 && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
-                                        style={{
-                                          padding: '5px 10px', fontSize: 11, fontWeight: 500,
-                                          border: '1px solid #e2e8f0', borderRadius: 6,
-                                          background: '#fff', color: '#64748b',
-                                          cursor: 'pointer', fontFamily: 'inherit',
-                                        }}
-                                      >断开</button>
-                                    )}
-                                    {/* 别名按钮：status === 1（含 admin 自动连接）可编辑别名 */}
-                                    {status === 1 && !isAliasEditing && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setEditingAliasId(s.id);
-                                          setEditingAliasValue(alias);
-                                        }}
-                                        style={{
-                                          padding: '5px 10px', fontSize: 11, fontWeight: 500,
-                                          border: '1px solid #e2e8f0', borderRadius: 6,
-                                          background: '#fff', color: '#475569',
-                                          cursor: 'pointer', fontFamily: 'inherit',
-                                        }}
-                                      >{alias ? '改备注' : '备注名'}</button>
-                                    )}
-                                    {/* 删除按钮：admin only */}
-                                    {isAdmin && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isDeleting) return;
-                                          deleteStudent(s.id);
-                                        }}
-                                        disabled={isDeleting}
-                                        style={{
-                                          padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                          border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6,
-                                          background: 'rgba(239,68,68,0.08)', color: '#b91c1c',
-                                          cursor: isDeleting ? 'not-allowed' : 'pointer',
-                                          fontFamily: 'inherit',
-                                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                                        }}
-                                      >{isDeleting ? '删除中…' : '删除'}</button>
-                                    )}
-                                  </div>
-                                </div>
-                                {/* 内联别名编辑器：复用 .m-school-edit / .m-school-input 样式 */}
-                                {isAliasEditing && (
-                                  <motion.div
-                                    className="m-school-edit"
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: 'auto' }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                  >
-                                    <input
-                                      type="text"
-                                      placeholder="输入备注名（留空清除）"
-                                      value={editingAliasValue}
-                                      onChange={(e) => setEditingAliasValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(s.id, editingAliasValue); }
-                                        if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
-                                      }}
-                                      autoFocus
-                                      className="m-school-input"
-                                    />
-                                    <div className="m-school-edit__actions">
-                                      <button
-                                        className="m-action-btn"
-                                        onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
-                                      >取消</button>
-                                      <button
-                                        className="m-action-btn m-action-btn--primary"
-                                        onClick={() => saveStudentAlias(s.id, editingAliasValue)}
-                                      >保存</button>
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </motion.div>
-                            );
-                          })}
-                  </div>
-
-                  {filteredStudents.length === 0 && (
-                    <motion.div 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3 }}
-                      style={{
-                        textAlign: 'center', padding: '40px 20px',
-                        color: '#94a3b8', fontSize: 13, gridColumn: '1/-1',
-                      }}
-                    >
-                      未找到匹配的学生
-                    </motion.div>
-                  )}
-                  </motion.div>
-                  ) : (
-                    <motion.div
-                      key="right-detail"
-                      initial={{ opacity: 0, x: 16 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 16 }}
-                      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-                      style={{
-                        background: '#fff',
-                        display: 'flex', flexDirection: 'column',
-                        flex: 1,
-                        minHeight: 0,
-                      }}
-                    >
-                      <div style={{
-                        padding: '16px 20px',
-                        borderBottom: '1px solid #f1f5f9',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        flexShrink: 0,
-                      }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>学习数据</div>
-                          {editingAliasId === picked.id ? (
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                              <input
-                                type="text"
-                                placeholder="输入备注名（留空清除）"
-                                value={editingAliasValue}
-                                onChange={(e) => setEditingAliasValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(picked.id, editingAliasValue); }
-                                  if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
-                                }}
-                                autoFocus
-                                style={{
-                                  padding: '5px 8px', fontSize: 13,
-                                  border: '1px solid #c7d2fe', borderRadius: 6,
-                                  background: '#fff', color: '#0f172a',
-                                  outline: 'none', flex: '1 1 160px', minWidth: 0,
-                                }}
-                              />
-                              <button
-                                onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
-                                style={{
-                                  padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                  border: '1px solid #e2e8f0', borderRadius: 6,
-                                  background: '#fff', color: '#64748b',
-                                  cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                              >取消</button>
-                              <button
-                                onClick={() => saveStudentAlias(picked.id, editingAliasValue)}
-                                style={{
-                                  padding: '5px 10px', fontSize: 11, fontWeight: 600,
-                                  border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6,
-                                  background: 'rgba(99,102,241,0.1)', color: '#4f46e5',
-                                  cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                              >保存</button>
-                            </div>
-                          ) : (
-                            <>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                                  {connections[picked.id]?.mentor_alias || picked.full_name || '学生'}
-                                </div>
-                                {connections[picked.id]?.mentor_alias && (
-                                  <span style={{
-                                    fontSize: 10, fontWeight: 600, color: '#6366f1',
-                                    background: 'rgba(99,102,241,0.1)', padding: '1px 6px',
-                                    borderRadius: 4, flexShrink: 0,
-                                  }}>备注</span>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    setEditingAliasId(picked.id);
-                                    setEditingAliasValue(connections[picked.id]?.mentor_alias || '');
-                                  }}
-                                  style={{
-                                    padding: '3px 8px', fontSize: 11, fontWeight: 600,
-                                    border: '1px solid #e2e8f0', borderRadius: 6,
-                                    background: '#fff', color: '#64748b',
-                                    cursor: 'pointer', fontFamily: 'inherit',
-                                  }}
-                                >{connections[picked.id]?.mentor_alias ? '改备注' : '备注名'}</button>
-                              </div>
-                              {connections[picked.id]?.mentor_alias && picked.full_name && (
-                                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                                  本名：{picked.full_name}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => setPicked(null)}
-                          style={{
-                            width: 32, height: 32, borderRadius: 8,
-                            background: '#f8fafc', border: 'none', cursor: 'pointer',
-                            fontSize: 14, color: '#64748b',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            flexShrink: 0, marginLeft: 8,
-                          }}
-                        >✕</button>
-                      </div>
-                      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-                        {busy ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 40 }}>
-                            <Skeleton height={20} width="40%" />
-                            <Skeleton height={16} width="60%" />
-                            <Skeleton height={16} width="40%" />
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{
-                              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-                              gap: 10, marginBottom: 16,
-                            }}>
-                              {[
-                                { label: '学习记录', value: sessions.length, suffix: '条' },
-                                { label: '累计时长', value: fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0)), suffix: '' },
-                                { label: '活跃天数', value: new Set(sessions.map(s => s.date?.split('T')[0])).size, suffix: '天' },
-                              ].map((stat, i) => (
-                                <div key={i} style={{
-                                  padding: '12px 10px', borderRadius: 10,
-                                  background: '#f8fafc', textAlign: 'center',
-                                }}>
-                                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-                                    {stat.value}{stat.suffix}
-                                  </div>
-                                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{stat.label}</div>
-                                </div>
-                              ))}
-                            </div>
-
-                            {sessions.length > 0 ? (
-                              <>
-                                <div style={{
-                                  padding: '10px 14px', borderRadius: 8,
-                                  background: 'rgba(99,102,241,0.06)',
-                                  border: '1px solid rgba(99,102,241,0.12)',
-                                  fontSize: 12, color: '#475569', lineHeight: 1.6,
-                                  marginBottom: 12,
-                                }}>
-                                  <div style={{ fontWeight: 600, marginBottom: 4, color: '#4338ca' }}>
-                                    详细周度复盘请前往「数据分析」页
-                                  </div>
-                                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                    当前在学生管理页仅显示简要摘要
-                                  </div>
-                                </div>
-
-                                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginBottom: 6 }}>最新提交（按提交时间，含补填）</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  {recentSubmitted.slice(0, 8).map((s, i) => {
-                                    const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
-                                    return (
-                                      <div key={i} style={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        padding: '6px 10px', borderRadius: 8,
-                                        background: '#f8fafc', fontSize: 12, gap: 8,
-                                      }}>
-                                        <span style={{ color: '#475569', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {s.subject}
-                                        </span>
-                                        <span style={{ color: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}>
-                                          {s.date}
-                                        </span>
-                                        {isBackfill && (
-                                          <span style={{
-                                            fontSize: 9, fontWeight: 700, color: '#b45309',
-                                            background: 'rgba(245,158,11,0.12)', borderRadius: 4,
-                                            padding: '1px 5px', flexShrink: 0,
-                                          }}>补填</span>
-                                        )}
-                                        <span style={{ color: '#0f172a', fontWeight: 700, flexShrink: 0 }}>
-                                          {fmtMinutes(s.duration_minutes || 0)}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-
-                                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                                  <button
-                                    onClick={() => setActiveView('analytics')}
-                                    style={{
-                                      flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none',
-                                      background: '#0f172a', color: 'white',
-                                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                                      fontFamily: 'inherit',
-                                    }}
-                                  >
-                                    前往数据分析 →
-                                  </button>
-                                  <button
-                                    onClick={() => setActiveView('syllabus')}
-                                    style={{
-                                      flex: 1, padding: '10px 14px', borderRadius: 10,
-                                      border: '1px solid #e2e8f0', background: '#fff',
-                                      color: '#0f172a', fontSize: 13, fontWeight: 600,
-                                      cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
-                                  >
-                                    前往课表 →
-                                  </button>
-                                </div>
-                              </>
-                            ) : (
-                              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
-                                该学生暂无学习记录
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                        <span className="mentor-chip-dot" style={{ background: consultantColor(g.consultant) }} />
+                        {g.consultant || '未分配'}
+                        <span className="mentor-chip-count">{g.students.length}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </motion.div>
-            </motion.div>
+
+              {/* 顾问分区：每人一组，组内卡片网格 */}
+              <div className="mentor-groups">
+
+                {visibleGroups.map((group) => {
+                  const groupKey = consultantKey(group.consultant);
+                  const collapsed = collapsedGroups.has(groupKey);
+                  const groupColor = consultantColor(group.consultant);
+                  return (
+                    <section key={groupKey} className="mentor-group">
+                      <header className="mentor-group-header">
+                        <button
+                          type="button"
+                          className="mentor-group-toggle"
+                          onClick={() => toggleGroup(groupKey)}
+                          aria-expanded={!collapsed}
+                        >
+                          <span
+                            className="mentor-group-monogram"
+                            style={{ background: `${groupColor}14`, color: groupColor }}
+                          >
+                            {(group.consultant || '未').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="mentor-group-name">{group.consultant || '未分配'}</span>
+                          <ChevronDown className={`mentor-group-chevron ${collapsed ? 'is-collapsed' : ''}`} />
+                        </button>
+                        <Badge variant="secondary" className="mentor-group-count">
+                          {group.students.length} 位学生
+                        </Badge>
+                      </header>
+                      {!collapsed && (
+                        <div className="mentor-group-grid">
+                          {group.students.map((s) => {
+                            const conn = connections[s.id];
+                          const status = conn?.status ?? -1;
+                          const alias = conn?.mentor_alias || '';
+                          const isDeleting = deleteBusyId === s.id;
+                          const isAliasEditing = editingAliasId === s.id;
+                          const meta = statusMeta(status);
+                          // 备注名括号里是顾问归属（区头已表达），卡片主标题只显示干净姓名
+                          const { cleanName } = parseConsultant(alias);
+                          const displayName = cleanName || alias || s.full_name || '(未命名)';
+                          const avatarColor = consultantColor(group.consultant);
+                          return (
+                            <Card
+                              key={s.id}
+                              className="mentor-student-card group"
+                              onClick={() => setPicked(s)}
+                              style={{ opacity: isDeleting ? 0.55 : 1 }}
+                            >
+                              <div className="mentor-student-card__top">
+                                <div
+                                  className="mentor-student-avatar"
+                                  style={{ background: `${avatarColor}14`, color: avatarColor }}
+                                >
+                                  {(displayName || '?').charAt(0).toUpperCase()}
+                                </div>
+                                <div className="mentor-student-card__id">
+                                  <div className="mentor-student-card__name-row">
+                                    <span className="mentor-student-card__name">{displayName}</span>
+                                    {alias && <span className="mentor-student-card__tag">备注</span>}
+                                  </div>
+                                  <div className="mentor-student-card__meta">
+                                    {alias && <span>本名：{s.full_name || '-'}</span>}
+                                    <span>{s.school_name || '未设置学校'}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="mentor-student-card__foot">
+                                <div className="mentor-student-card__left">
+                                  <span className={`mentor-status mentor-status--${meta.key}`}>
+                                    <span className="mentor-status-dot" />
+                                    {meta.label}
+                                  </span>
+                                  {classStats.inactiveByStudent?.[s.id] && (
+                                    <span className="mentor-inactive">
+                                      <span className="mentor-inactive-dot" />
+                                      {formatInactivity(classStats.inactiveByStudent[s.id])}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mentor-student-card__actions">
+                                  {!isAdmin && status === -1 && (
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                    >邀请</Button>
+                                  )}
+                                  {!isAdmin && status === 0 && (
+                                    <>
+                                      <Button
+                                        size="sm" variant="outline"
+                                        onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}
+                                      >撤回</Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                      >重发</Button>
+                                    </>
+                                  )}
+                                  {!isAdmin && status === 2 && (
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
+                                    >再次邀请</Button>
+                                  )}
+                                  {!isAdmin && status === 1 && (
+                                    <Button
+                                      size="sm" variant="outline"
+                                      onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
+                                    >断开</Button>
+                                  )}
+                                  {/* 备注名：status === 1（含 admin 自动连接）可编辑 */}
+                                  {status === 1 && !isAliasEditing && (
+                                    <Button
+                                      size="sm" variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingAliasId(s.id);
+                                        setEditingAliasValue(alias);
+                                      }}
+                                    >{alias ? '改备注' : '备注名'}</Button>
+                                  )}
+                                  {/* 永久删除：admin only */}
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm" variant="destructive"
+                                      className="mentor-btn-delete"
+                                      disabled={isDeleting}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isDeleting) return;
+                                        deleteStudent(s.id);
+                                      }}
+                                    >{isDeleting ? '删除中…' : '删除'}</Button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isAliasEditing && (
+                                <motion.div
+                                  className="mentor-alias-editor"
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                >
+                                  <input
+                                    type="text"
+                                    placeholder="输入备注名（留空清除）"
+                                    value={editingAliasValue}
+                                    onChange={(e) => setEditingAliasValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(s.id, editingAliasValue); }
+                                      if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    autoFocus
+                                    className="mentor-alias-input"
+                                  />
+                                  <div className="mentor-alias-actions">
+                                    <Button
+                                      size="sm" variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingAliasId(null);
+                                        setEditingAliasValue('');
+                                      }}
+                                    >取消</Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => { e.stopPropagation(); saveStudentAlias(s.id, editingAliasValue); }}
+                                    >保存</Button>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </Card>
+                          );
+                        })}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+
+                  {visibleGroups.length === 0 && (
+                    <div className="mentor-empty-state" style={{ padding: '56px 20px' }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--mentor-color-text-secondary)' }}>
+                        未找到匹配的学生
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--mentor-color-text-tertiary)', marginTop: 4 }}>
+                        调整搜索关键词或筛选条件后重试
+                      </div>
+                    </div>
+                  )}
+              </div>
+
+              {/* 学生详情：右侧滑出 Sheet（替代原「320px 侧栏 + 详情」分栏） */}
+              <Sheet open={!!picked} onOpenChange={(open) => { if (!open) setPicked(null); }}>
+                {picked && (() => {
+                  const alias = connections[picked.id]?.mentor_alias || '';
+                  const { consultant, cleanName } = parseConsultant(alias);
+                  const consultantTone = consultantColor(consultant);
+                  const title = cleanName || alias || picked.full_name || '学生';
+                  return (
+                  <SheetContent onClose={() => setPicked(null)}>
+                    <SheetHeader>
+                      <div className="mentor-sheet-eyebrow">学习数据</div>
+                      {editingAliasId === picked.id ? (
+                        <div className="mentor-sheet-alias-edit">
+                          <input
+                            type="text"
+                            placeholder="姓名(顾问)，如 Cathryn(Angela)"
+                            value={editingAliasValue}
+                            onChange={(e) => setEditingAliasValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(picked.id, editingAliasValue); }
+                              if (e.key === 'Escape') {
+                                e.stopPropagation();
+                                setEditingAliasId(null);
+                                setEditingAliasValue('');
+                              }
+                            }}
+                            autoFocus
+                            className="mentor-alias-input"
+                          />
+                          <Button
+                            size="sm" variant="ghost"
+                            onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
+                          >取消</Button>
+                          <Button
+                            size="sm"
+                            onClick={() => saveStudentAlias(picked.id, editingAliasValue)}
+                          >保存</Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mentor-sheet-title-row">
+                            <h2 className="mentor-sheet-title">{title}</h2>
+                            {alias && <span className="mentor-student-card__tag">备注</span>}
+                            {consultant && (
+                              <Badge
+                                variant="outline"
+                                className="mentor-sheet-consultant"
+                                style={{ borderColor: `${consultantTone}40`, color: consultantTone }}
+                              >
+                                <span className="mentor-chip-dot" style={{ background: consultantTone }} />
+                                {consultant}
+                              </Badge>
+                            )}
+                            <Button
+                              size="sm" variant="outline"
+                              onClick={() => {
+                                setEditingAliasId(picked.id);
+                                setEditingAliasValue(alias);
+                              }}
+                            >{alias ? '改备注' : '备注名'}</Button>
+                          </div>
+                          {alias && picked.full_name && (
+                            <div className="mentor-sheet-sub">本名：{picked.full_name}</div>
+                          )}
+                        </>
+                      )}
+                    </SheetHeader>
+                    <div className="mentor-sheet-body">
+                      {busy ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 40 }}>
+                          <Skeleton height={20} width="40%" />
+                          <Skeleton height={16} width="60%" />
+                          <Skeleton height={16} width="40%" />
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mentor-sheet-stats">
+                            {[
+                              { label: '学习记录', value: sessions.length, suffix: '条' },
+                              { label: '累计时长', value: fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0)), suffix: '' },
+                              { label: '活跃天数', value: new Set(sessions.map(s => s.date?.split('T')[0])).size, suffix: '天' },
+                            ].map((stat) => (
+                              <div key={stat.label} className="mentor-sheet-stat">
+                                <div className="mentor-sheet-stat__value">{stat.value}{stat.suffix}</div>
+                                <div className="mentor-sheet-stat__label">{stat.label}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {sessions.length > 0 ? (
+                            <>
+                              <div className="mentor-sheet-note">
+                                <div className="mentor-sheet-note__title">详细周度复盘请前往「数据分析」页</div>
+                                <div className="mentor-sheet-note__sub">当前在学生管理页仅显示简要摘要</div>
+                              </div>
+
+                              <div className="mentor-sheet-section-label">最新提交（按提交时间，含补填）</div>
+                              <div className="mentor-sheet-list">
+                                {recentSubmitted.slice(0, 8).map((s, i) => {
+                                  const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
+                                  return (
+                                    <div key={i} className="mentor-sheet-row">
+                                      <span className="mentor-sheet-row__subject">{s.subject}</span>
+                                      <span className="mentor-sheet-row__date">{s.date}</span>
+                                      {isBackfill && <span className="mentor-sheet-row__backfill">补填</span>}
+                                      <span className="mentor-sheet-row__dur">{fmtMinutes(s.duration_minutes || 0)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="mentor-sheet-actions">
+                                <Button
+                                  className="mentor-sheet-action"
+                                  onClick={() => setActiveView('analytics')}
+                                >前往数据分析</Button>
+                                <Button
+                                  variant="outline"
+                                  className="mentor-sheet-action"
+                                  onClick={() => setActiveView('syllabus')}
+                                >前往课表</Button>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mentor-sheet-empty">该学生暂无学习记录</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </SheetContent>
+                  );
+                })()}
+              </Sheet>
+                  </motion.div>
           )}
 
           {activeView === 'analytics' && (
@@ -1948,6 +1731,11 @@ export default function Mentor() {
                 <span className="m-class-stat-value">{fmtMinutes(classStats.avgDailyMinutes || 0)}</span>
                 <span className="m-class-stat-label">日均时长</span>
               </div>
+              <div className="m-class-stat-divider" />
+              <div className="m-class-stat-item">
+                <span className="m-class-stat-value">{classStats.inactiveCount || 0}</span>
+                <span className="m-class-stat-label">未填写</span>
+              </div>
             </section>
           )}
 
@@ -2001,10 +1789,19 @@ export default function Mentor() {
           </section>
 
           <div className="m-student-list">
-            {filteredStudents.map((s) => {
-              const conn = connections[s.id];
-              const status = conn?.status ?? -1;
-              return (
+            {consultantGroups.map((group) => (
+              <div className="m-consultant-group" key={consultantKey(group.consultant)}>
+                {showConsultantHeadings && (
+                  <div className="m-consultant-heading">
+                    <span className="m-consultant-dot" style={{ background: consultantColor(group.consultant) }} />
+                    <span className="m-consultant-name">{group.consultant || '未分配'}</span>
+                    <span className="m-consultant-count">{group.students.length}</span>
+                  </div>
+                )}
+                {group.students.map((s) => {
+                  const conn = connections[s.id];
+                  const status = conn?.status ?? -1;
+                  return (
                 <motion.div
                   key={s.id}
                   className="glass m-student-card"
@@ -2021,6 +1818,12 @@ export default function Mentor() {
                       <div className="m-student-card__meta">
                         {s.school_name || '未设置学校'} · {s.created_at ? toLocalDateStr(new Date(s.created_at)) : ''}
                       </div>
+                      {classStats.inactiveByStudent?.[s.id] && (
+                        <div className="m-inactive">
+                          <span className="m-inactive-dot" />
+                          {formatInactivity(classStats.inactiveByStudent[s.id])}
+                        </div>
+                      )}
                     </div>
                     <span className={`m-status-pill m-status-pill--${status === 1 ? 'connected' : status === 0 ? 'invited' : status === 2 ? 'rejected' : 'uninvited'}`}>
                       {status === 1 ? '已连接' : status === 0 ? '邀请中' : status === 2 ? '已拒绝' : '未邀请'}
@@ -2141,8 +1944,10 @@ export default function Mentor() {
                     </div>
                   )}
                 </motion.div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            ))}
             {filteredStudents.length === 0 && (
               <div className="m-empty-state">
                 <div className="m-empty-state__text">暂无学生</div>
@@ -2305,7 +2110,7 @@ export default function Mentor() {
                               style={{
                                 width: '100%', padding: '10px',
                                 borderRadius: 8, border: 'none',
-                                background: '#6366f1', color: 'white',
+                                background: 'var(--mentor-color-primary)', color: '#fff',
                                 fontSize: 13, fontWeight: 600, cursor: 'pointer',
                               }}
                             >

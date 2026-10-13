@@ -47,25 +47,13 @@ function dayCard(date) {
 }
 
 describe('导师端周复盘 · 补填记录可见性', () => {
-  test('默认时段（近4周）直接覆盖 20 天前的补填记录，无任何提示条', () => {
+  test('默认「本周」：本周记录可见；时段外记录由横幅+常驻提示兜底', () => {
     render(<WeekReviewDashboard sessions={sessions} student={{ full_name: '今晚不能熬夜' }} />);
 
-    // 默认视图不再出现任何「时段外」提示
-    expect(screen.queryByText(/近 7 天新提交/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/所选时段之外还有/)).not.toBeInTheDocument();
+    // 本周记录直接可见
+    expect(dayCard(new Date())).toBeTruthy();
 
-    // 20 天前的记录所在周已渲染，可点开看到备注原文
-    fireEvent.click(dayCard(old20));
-    const panel = within(screen.getByRole('region', { name: '当日学习明细' }));
-    expect(panel.getByText(OLD_NOTE)).toBeInTheDocument();
-  });
-
-  test('切到「本周」：琥珀横幅覆盖近7天补填，灰色提示覆盖更早记录', () => {
-    render(<WeekReviewDashboard sessions={sessions} student={{ full_name: '今晚不能熬夜' }} />);
-
-    fireEvent.click(screen.getByRole('button', { name: '本周' }));
-
-    // 琥珀色横幅：今天补填的上周三记录（近7天提交、日期在本周之外）
+    // 琥珀横幅：今天补填的上周三记录（近7天提交、日期在本周之外）
     const amber = screen.getByText(/近 7 天新提交\/补填了/);
     expect(amber.querySelector('strong')).toHaveTextContent('1');
 
@@ -74,10 +62,22 @@ describe('导师端周复盘 · 补填记录可见性', () => {
     expect(grey.querySelector('strong')).toHaveTextContent('1');
   });
 
+  test('切到「近4周」：20 天前的补填记录直接可见，提示条消失', () => {
+    render(<WeekReviewDashboard sessions={sessions} student={{ full_name: '今晚不能熬夜' }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '近4周' }));
+
+    expect(screen.queryByText(/近 7 天新提交/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/所选时段之外还有/)).not.toBeInTheDocument();
+
+    fireEvent.click(dayCard(old20));
+    const panel = within(screen.getByRole('region', { name: '当日学习明细' }));
+    expect(panel.getByText(OLD_NOTE)).toBeInTheDocument();
+  });
+
   test('「查看全部记录」把时段扩到全历史：提示条消失，旧记录可见', () => {
     render(<WeekReviewDashboard sessions={sessions} student={{ full_name: '今晚不能熬夜' }} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '本周' }));
     fireEvent.click(screen.getByRole('button', { name: '查看全部记录' }));
 
     expect(screen.queryByText(/近 7 天新提交/)).not.toBeInTheDocument();

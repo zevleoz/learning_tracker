@@ -69,8 +69,8 @@ function shiftRange(range, direction) {
 
 // ── 主组件 ───────────────────────────────────────────
 export default function WeekReviewDashboard({ sessions = [], student }) {
-  // 默认「近4周」：学生补填旧日期记录是常态，默认只显示本周会把补填记录藏掉
-  const [presetId, setPresetId] = useState('4weeks');
+  // 默认「本周」；补填/旧记录由下方琥珀横幅 + 常驻「时段外记录」提示条兜底，不会被无声藏掉
+  const [presetId, setPresetId] = useState('thisWeek');
   const [customRange, setCustomRange] = useState(null);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [customStart, setCustomStart] = useState('');

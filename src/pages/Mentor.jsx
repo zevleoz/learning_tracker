@@ -216,10 +216,16 @@ export default function Mentor() {
             map[s.id] = { student_id: s.id, status: 1, note: 'auto-admin' };
           }
         } else {
-          // 插入失败时退回虚拟连接，保证前端仍可显示
+          // 插入失败时退回虚拟连接，保证前端仍可显示学生列表。
+          // 注意：虚拟连接不满足 learning_sessions 的 RLS（需要真实 status=1 连接行），
+          // 这些学生的记录会读不到——必须显式告警，不能静默。
           for (const s of needConnect) {
             map[s.id] = { student_id: s.id, status: 1, note: 'admin', virtual: true };
           }
+          setDeployCheck({
+            ok: false,
+            message: `自动建立师生连接失败（${insErr.message}）。${needConnect.length} 名学生仍显示在列表中，但他们的学习记录暂时读不到。请刷新重试；若持续出现，需检查 teacher_student_connections 的写入策略。`,
+          });
         }
       }
     }

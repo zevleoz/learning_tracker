@@ -1,4 +1,33 @@
-import { extractPrepMeetingDate, prepMeetingPatch, extractNextReviewDate } from '../src/lib/e4MeetingSync.js';
+import { extractPrepMeetingDate, prepMeetingPatch, extractNextReviewDate, extractNextReviewRange } from '../src/lib/e4MeetingSync.js';
+
+describe('extractNextReviewRange（范围值拆起始日 + 结束日）', () => {
+  it('first 报告完整范围返回 start + end', () => {
+    expect(extractNextReviewRange('first', { section07: { nextReviewDate: '2026-11-01~2026-11-30' } }))
+      .toEqual({ start: '2026-11-01', end: '2026-11-30' });
+  });
+
+  it('first 报告单日值 end 为 null', () => {
+    expect(extractNextReviewRange('first', { section07: { nextReviewDate: '2026-11-01' } }))
+      .toEqual({ start: '2026-11-01', end: null });
+  });
+
+  it('仅起点（尾部波浪线）end 为 null', () => {
+    expect(extractNextReviewRange('first', { section07: { nextReviewDate: '2026-11-01~' } }))
+      .toEqual({ start: '2026-11-01', end: null });
+  });
+
+  it('progress 报告读 p8.reviewDate（单日）', () => {
+    expect(extractNextReviewRange('progress', { p8: { reviewDate: '2026-12-15' } }))
+      .toEqual({ start: '2026-12-15', end: null });
+  });
+
+  it('缺失或非法值返回 null', () => {
+    expect(extractNextReviewRange('progress', {})).toBeNull();
+    expect(extractNextReviewRange('progress', null)).toBeNull();
+    expect(extractNextReviewRange('first', { section07: { nextReviewDate: '待定' } })).toBeNull();
+    expect(extractNextReviewRange('first', { section07: { nextReviewDate: '' } })).toBeNull();
+  });
+});
 
 describe('extractNextReviewDate（BUG-2：按报告类型取字段）', () => {
   it('first 报告读 section07.nextReviewDate', () => {
@@ -41,9 +70,9 @@ describe('extractPrepMeetingDate', () => {
 describe('prepMeetingPatch', () => {
   const firstStudent = { next_meeting_date: null, next_meeting_type: 'first' };
 
-  it('填入日期后写入 next_meeting_date，保持 first 类型', () => {
+  it('填入日期后写入 next_meeting_date，保持 first 类型，并清空范围结束日', () => {
     expect(prepMeetingPatch({ prepCover: { meetingDate: '2026-10-05' } }, firstStudent))
-      .toEqual({ next_meeting_date: '2026-10-05', next_meeting_type: 'first' });
+      .toEqual({ next_meeting_date: '2026-10-05', next_meeting_end_date: null, next_meeting_type: 'first' });
   });
 
   it('日期与档案一致时无需更新', () => {
@@ -54,7 +83,7 @@ describe('prepMeetingPatch', () => {
   it('日期被清空时回归待安排', () => {
     const s = { next_meeting_date: '2026-10-05', next_meeting_type: 'first' };
     expect(prepMeetingPatch({ prepCover: { meetingDate: '' } }, s))
-      .toEqual({ next_meeting_date: null, next_meeting_type: 'first' });
+      .toEqual({ next_meeting_date: null, next_meeting_end_date: null, next_meeting_type: 'first' });
   });
 
   it('progress 阶段的学生不被会前日期覆盖', () => {

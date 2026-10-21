@@ -5,9 +5,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { paginateUnits } from '../../lib/e4Pagination.js';
 
-// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 297mm − 上 16mm − 下 14mm
+// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 279mm − 上 16mm − 下 14mm = 249mm
+// 279mm 为 A4(297) 与 Letter(279.4) 的纸型交集：两种纸下都不溢出，不再连锁出空白页。
 const INNER_WIDTH_MM = 178;
-const INNER_HEIGHT_MM = 267;
+const INNER_HEIGHT_MM = 249;
 const SAFETY_MM = 6; // 安全余量：吸收 offsetTop/offsetHeight 取整与打印缩放误差
 
 function UnitView({ unit, slice }) {

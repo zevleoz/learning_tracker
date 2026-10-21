@@ -59,12 +59,13 @@ export default function FirstReportPrint({
   const studentLine = `${studentName} · ${report.report_date || cover.y4Date || ''}`;
 
   // 可编辑区域的统一出口。editable=false 时输出与原静态节点一致的文本。
-  const EF = ({ d, type = 'text', val, disp, ctx }) => {
+  const EF = ({ d, type = 'text', range = false, val, disp, ctx }) => {
     if (!editable) return <>{disp ?? cellText(val)}</>;
     return (
       <DocField
         editable
         type={type}
+        range={range}
         value={val == null ? '' : String(val)}
         display={disp}
         onCommit={(v) => onPatch?.(d, v)}

@@ -1,6 +1,6 @@
 // E4 平台数据访问层（Supabase）。RLS 已限定仅导师/管理员可读写。
 import { supabase, timeoutSignal } from './supabase.js';
-import { prepMeetingPatch, extractNextReviewDate } from './e4MeetingSync.js';
+import { prepMeetingPatch, extractNextReviewRange } from './e4MeetingSync.js';
 
 export class E4StoreError extends Error {}
 
@@ -105,15 +105,21 @@ export async function setE4StudentArchived(id, archived = true) {
 
 // 报告保存后把「下次复盘时间」同步到学生档案，供待办事项使用。
 // 字段按报告类型分派（first 在 section07、progress 在 p8，见 e4MeetingSync）。
-// 数据库补丁（schema.patch-e4-next-meeting.sql）未执行时静默降级，不影响报告保存。
+// 首次报告的范围值：起始日写入 next_meeting_date（分桶/排序语义不变），
+// 结束日写入 next_meeting_end_date（单日 / 进程报告为 null）。
+// 数据库补丁（migrations/009）未执行时静默降级，不影响报告保存。
 async function syncNextMeetingFromForm(e4StudentId, reportType, formData) {
   if (!e4StudentId) return;
-  const date = extractNextReviewDate(reportType, formData);
-  if (!date) return;
+  const range = extractNextReviewRange(reportType, formData);
+  if (!range) return;
   try {
     await supabase
       .from('e4_students')
-      .update({ next_meeting_date: date, next_meeting_type: 'progress' })
+      .update({
+        next_meeting_date: range.start,
+        next_meeting_end_date: range.end,
+        next_meeting_type: 'progress',
+      })
       .eq('id', e4StudentId);
   } catch {}
 }
@@ -226,19 +232,27 @@ export async function deleteReport(id) {
 
 // ---- 待办事项（upcoming 会议）----
 
+// 待办查询：009 迁移未执行（无 next_meeting_end_date 列）时退化为不含结束日的查询，
+// 结束日视为 null，其余逻辑不变 —— 避免迁移执行前整个待办页读取失败。
+async function fetchTodoStudents() {
+  const base = 'id, display_name, grade, school, next_meeting_date, next_meeting_type';
+  const query = (cols) => supabase
+    .from('e4_students')
+    .select(cols)
+    .order('created_at', { ascending: false })
+    .limit(500)
+    .abortSignal(timeoutSignal(30000));
+  let res = await query(`${base}, next_meeting_end_date`);
+  if (res.error) res = await query(base);
+  if (res.error) throw new E4StoreError(`读取待办学生失败：${res.error.message}`);
+  return res.data;
+}
+
 // 返回每位学生的下次会议信息 + 已触达次数（first/progress 报告数）+
 // 跳转目标（最新会前准备 / 最新报告），按会议日期升序，未安排日期的排在最后。
 export async function listUpcomingMeetings() {
   const [students, reports] = await Promise.all([
-    unwartch(
-      supabase
-        .from('e4_students')
-        .select('id, display_name, grade, school, next_meeting_date, next_meeting_type')
-        .order('created_at', { ascending: false })
-        .limit(500)
-        .abortSignal(timeoutSignal(30000)),
-      '读取待办学生'
-    ),
+    fetchTodoStudents(),
     unwartch(
       supabase
         .from('e4_reports')

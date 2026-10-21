@@ -690,13 +690,6 @@ export default function Mentor() {
     }
   }
 
-  const stats = useMemo(() => {
-    const invited = Object.values(connections).filter((c) => c.status === 0).length;
-    const connected = Object.values(connections).filter((c) => c.status === 1).length;
-    const rejected = Object.values(connections).filter((c) => c.status === 2).length;
-    return { total: students.length, invited, connected, rejected };
-  }, [students, connections]);
-
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       const name = s.full_name || '';
@@ -751,15 +744,6 @@ export default function Mentor() {
     });
   };
 
-  const overviewItems = useMemo(() => ([
-    { label: '学生总数', value: String(stats.total) },
-    { label: '顾问', value: String(consultantCount) },
-    { label: '已连接', value: String(stats.connected) },
-    { label: '本周活跃', value: String(classStats.activeStudents || 0) },
-    { label: '本周日均', value: fmtMinutes(classStats.avgDailyMinutes || 0) },
-    { label: '未填写', value: String(classStats.inactiveCount || 0) },
-  ]), [stats, consultantCount, classStats]);
-
   if (!user) {
     return (
       <div className="mentor-page" style={{ padding: 40, fontSize: 14, color: '#475569' }}>
@@ -802,21 +786,6 @@ export default function Mentor() {
                   <h1 className="mentor-page-title">学生管理</h1>
                   <p className="mentor-page-subtitle">管理你的学生连接和查看学习数据</p>
                 </div>
-              </motion.div>
-
-              {/* 概览条：复用 stats / classStats，零新增请求 */}
-              <motion.div
-                className="mentor-overview-bar"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05, duration: 0.3 }}
-              >
-                {overviewItems.map((item) => (
-                  <div key={item.label} className="mentor-overview-block">
-                    <div className="mentor-overview-value">{item.value}</div>
-                    <div className="mentor-overview-label">{item.label}</div>
-                  </div>
-                ))}
               </motion.div>
 
               {/* 工具栏：搜索 + 学校/状态筛选 + 顾问筛选 chip */}
@@ -1694,49 +1663,6 @@ export default function Mentor() {
               <div style={{ fontSize: 14, fontWeight: 700, color: '#7f1d1d' }}>邀请系统未就绪</div>
               <div style={{ marginTop: 4, fontSize: 12, color: '#991b1b' }}>{deployCheck.message}</div>
             </motion.div>
-          )}
-
-          <section className="glass m-mentor-stats-grid">
-            <div className="m-mentor-stat-card">
-              <div className="m-mentor-stat-value" style={{ color: '#64748b' }}>{stats.total}</div>
-              <div className="m-mentor-stat-label">学生总数</div>
-            </div>
-            <div className="m-mentor-stat-card">
-              <div className="m-mentor-stat-value" style={{ color: '#171717' }}>{stats.connected}</div>
-              <div className="m-mentor-stat-label">已连接</div>
-            </div>
-            <div className="m-mentor-stat-card">
-              <div className="m-mentor-stat-value" style={{ color: '#8E8E93' }}>{stats.invited}</div>
-              <div className="m-mentor-stat-label">邀请中</div>
-            </div>
-            <div className="m-mentor-stat-card">
-              <div className="m-mentor-stat-value" style={{ color: '#B91C1C' }}>{stats.rejected}</div>
-              <div className="m-mentor-stat-label">被拒绝</div>
-            </div>
-          </section>
-
-          {classStats.totalStudents > 0 && (
-            <section className="glass m-mentor-class-stats">
-              <div className="m-class-stat-item">
-                <span className="m-class-stat-value">{classStats.totalStudents}</span>
-                <span className="m-class-stat-label">已连接学生</span>
-              </div>
-              <div className="m-class-stat-divider" />
-              <div className="m-class-stat-item">
-                <span className="m-class-stat-value">{classStats.activeStudents || 0}</span>
-                <span className="m-class-stat-label">本周活跃</span>
-              </div>
-              <div className="m-class-stat-divider" />
-              <div className="m-class-stat-item">
-                <span className="m-class-stat-value">{fmtMinutes(classStats.avgDailyMinutes || 0)}</span>
-                <span className="m-class-stat-label">日均时长</span>
-              </div>
-              <div className="m-class-stat-divider" />
-              <div className="m-class-stat-item">
-                <span className="m-class-stat-value">{classStats.inactiveCount || 0}</span>
-                <span className="m-class-stat-label">未填写</span>
-              </div>
-            </section>
           )}
 
           <section className="m-filter-bar">

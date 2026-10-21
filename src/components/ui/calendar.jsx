@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button.jsx';
 
 // shadcn Calendar，基于 react-day-picker v9；支持 mode="single" / "range"
-function Calendar({ className, classNames, showOutsideDays = true, ...props }) {
+// components 可与默认 Chevron 合并透传（调用点可覆盖 DayButton 等，实现拖动选范围）
+function Calendar({ className, classNames, showOutsideDays = true, components, ...props }) {
   return (
     <DayPicker
       locale={zhCN}
@@ -35,6 +36,7 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }) {
           buttonVariants({ variant: 'ghost' }),
           'h-8 w-8 p-0 font-normal aria-selected:opacity-100'
         ),
+        range_start: 'day-range-start',
         range_end: 'day-range-end',
         selected:
           '[&>button]:bg-primary [&>button]:text-primary-foreground [&>button:hover]:bg-primary [&>button:hover]:text-primary-foreground [&>button:focus]:bg-primary [&>button:focus]:text-primary-foreground',
@@ -42,13 +44,15 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }) {
         outside:
           'day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',
         disabled: 'text-muted-foreground opacity-50',
-        range_middle: 'aria-selected:bg-accent aria-selected:text-accent-foreground',
+        // 区间中段：单元格画灰色带、按钮透明（拖选/预览时可见连续灰带）
+        range_middle: 'day-range-middle',
         hidden: 'invisible',
         ...classNames,
       }}
       components={{
         Chevron: ({ orientation }) =>
           orientation === 'left' ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />,
+        ...components,
       }}
       {...props}
     />

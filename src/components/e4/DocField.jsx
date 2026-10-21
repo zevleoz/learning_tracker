@@ -4,8 +4,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
-import DatePicker from '../ui/date-picker.jsx';
+import DatePicker, { parseRangeValue } from '../ui/date-picker.jsx';
 import { JUDGMENT_STATES } from '../../lib/e4ReportTemplate.js';
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// 编辑态日期触发器的显示：范围用 from ~ to，单日期用格式化值；
+// 任何无法解析的值（含范围串误入单日期分支）一律回落到 placeholder，不抛异常。
+function dateTriggerLabel(value, range) {
+  const placeholder = <span className="e4-doc-field-placeholder">选择日期</span>;
+  if (!value) return placeholder;
+  if (range) {
+    const rv = parseRangeValue(String(value));
+    if (!rv) return placeholder;
+    const from = format(rv.from, 'yyyy年MM月dd日');
+    return rv.to ? `${from} ~ ${format(rv.to, 'yyyy年MM月dd日')}` : from;
+  }
+  if (!DATE_RE.test(String(value))) return placeholder;
+  const d = parseISO(String(value));
+  return isValid(d) ? format(d, 'yyyy年MM月dd日') : placeholder;
+}
 
 const JUDGMENT_DOT = {
   已确认问题: '#C4535A',
@@ -51,6 +69,7 @@ function AutoGrow({ as: Tag = 'textarea', value, onCommit, onCancel, multiline, 
 export default function DocField({
   editable = false,
   type = 'text', // text | long | judgment | date
+  range = false, // 仅 date：true 时使用日期范围控件，值协议 'yyyy-MM-dd~yyyy-MM-dd'
   value = '',
   display, // 只读态/静态态展示文本（不传则用 value）
   placeholder = '—',
@@ -135,8 +154,9 @@ export default function DocField({
         type === 'date' ? (
           <DatePicker
             value={draft || ''}
+            range={range}
             defaultOpen
-            clearable
+            allowClear
             boundary={document.body}
             placeholder="选择日期"
             onChange={(v) => commit(v)}
@@ -144,11 +164,7 @@ export default function DocField({
             trigger={
               <button type="button" className="e4-doc-field-edit e4-doc-date-trigger">
                 <CalendarIcon className="e4-doc-date-icon" />
-                {draft && isValid(parseISO(draft)) ? (
-                  format(parseISO(draft), 'yyyy年MM月dd日')
-                ) : (
-                  <span className="e4-doc-field-placeholder">选择日期</span>
-                )}
+                {dateTriggerLabel(draft, range)}
               </button>
             }
           />

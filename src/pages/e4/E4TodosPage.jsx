@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CalendarDays, CalendarClock, ChevronRight } from 'lucide-react';
 import { listUpcomingMeetings, updateE4Student } from '../../lib/e4Store.js';
+import { daysUntil, GROUPS } from '../../lib/e4Todos.js';
 import { toast } from '../../lib/toast.js';
 import { Card, CardContent } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
@@ -10,44 +11,51 @@ import { Button } from '@/components/ui/button.jsx';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx';
 import { DatePicker } from '@/components/ui/date-picker.jsx';
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 function formatDate(iso) {
   if (!iso) return '待安排';
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
 }
 
-function daysUntil(iso) {
-  if (!iso) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+// 范围结束日省略 weekday，控制卡片宽度
+function formatEnd(iso) {
+  if (!iso) return '';
   const d = new Date(`${iso}T00:00:00`);
-  return Math.round((d - today) / 86400000);
+  return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 }
 
-const GROUPS = [
-  { key: 'overdue', title: '已过期', match: (d) => d !== null && d < 0 },
-  { key: 'today', title: '今天', match: (d) => d === 0 },
-  { key: 'week', title: '未来 7 天', match: (d) => d > 0 && d <= 7 },
-  { key: 'later', title: '之后', match: (d) => d > 7 },
-  { key: 'unscheduled', title: '待安排', match: (d) => d === null },
-];
+// 卡片上的会议时间：有结束日时显示「起始日 ~ 结束日」，否则仅起始日
+function formatMeetingRange(start, end) {
+  if (!start) return '待安排';
+  return end ? `${formatDate(start)} ~ ${formatEnd(end)}` : formatDate(start);
+}
 
 function ScheduleDialog({ item, onClose, onSaved }) {
   const [type, setType] = useState('first');
-  const [date, setDate] = useState('');
+  const [dateRange, setDateRange] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setType(item?.next_meeting_type === 'progress' ? 'progress' : 'first');
-    setDate(item?.next_meeting_date || '');
+    // 档案双列拼回范围串：仅起点时用 'start'（无波浪线，parseRangeValue 也能识别）
+    const start = item?.next_meeting_date || '';
+    const end = item?.next_meeting_end_date || '';
+    setDateRange(start ? (end ? `${start}~${end}` : start) : '');
   }, [item]);
 
   async function save() {
     setSaving(true);
     try {
+      // 拆成两列写回：仅起点时结束日为 null
+      const [rawStart, rawEnd] = String(dateRange || '').split('~');
+      const start = DATE_RE.test(rawStart || '') ? rawStart : null;
+      const end = DATE_RE.test(rawEnd || '') ? rawEnd : null;
       await updateE4Student(item.id, {
         next_meeting_type: type,
-        next_meeting_date: date || null,
+        next_meeting_date: start,
+        next_meeting_end_date: end,
       });
       toast('下次会议已更新', { kind: 'success' });
       onSaved();
@@ -95,11 +103,12 @@ function ScheduleDialog({ item, onClose, onSaved }) {
             </div>
           </div>
           <div>
-            <div className="mb-1.5 text-[12.5px] text-[var(--e4-ink-2)]">日期（留空 = 待安排）</div>
+            <div className="mb-1.5 text-[12.5px] text-[var(--e4-ink-2)]">日期范围</div>
             <DatePicker
-              value={date}
-              onChange={setDate}
-              placeholder="待安排"
+              range
+              value={dateRange}
+              onChange={setDateRange}
+              placeholder="选择日期范围（留空 = 待安排）"
             />
           </div>
         </div>
@@ -176,12 +185,12 @@ function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
             </div>
           </div>
 
-          <div className={`mt-auto flex items-center gap-1.5 text-[13px] ${overdue ? 'text-red-400' : 'text-[var(--e4-ink-2)]'}`}>
+          <div className="mt-auto flex items-center gap-1.5 text-[13px] text-[var(--e4-ink-2)]">
             <CalendarDays size={14} />
-            <span>{formatDate(item.next_meeting_date)}</span>
+            <span>{formatMeetingRange(item.next_meeting_date, item.next_meeting_end_date)}</span>
             {diff === 0 && <span className="font-semibold text-amber-500">· 今天</span>}
             {diff !== null && diff > 0 && <span className="text-[var(--e4-ink-3)]">· {diff} 天后</span>}
-            {overdue && <span>· 已过 {-diff} 天</span>}
+            {overdue && <span className="text-[var(--e4-ink-3)]">· 已过 {-diff} 天</span>}
           </div>
 
           {needsFirstReport && (
@@ -248,7 +257,7 @@ export default function E4TodosPage() {
       <div className="e4-page-head">
         <div>
           <h1 className="e4-page-title">待办事项</h1>
-          <p className="e4-page-subtitle">按时间顺序排列的 upcoming 会议，提醒每位学生的下一次触达</p>
+          <p className="e4-page-subtitle">按时间顺序排列的 upcoming 会议；日期已过或未定日期的归入「待安排」，记得重新排期</p>
         </div>
       </div>
 
@@ -272,7 +281,7 @@ export default function E4TodosPage() {
       {grouped.map((group) => (
         <section key={group.key} className="mb-7">
           <div className="mb-3 flex items-center gap-2">
-            <h2 className={`text-[13px] font-semibold tracking-wide ${group.key === 'overdue' ? 'text-red-400' : 'text-[var(--e4-ink-2)]'}`}>
+            <h2 className="text-[13px] font-semibold tracking-wide text-[var(--e4-ink-2)]">
               {group.title}
             </h2>
             <span className="text-[12px] text-[var(--e4-ink-3)]">{group.rows.length}</span>

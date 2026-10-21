@@ -6566,63 +6566,6 @@ textarea::placeholder { color: #9ca3af; }
   border-radius: 16px;
 }
 
-/* 统计卡片网格（2×2） */
-.m-mentor-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  padding: 12px;
-}
-.m-mentor-stat-card {
-  padding: 12px 10px;
-  border-radius: 12px;
-  text-align: center;
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(0,0,0,0.04);
-}
-.m-mentor-stat-value {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-.m-mentor-stat-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-  margin-top: 4px;
-}
-
-/* 班级统计条（已连接 / 本周活跃 / 日均时长） */
-.m-mentor-class-stats {
-  display: flex;
-  align-items: stretch;
-  padding: 14px 16px;
-  gap: 8px;
-}
-.m-class-stat-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.m-class-stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-strong);
-  font-variant-numeric: tabular-nums;
-}
-.m-class-stat-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-.m-class-stat-divider {
-  width: 1px;
-  background: linear-gradient(180deg, rgba(15,23,42,0), rgba(15,23,42,0.12), rgba(15,23,42,0));
-}
-
 /* 搜索 + 筛选栏 */
 .m-filter-bar {
   display: flex;
@@ -7189,10 +7132,7 @@ textarea::placeholder { color: #9ca3af; }
 
 /* 响应式：小屏优化 */
 @media (max-width: 380px) {
-  .m-mentor-stats-grid { gap: 8px; }
-  .m-mentor-stat-value { font-size: 18px; }
   .m-action-btn { min-width: 100%; }
-  .m-class-stat-value { font-size: 16px; }
   .m-filter-chip { padding: 6px 12px; font-size: 11px; }
 }
 
@@ -8063,7 +8003,8 @@ textarea::placeholder { color: #9ca3af; }
   position: relative;
   box-sizing: border-box;
   width: 210mm;
-  min-height: 297mm;
+  /* 纸型交集 210×279mm：A4(297) 与 Letter(279.4) 下都不溢出 */
+  min-height: 279mm;
   padding: 16mm 16mm 14mm;
   page-break-after: always;
   break-after: page;
@@ -8472,9 +8413,9 @@ textarea::placeholder { color: #9ca3af; }
   }
   .e4-print-page.e4-page-shell {
     width: 210mm !important;
-    /* 固定纸高兜底：分页预算已含 6mm 安全余量，内容不会超高；
-       即使极端情况也不让 shell 溢出产生空白页 */
-    height: 297mm !important;
+    /* 固定纸高兜底 = 纸型交集 279mm（A4/Letter 都不溢出）；分页预算已含 6mm 安全余量，
+       内容不会超高，即使极端情况也不让 shell 溢出产生空白页 */
+    height: 279mm !important;
     min-height: 0 !important;
     box-shadow: none !important;
     page-break-after: always;
@@ -13595,50 +13536,6 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
    视觉：品牌红唯一强调色 + 暖灰阶，细线分隔，直角/小圆角
    ================================================================ */
 
-/* ── 概览条 ── */
-.mentor-overview-bar {
-  display: flex;
-  align-items: stretch;
-  background: rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: saturate(140%) blur(20px);
-  backdrop-filter: saturate(140%) blur(20px);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: var(--mentor-radius-md);
-  margin-bottom: 20px;
-  overflow: hidden;
-}
-
-.mentor-overview-block {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 16px 20px;
-  border-left: 1px solid var(--mentor-color-border-light);
-}
-
-.mentor-overview-block:first-child {
-  border-left: none;
-}
-
-.mentor-overview-value {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--mentor-color-text-primary);
-  letter-spacing: var(--mentor-tracking-tight);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mentor-overview-label {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--mentor-color-text-tertiary);
-  letter-spacing: 0.02em;
-}
-
 /* ── 工具栏 ── */
 .mentor-toolbar {
   background: rgba(255, 255, 255, 0.6);
@@ -14316,12 +14213,6 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
 }
 
 @media (max-width: 900px) {
-  .mentor-overview-bar {
-    flex-wrap: wrap;
-  }
-  .mentor-overview-block {
-    flex: 1 1 33%;
-  }
   .mentor-group-grid {
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   }
@@ -14364,4 +14255,32 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   font-weight: 600;
   color: #94a3b8;
   font-variant-numeric: tabular-nums;
+}
+
+/* 日期区间：中段单元格画可见灰带（--accent 96% 太浅，故用前景色 20% 叠加），
+   中段按钮透明让灰带连续；两端按钮只切外侧圆角，与中段拼成一条带。
+   拖选预览（draft 作为 selected）与已提交范围共用这套样式。 */
+.day-range-middle {
+  background-color: hsl(var(--foreground) / 0.2);
+}
+
+.day-range-middle > button,
+.day-range-middle > button:focus-visible {
+  background-color: transparent !important;
+  color: hsl(var(--foreground)) !important;
+  border-radius: 0 !important;
+}
+
+.day-range-middle > button:hover {
+  background-color: hsl(var(--foreground) / 0.28) !important;
+  color: hsl(var(--foreground)) !important;
+  border-radius: 0 !important;
+}
+
+.day-range-start > button {
+  border-radius: 6px 0 0 6px !important;
+}
+
+.day-range-end > button {
+  border-radius: 0 6px 6px 0 !important;
 }

@@ -10,6 +10,7 @@ import {
 } from './WeekGrid.jsx';
 import { isWeekday, shortDate, toLocalDateStr } from '../lib/date.js';
 import DateRangeCalendar from './DateRangeCalendar.jsx';
+import { computeStreak } from '../lib/studentStats.js';
 
 // ── 时间预设 ──
 const TIME_PRESETS = [
@@ -37,7 +38,7 @@ function computeStats(sessions) {
       total: 0, dailyAvg: 0, activeDays: 0, spanDays: 0,
       byDate: {},
       weekdayAvg: 0, weekendAvg: 0,
-      currentStreak: 0, longestStreak: 0,
+      longestStreak: 0,
       subjectAnalysis: [], recentSessions: [],
     };
   }
@@ -73,18 +74,7 @@ function computeStats(sessions) {
   const weekdayAvg = weekdayDays > 0 ? Math.round(weekdayTotal / weekdayDays) : 0;
   const weekendAvg = weekendDays > 0 ? Math.round(weekendTotal / weekendDays) : 0;
 
-  // 连续学习
-  const dateSet = new Set(uniqueDates);
-  const todayStr = toLocalDateStr(new Date());
-  let currentStreak = 0;
-  const todayD = new Date(todayStr + 'T00:00:00');
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(todayD);
-    d.setDate(todayD.getDate() - i);
-    const dStr = toLocalDateStr(d);
-    if (dateSet.has(dStr)) currentStreak++;
-    else if (i > 0) break;
-  }
+  // 连续学习（当前连续）不在这里算：区间过滤后的数据会截断连续，见主组件 computeStreak
   let longestStreak = 0, temp = 0;
   for (let i = 0; i < uniqueDates.length; i++) {
     if (i === 0) { temp = 1; }
@@ -126,7 +116,7 @@ function computeStats(sessions) {
   return {
     total, dailyAvg, activeDays, spanDays, byDate,
     weekdayAvg, weekendAvg,
-    currentStreak, longestStreak,
+    longestStreak,
     subjectAnalysis, recentSessions,
   };
 }
@@ -217,6 +207,8 @@ export default function StudentDashboard({ sessions = [] }) {
   }, [sessions, range]);
 
   const stats = useMemo(() => computeStats(filteredSessions), [filteredSessions]);
+  // 连续学习与所选时段无关：用全部已加载记录计算（每周 2 个休息日不断连续）
+  const currentStreak = useMemo(() => computeStreak(sessions, new Date()).current, [sessions]);
   const getSubjectColor = useSubjectColors(filteredSessions);
 
   // 每日学习时长趋势数据
@@ -304,7 +296,7 @@ export default function StudentDashboard({ sessions = [] }) {
     );
   }
 
-  const streakColor = stats.currentStreak >= 7 ? '#10B981' : stats.currentStreak >= 3 ? '#EA580C' : '#64748b';
+  const streakColor = currentStreak >= 7 ? '#10B981' : currentStreak >= 3 ? '#EA580C' : '#64748b';
 
   return (
     <div style={{ paddingBottom: isMobile ? 112 : 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -322,7 +314,7 @@ export default function StudentDashboard({ sessions = [] }) {
           <StatBlock label="总时长" value={fmtMins(stats.total)} color="#0f172a" large={isDesktop} />
           <StatBlock label="日均时长" value={fmtMins(stats.dailyAvg)} color="#0f172a" large={isDesktop} />
           <StatBlock label="活跃天数" value={`${stats.activeDays}天`} color="#4F46E5" large={isDesktop} />
-          <StatBlock label="连续学习" value={`${stats.currentStreak}天`} color={streakColor} large={isDesktop} />
+          <StatBlock label="连续学习" value={`${currentStreak}天`} color={streakColor} large={isDesktop} />
         </div>
       </Card>
 

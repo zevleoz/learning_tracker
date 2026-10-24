@@ -195,3 +195,64 @@ export function applyPendingFilter(query) {
 export function pendingGradePayload(gradeLabel) {
   return { grade_label: gradeLabel, eval_type: 2 };  // 含客观
 }
+
+/* ---------- 录入默认值（只影响预填，不影响保存口径） ---------- */
+
+/** 课程按最近记录排序：最近记过的在前，其余保持原顺序。 */
+export function orderCoursesByRecent(courses, recent) {
+  const seen = [];
+  for (const r of recent || []) {
+    if (r.course_id && !seen.includes(r.course_id)) seen.push(r.course_id);
+  }
+  const byId = new Map((courses || []).map(c => [c.id, c]));
+  const head = seen.map(id => byId.get(id)).filter(Boolean);
+  const rest = (courses || []).filter(c => !seen.includes(c.id));
+  return [...head, ...rest];
+}
+
+/**
+ * 某课程默认的章节/单元：优先该课程最近一条记录的位置（且仍存在），
+ * 否则沿用改版前的行为——第一个章节 + 其第一个单元。
+ */
+export function defaultChapterUnit(course, recent) {
+  if (!course) return { chapterId: '', unitId: '' };
+  const chapters = course.chapters || [];
+  const last = (recent || []).find(r => r.course_id === course.id && r.chapter_id);
+  if (last) {
+    const ch = chapters.find(c => c.id === last.chapter_id);
+    if (ch) {
+      const un = (ch.units || []).find(u => u.id === last.unit_id);
+      return { chapterId: ch.id, unitId: un ? un.id : '' };
+    }
+  }
+  const first = chapters[0];
+  if (!first) return { chapterId: '', unitId: '' };
+  return { chapterId: first.id, unitId: first.units?.[0]?.id || '' };
+}
+
+/**
+ * 「再记一次」：从学生自己最近的记录里取不重复的 课程+类别+形式+时长 组合（新的在前）。
+ * 返回 { key, courseId, courseName, chapterId, unitId, category, form, durationMinutes }。
+ */
+export function recentCombos(recent, limit = 4) {
+  const out = [];
+  const keys = new Set();
+  for (const r of recent || []) {
+    if (!r.course_id || !r.category || !r.form || !(r.duration_minutes > 0)) continue;
+    const key = `${r.course_id}|${r.category}|${r.form}|${r.duration_minutes}`;
+    if (keys.has(key)) continue;
+    keys.add(key);
+    out.push({
+      key,
+      courseId: r.course_id,
+      courseName: r.course?.name || '',
+      chapterId: r.chapter_id || '',
+      unitId: r.unit_id || '',
+      category: r.category,
+      form: r.form,
+      durationMinutes: r.duration_minutes,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}

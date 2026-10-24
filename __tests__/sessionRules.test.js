@@ -3,6 +3,7 @@ import {
   computeDuration, shiftTime, validateSession, gradeLabelFor, evalTypeFor,
   buildSessionPayload, evalStateFromRow, shouldWarnClearGrade, CLEAR_GRADE_WARNING,
   isPendingObjective, applyPendingFilter, pendingGradePayload,
+  orderCoursesByRecent, defaultChapterUnit, recentCombos,
 } from '../src/lib/sessionRules.js';
 import { SUBJECTIVE_STEPS } from '../src/lib/rating.js';
 
@@ -228,5 +229,33 @@ describe('sessionRules · 其他', () => {
   });
   test('形式预设不变', () => {
     expect(FORM_PRESET_BY_CATEGORY[3]).toEqual(['自主练习', '校外线上', '校外线下', '课外作业', '学校作业']);
+  });
+});
+
+describe('sessionRules · 录入默认值', () => {
+  const courses = [
+    { id: 'a', name: 'A', chapters: [{ id: 'a1', units: [{ id: 'a1u1' }, { id: 'a1u2' }] }, { id: 'a2', units: [] }] },
+    { id: 'b', name: 'B', chapters: [] },
+    { id: 'c', name: 'C' },
+  ];
+  test('orderCoursesByRecent', () => {
+    const recent = [{ course_id: 'c' }, { course_id: 'a' }, { course_id: 'c' }, { course_id: 'gone' }];
+    expect(orderCoursesByRecent(courses, recent).map(c => c.id)).toEqual(['c', 'a', 'b']);
+    expect(orderCoursesByRecent(courses, []).map(c => c.id)).toEqual(['a', 'b', 'c']);
+  });
+  test('defaultChapterUnit', () => {
+    expect(defaultChapterUnit(courses[0], [])).toEqual({ chapterId: 'a1', unitId: 'a1u1' });
+    expect(defaultChapterUnit(courses[0], [{ course_id: 'a', chapter_id: 'a1', unit_id: 'a1u2' }])).toEqual({ chapterId: 'a1', unitId: 'a1u2' });
+    expect(defaultChapterUnit(courses[0], [{ course_id: 'a', chapter_id: 'a2', unit_id: null }])).toEqual({ chapterId: 'a2', unitId: '' });
+    expect(defaultChapterUnit(courses[0], [{ course_id: 'a', chapter_id: 'deleted' }])).toEqual({ chapterId: 'a1', unitId: 'a1u1' });
+    expect(defaultChapterUnit(courses[1], [])).toEqual({ chapterId: '', unitId: '' });
+    expect(defaultChapterUnit(undefined, [])).toEqual({ chapterId: '', unitId: '' });
+  });
+  test('recentCombos 去重、跳过不完整、限量', () => {
+    const r = (o) => ({ course_id: 'a', category: 3, form: '自主练习', duration_minutes: 45, course: { name: 'A' }, ...o });
+    const recent = [r({}), r({}), r({ duration_minutes: 60 }), r({ form: null }), r({ course_id: 'b', category: 1, form: '自主预习' }), r({ duration_minutes: 0 }), r({ duration_minutes: 90 })];
+    const out = recentCombos(recent, 3);
+    expect(out.map(x => x.key)).toEqual(['a|3|自主练习|45', 'a|3|自主练习|60', 'b|1|自主预习|45']);
+    expect(out[0]).toMatchObject({ courseId: 'a', courseName: 'A', category: 3, form: '自主练习', durationMinutes: 45 });
   });
 });

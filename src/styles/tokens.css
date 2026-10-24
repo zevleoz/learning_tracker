@@ -1,0 +1,82 @@
+/* ================================================================
+   学生端改版 · 设计令牌（--yb- 前缀，避免与既有变量冲突）
+   - 浅色值定义在 :root，任何页面可用 var(--yb-xxx, 回退值) 引用。
+   - 深色值只作用于学生外壳（Layout 在学生路由挂的 .yb-student 根类），
+     且仅在 prefers-color-scheme: dark 下生效。
+     第二个选择器 body:has(.yb-student) 让挂在 body 下的 portal（sheet / 弹窗）一并取到深色值；
+     离开学生端后 .yb-student 卸载，变量随之失效。
+   - 严禁给 <html> 加全局 .dark（会污染导师台 / E4），见 index.css 顶部说明。
+   ================================================================ */
+:root {
+  --yb-bg: #F2F3F5;
+  --yb-surface: #FFFFFF;
+  --yb-sunken: #E8EAEE;
+  --yb-line: #DADDE3;
+  --yb-ink: #14161B;
+  --yb-ink-2: #434852;
+  --yb-ink-3: #5F6570;
+
+  --yb-crest: #A3202A;        /* 填充色 */
+  --yb-crest-text: #A3202A;   /* 文字色（深色下提亮） */
+  --yb-crest-ink: #FFFFFF;    /* 压在 crest 填充上的文字 */
+  --yb-crest-soft: #F6E5E6;
+
+  --yb-brass: #7A5A14;        /* 文字 */
+  --yb-brass-fill: #C9A54B;
+  --yb-brass-soft: #F3EBD7;
+
+  --yb-good: #2C7549;
+  --yb-warn: #8A4F05;
+  --yb-study: #2D5BD7;
+  --yb-review: #7A4FD0;
+  --yb-practice: #12857A;
+
+  /* Liquid Glass（仅用于导航层：tab bar / ＋ / sheet / 工具栏按钮） */
+  --yb-glass: rgba(255, 255, 255, .56);
+  --yb-glass-strong: rgba(250, 250, 252, .8);
+  --yb-glass-edge: rgba(255, 255, 255, .72);
+  --yb-glass-hi: rgba(255, 255, 255, .95);   /* 上沿高光 */
+  --yb-glass-shade: rgba(20, 22, 27, .12);   /* 下沿 / 投影 */
+  --yb-glass-sel: rgba(20, 22, 27, .07);     /* 选中态底 */
+  --yb-glass-tint: rgba(163, 32, 42, .86);   /* ＋ 按钮的品牌色玻璃 */
+  --yb-scrim: rgba(20, 22, 27, .42);
+
+  --yb-radius-card: 18px;
+  --yb-font: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .yb-student,
+  body:has(.yb-student) {
+    --yb-bg: #0E0F12;
+    --yb-surface: #17191E;
+    --yb-sunken: #21242B;
+    --yb-line: #2B2F37;
+    --yb-ink: #ECEDEF;
+    --yb-ink-2: #BCC0C7;
+    --yb-ink-3: #959BA5;
+
+    --yb-crest: #C2353C;
+    --yb-crest-text: #F08489;
+    --yb-crest-soft: #33191B;
+
+    --yb-brass: #DDBB66;
+    --yb-brass-fill: #B8923A;
+    --yb-brass-soft: #2B2515;
+
+    --yb-good: #74C798;
+    --yb-warn: #E6AA52;
+    --yb-study: #7FA0F2;
+    --yb-review: #AE91EC;
+    --yb-practice: #4CC4B3;
+
+    --yb-glass: rgba(44, 47, 54, .55);
+    --yb-glass-strong: rgba(34, 36, 42, .82);
+    --yb-glass-edge: rgba(255, 255, 255, .14);
+    --yb-glass-hi: rgba(255, 255, 255, .2);
+    --yb-glass-shade: rgba(0, 0, 0, .45);
+    --yb-glass-sel: rgba(255, 255, 255, .12);
+    --yb-glass-tint: rgba(194, 53, 60, .88);
+    --yb-scrim: rgba(0, 0, 0, .55);
+  }
+}

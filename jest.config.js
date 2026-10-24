@@ -5,10 +5,13 @@ export default {
   },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    // identity-obj-proxy 并未安装，改用已有的空桩，否则任何 import '*.css' 的组件都无法被测试
+    '\\.(css|less|scss|sass)$': '<rootDir>/src/__mocks__/fileMock.js',
     '\\.(png|jpg|jpeg|gif|svg)$': '<rootDir>/src/__mocks__/fileMock.js',
     '^../lib/supabase$': '<rootDir>/src/__mocks__/supabase.js',
     '^../lib/supabase.js$': '<rootDir>/src/__mocks__/supabase.js',
+    // src/components/<dir>/ 下的组件
+    '^../../lib/supabase(\\.js)?$': '<rootDir>/src/__mocks__/supabase.js',
     '^../lib/useAuth$': '<rootDir>/src/__mocks__/useAuth.js',
     '^../lib/useAuth.js$': '<rootDir>/src/__mocks__/useAuth.js',
     // src/lib 内部文件互相引用时写的是 ./supabase / ./useAuth

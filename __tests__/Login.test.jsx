@@ -51,7 +51,7 @@ describe('Login Component', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Invalid password')).toBeInTheDocument();
+      expect(screen.getAllByText('Invalid password').length).toBeGreaterThan(0);
     });
   });
 
@@ -71,7 +71,7 @@ describe('Login Component', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Email not found')).toBeInTheDocument();
+      expect(screen.getAllByText('Email not found').length).toBeGreaterThan(0);
     });
   });
 
@@ -161,5 +161,34 @@ describe('Login Component', () => {
     fireEvent.click(cancelBtn);
 
     expect(screen.queryByText('重置密码')).not.toBeInTheDocument();
+  });
+
+  it('shows inline field errors for empty submit', async () => {
+    render(<MemoryRouter><Login /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    expect(await screen.findAllByText('请填写邮箱')).not.toHaveLength(0);
+    expect(screen.getAllByText('请填写密码').length).toBeGreaterThan(0);
+    expect(supabase.__getCallHistory().find((c) => c.method === 'signInWithPassword')).toBeUndefined();
+  });
+
+  it('keeps the anti-enumeration message for bad credentials', async () => {
+    const spy = jest.spyOn(supabase.auth, 'signInWithPassword')
+      .mockResolvedValueOnce({ data: null, error: { message: 'Invalid login credentials' } });
+    render(<MemoryRouter><Login /></MemoryRouter>);
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'a@b.co' } });
+    fireEvent.change(screen.getByPlaceholderText('至少 6 位'), { target: { value: 'whatever1' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    await waitFor(() => expect(screen.getAllByText('邮箱或密码错误').length).toBeGreaterThan(0));
+    spy.mockRestore();
+  });
+
+  it('toggles password visibility', () => {
+    render(<MemoryRouter><Login /></MemoryRouter>);
+    const pw = screen.getByPlaceholderText('至少 6 位');
+    expect(pw).toHaveAttribute('type', 'password');
+    fireEvent.click(screen.getByRole('button', { name: '显示密码' }));
+    expect(pw).toHaveAttribute('type', 'text');
+    fireEvent.click(screen.getByRole('button', { name: '隐藏密码' }));
+    expect(pw).toHaveAttribute('type', 'password');
   });
 });

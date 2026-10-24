@@ -9,59 +9,15 @@ import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
+import {
+  CATEGORY_OPTS, FORM_PRESET_BY_CATEGORY, ALL_FORM_PRESET, OBJECTIVE_STEPS, GRADE_RANGES,
+  computeDuration as computeDurationRule, validateSession, buildSessionPayload,
+  evalStateFromRow, applyPendingFilter, pendingGradePayload,
+} from '../lib/sessionRules.js';
 
 /* ---------- 常量定义 ---------- */
 
-// 学习行为类别（category）— 与数据库/分析面板一致：1=学习 2=复习 3=练习
-const CATEGORY_OPTS = [
-  { key: 1, label: '学习' },
-  { key: 2, label: '复习' },
-  { key: 3, label: '练习' },
-];
-
-// 学习行为形式（预设 form，字符串；按学习行为类别分组；
-// 额外的 "+其他/自定义" 通过 ADD_OTHER_SENTINEL 让用户新增，不与预设重复）
 const ADD_OTHER_SENTINEL = '__ADD_OTHER__';
-const FORM_PRESET_BY_CATEGORY = {
-  1: ['自主预习', '校外线上', '校外线下'],                                 // 学习
-  2: ['自主复习', '校外线上', '校外线下'],                                 // 复习
-  3: ['自主练习', '校外线上', '校外线下', '课外作业', '学校作业'],          // 练习
-};
-const ALL_FORM_PRESET = Array.from(new Set(Object.values(FORM_PRESET_BY_CATEGORY).flat()));
-
-// 客观评估 13 档
-const OBJECTIVE_STEPS = [
-  { value: 0,  label: 'F'  },
-  { value: 1,  label: 'D-' },
-  { value: 2,  label: 'D'  },
-  { value: 3,  label: 'D+' },
-  { value: 4,  label: 'C-' },
-  { value: 5,  label: 'C'  },
-  { value: 6,  label: 'C+' },
-  { value: 7,  label: 'B-' },
-  { value: 8,  label: 'B'  },
-  { value: 9,  label: 'B+' },
-  { value: 10, label: 'A-' },
-  { value: 11, label: 'A'  },
-  { value: 12, label: 'A+' },
-];
-
-// letter grade → 百分制区间（作为参考显示在客观评估下方）
-const GRADE_RANGES = {
-  'A+': '97–100',
-  'A':  '93–96',
-  'A-': '90–92',
-  'B+': '87–89',
-  'B':  '83–86',
-  'B-': '80–82',
-  'C+': '77–79',
-  'C':  '73–76',
-  'C-': '70–72',
-  'D+': '67–69',
-  'D':  '63–66',
-  'D-': '60–62',
-  'F':  '0–59',
-};
 
 // 成绩 tab 预设等第（仅 letter grade A+ ~ F）
 const GRADE_PRESET_CHIPS = [
@@ -469,7 +425,7 @@ export default function LearningPage() {
     if (!user) return;
     setLoadingPending(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await applyPendingFilter(supabase
         .from('learning_sessions')
         .select(`
           id, session_date, start_time, end_time, duration_minutes,
@@ -478,11 +434,7 @@ export default function LearningPage() {
           chapter:chapters(id,name),
           unit:units(id,name)
         `)
-        .eq('student_id', user.id)
-        .eq('category', 3)            // 练习
-        .is('grade_label', null)      // 无 letter grade
-        .is('score', null)            // 也无分数（排除旧 seed 数据）
-        .is('deleted_at', null)
+        .eq('student_id', user.id))
         .order('session_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(50);
@@ -699,13 +651,7 @@ export default function LearningPage() {
 
   /* ========== 计算用时（分钟） ========== */
   function computeDuration() {
-    if (!startStr || !endStr) return null;
-    const [sh, sm] = startStr.split(':').map(Number);
-    const [eh, em] = endStr.split(':').map(Number);
-    if ([sh,sm,eh,em].some(Number.isNaN)) return null;
-    let mins = (eh*60+em) - (sh*60+sm);
-    if (mins <= 0) mins += 24*60;       // 跨午夜
-    return mins;
+    return computeDurationRule(startStr, endStr);
   }
 
   /* ========== 最近记录刷新（提交成功 / 队列冲刷后共用） ========== */
@@ -789,15 +735,7 @@ export default function LearningPage() {
     e.preventDefault();
     setErrors({});
 
-    const newErrors = {};
-    if (!courseId) newErrors.course = '请选择课程';
-    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
-    if (!formValue) newErrors.form = '请选择学习行为形式';
-
-    const duration = computeDuration();
-    if ((startStr && endStr) && (!duration || duration <= 0)) {
-      newErrors.time = '结束时间需晚于开始时间';
-    }
+    const newErrors = validateSession({ courseId, startStr, endStr, formValue });
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -807,26 +745,10 @@ export default function LearningPage() {
     const newStartTime = startStr + ':00';
     const newEndTime = endStr + ':00';
 
-    const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
-    const gradeLabelValue = category === 3
-      ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
-      : null;
-    const payload = {
-      student_id: user.id,
-      course_id: courseId,
-      chapter_id: chapterId || null,
-      unit_id: unitId || null,
-      category,
-      form: formValue,
-      eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
-      duration_minutes: duration,
-      notes: notes.trim() || null,
-      session_date: dateStr,
-      start_time: newStartTime,
-      end_time: newEndTime,
-      self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-      grade_label: gradeLabelValue,
-    };
+    const payload = buildSessionPayload({
+      studentId: user.id, courseId, chapterId, unitId, category, formValue, notes,
+      dateStr, startStr, endStr, subjIdx, objIdx, objDeferred, isObjNA,
+    });
 
     setBusy(true);
     try {
@@ -900,25 +822,12 @@ export default function LearningPage() {
     setEndStr(String(r.end_time || '').slice(0, 5));
     setCategory(r.category || 1);
     setFormValue(r.form || '');
-    setEditHadGrade(!!r.grade_label);
-    // 主观：始终回显
-    const subjIdxLoaded = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
-    setSubjIdx(subjIdxLoaded >= 0 ? subjIdxLoaded : 3);
-    // 客观：按字段存在性独立回显（不依赖 eval_type）
-    if (r.grade_label === 'N/A') {
-      setIsObjNA(true);
-      setObjIdx(9);
-      setObjDeferred(false);
-    } else if (r.grade_label) {
-      setIsObjNA(false);
-      const objIdxLoaded = OBJECTIVE_STEPS.findIndex(s => s.label === r.grade_label);
-      setObjIdx(objIdxLoaded >= 0 ? objIdxLoaded : 9);
-      setObjDeferred(false);
-    } else {
-      setIsObjNA(false);
-      setObjIdx(9);
-      setObjDeferred(true);  // 无客观评价时默认稍后补充，避免保存时注入默认 B+
-    }
+    const ev = evalStateFromRow(r);
+    setEditHadGrade(ev.editHadGrade);
+    setSubjIdx(ev.subjIdx);
+    setIsObjNA(ev.isObjNA);
+    setObjIdx(ev.objIdx);
+    setObjDeferred(ev.objDeferred);
     setNotes(r.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -942,15 +851,7 @@ export default function LearningPage() {
   async function onSaveEdit() {
     setErrors({});
 
-    const newErrors = {};
-    if (!courseId) newErrors.course = '请选择课程';
-    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
-    if (!formValue) newErrors.form = '请选择学习行为形式';
-
-    const duration = computeDuration();
-    if ((startStr && endStr) && (!duration || duration <= 0)) {
-      newErrors.time = '结束时间需晚于开始时间';
-    }
+    const newErrors = validateSession({ courseId, startStr, endStr, formValue });
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -981,25 +882,10 @@ export default function LearningPage() {
         return;
       }
 
-      const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
-      const gradeLabelValue = category === 3
-        ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
-        : null;
-      const payload = {
-        course_id: courseId,
-        chapter_id: chapterId || null,
-        unit_id: unitId || null,
-        category,
-        form: formValue,
-        eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
-        duration_minutes: duration,
-        notes: notes.trim() || null,
-        session_date: dateStr,
-        start_time: newStartTime,
-        end_time: newEndTime,
-        self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-        grade_label: gradeLabelValue,
-      };
+      const payload = buildSessionPayload({
+        courseId, chapterId, unitId, category, formValue, notes,
+        dateStr, startStr, endStr, subjIdx, objIdx, objDeferred, isObjNA,
+      });
 
       const { error } = await supabase
         .from('learning_sessions')
@@ -1093,10 +979,7 @@ export default function LearningPage() {
     try {
       const { error } = await supabase
         .from('learning_sessions')
-        .update({
-          grade_label: pendingModalGrade,
-          eval_type: 2,  // 含客观
-        })
+        .update(pendingGradePayload(pendingModalGrade))
         .eq('id', pendingModalSession.id);
       if (error) throw error;
       toast('客观评价已保存', { kind: 'success' });

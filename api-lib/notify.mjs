@@ -19,6 +19,10 @@
 //   - 静默时段 22:30–07:00 不发非邀请推送
 //   - 每条推送都带 badge = 学生的「待补填」数量；本身绝不会为待补填单独发推送
 //   - 推送返回 404/410 的订阅视为失效，立即删除
+//   - 邮件兜底（api-lib/notify-email.mjs）：只在第 3 天、且没有可用推送订阅（从没订阅，或订阅在本轮全部 404/410）时
+//     发一封「三天没记录了」邮件；第 7 天绝不发邮件、有可用订阅的人也不发。记为 push_deliveries(kind='inactive', channel='email')，
+//     所以第 3/7 天的次数统计与每日上限照常生效；SMTP 未配置则静默跳过。
+//   - 「发送测试通知」（sendTest）：只发给本人订阅，不写 push_deliveries，每用户 60 秒一次（notification_prefs.last_test_at）
 //   - 没有任何「分钟目标」概念
 
 export const SHANGHAI_OFFSET_MS = 8 * 3600 * 1000;
@@ -46,7 +50,11 @@ export const DEFAULT_PREFS = Object.freeze({
   daily_reminder: false,
   daily_reminder_time: '21:00',
   invites: true,
+  email_fallback: true,
 });
+
+// 测试通知：同一用户两次之间至少间隔这么久
+export const TEST_COOLDOWN_MS = 60 * 1000;
 
 const CATEGORY_LABEL = { 1: '学习', 2: '复习', 3: '练习' };
 
@@ -104,7 +112,7 @@ export function parseTimeOfDay(str) {
 export function normalizePrefs(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const out = { ...DEFAULT_PREFS };
-  for (const key of ['inactive_reminder', 'daily_reminder', 'invites']) {
+  for (const key of ['inactive_reminder', 'daily_reminder', 'invites', 'email_fallback']) {
     if (typeof src[key] === 'boolean') out[key] = src[key];
   }
   if (parseTimeOfDay(src.daily_reminder_time) != null) {
@@ -212,7 +220,7 @@ export function buildInactiveUrl(last) {
 }
 
 /**
- * @param {'inactive'|'daily'|'invite'} kind
+ * @param {'inactive'|'daily'|'invite'|'test'} kind
  * @param {{ badge?: number, stage?: 3|7, last?: SessionLite, courseName?: string, teacherName?: string }} ctx
  *   badge = 学生的「待补填」数量，每条推送都带（图标角标，不为它单独推送）
  */
@@ -247,6 +255,14 @@ export function buildPayload(kind, ctx = {}) {
         body: ctx.teacherName ? `${ctx.teacherName} 邀请你建立导师连接。` : '你收到一条新的导师邀请。',
         url: '/notifications',
         tag: 'yb-invite',
+        badge,
+      };
+    case 'test':
+      return {
+        title: APP_TITLE,
+        body: '测试通知：提醒已经开启。',
+        url: '/me/reminders',
+        tag: 'yb-test',
         badge,
       };
     default:
@@ -299,7 +315,7 @@ export function dueKindFor(student, clock) {
   }
 
   for (const kind of KIND_PRIORITY) {
-    if (due[kind]) return { kind, payload: due[kind] };
+    if (due[kind]) return { kind, payload: due[kind], stage: kind === 'inactive' ? stage : null };
   }
   return null;
 }
@@ -314,7 +330,7 @@ export function selectDue({ students, clock, sentToday = new Set() }) {
   for (const student of students) {
     if (sentToday.has(student.id)) continue; // 每天最多 1 条非邀请推送
     const hit = dueKindFor(student, clock);
-    if (hit) out.push({ userId: student.id, kind: hit.kind, payload: hit.payload });
+    if (hit) out.push({ userId: student.id, kind: hit.kind, payload: hit.payload, stage: hit.stage });
   }
   return out;
 }
@@ -381,20 +397,35 @@ function groupByUser(rows) {
  * 定时轮询入口（约每 15 分钟一次）。
  * @returns {Promise<{ skipped?: string, considered: number, due: number, sent: number, removed: number, failed: number }>}
  */
-export async function runTick({ store, sendPush, now = new Date() }) {
-  const summary = { considered: 0, due: 0, sent: 0, removed: 0, failed: 0 };
+export async function runTick({ store, sendPush, mailer = null, now = new Date() }) {
+  const summary = { considered: 0, due: 0, sent: 0, removed: 0, failed: 0, emailed: 0 };
   const clock = shanghaiClock(now);
   if (isQuietHours(clock.minutes)) return { ...summary, skipped: 'quiet-hours' };
 
   const subs = await store.listSubscriptions();
   const subsByUser = groupByUser(subs);
-  const userIds = [...subsByUser.keys()];
+  const pushUserIds = [...subsByUser.keys()];
+
+  // 邮件兜底的候选：恰好在 3 天前记过最后一条、且没有任何订阅的学生（没配置发信器就不查）
+  let emailCandidateIds = [];
+  if (mailer && store.listLoggedOn) {
+    try {
+      const logged = await store.listLoggedOn(addDays(clock.date, -INACTIVE_FIRST_DAYS));
+      emailCandidateIds = logged.filter((id) => !subsByUser.has(id));
+    } catch (err) {
+      console.warn('[notify] 读取邮件兜底候选失败', err?.message);
+    }
+  }
+  const userIds = [...pushUserIds, ...emailCandidateIds];
   if (userIds.length === 0) return summary;
 
   const profiles = await store.loadProfiles(userIds);
-  // 只有至少会收到一种非邀请提醒的学生才需要继续读记录（前 30 天每日提醒强制开启）
+  const profileById = new Map(profiles.map((p) => [p.id, p]));
+  // 只有至少会收到一种非邀请提醒的学生才需要继续读记录（前 30 天每日提醒强制开启）；
+  // 没有订阅的学生只可能走邮件兜底，需要同时开着「几天没记录」与「邮件兜底」
   const active = profiles.filter((p) => {
     const prefs = normalizePrefs(p.notification_prefs);
+    if (!subsByUser.has(p.id)) return prefs.inactive_reminder && prefs.email_fallback;
     return prefs.inactive_reminder || prefs.daily_reminder || isDailyForced(p.created_at, clock.date);
   });
   summary.considered = active.length;
@@ -434,12 +465,42 @@ export async function runTick({ store, sendPush, now = new Date() }) {
   const due = selectDue({ students, clock, sentToday });
   summary.due = due.length;
 
+  const emailAllowed = (item) => Boolean(
+    mailer
+    && item.kind === 'inactive'
+    && item.stage === INACTIVE_FIRST_DAYS // 第 7 天绝不发邮件
+    && normalizePrefs(profileById.get(item.userId)?.notification_prefs).email_fallback,
+  );
+
+  /** 发一封「三天没记录」邮件；已占位（push 订阅刚全部失效）时只在成功后把渠道改成 email。 */
+  async function emailInstead(item, { alreadyClaimed }) {
+    try {
+      if (!alreadyClaimed && !(await store.claimDaily(item.userId, clock.date, 'inactive', 'email'))) return false;
+      const to = await store.loadUserEmail(item.userId);
+      if (!to) throw new Error('no email address');
+      await mailer.sendInactive({ to, userId: item.userId, payload: item.payload });
+      if (alreadyClaimed) await store.setDeliveryChannel?.(item.userId, clock.date, 'email').catch(() => {});
+      summary.emailed += 1;
+      return true;
+    } catch (err) {
+      console.warn('[notify] 邮件兜底失败', err?.message);
+      if (!alreadyClaimed) await store.releaseDaily(item.userId, clock.date).catch(() => {});
+      return false;
+    }
+  }
+
   for (const item of due) {
+    const subscriptions = subsByUser.get(item.userId) || [];
+    if (subscriptions.length === 0) {
+      // 没有订阅：只有第 3 天的「几天没记录」可以走邮件，其余一律不发
+      if (emailAllowed(item)) await emailInstead(item, { alreadyClaimed: false });
+      continue;
+    }
     // 先占位再发送：部分唯一索引保证并发的两次轮询只有一次成功
     const claimed = await store.claimDaily(item.userId, clock.date, item.kind);
     if (!claimed) continue;
     const r = await deliver({
-      subscriptions: subsByUser.get(item.userId) || [],
+      subscriptions,
       payload: item.payload,
       sendPush,
       store,
@@ -447,6 +508,11 @@ export async function runTick({ store, sendPush, now = new Date() }) {
     summary.sent += r.sent;
     summary.removed += r.removed;
     summary.failed += r.failed;
+    // 所有订阅都刚被删掉（404/410）且没有临时失败 → 第 3 天改发邮件
+    if (r.sent === 0 && r.removed > 0 && r.failed === 0 && emailAllowed(item)) {
+      await emailInstead(item, { alreadyClaimed: true });
+      continue;
+    }
     // 一条都没送达且不是因为订阅失效 → 释放占位，下一轮可重试
     if (r.sent === 0 && r.failed > 0) {
       await store.releaseDaily(item.userId, clock.date).catch(() => {});
@@ -478,6 +544,40 @@ export async function sendInvite({ store, sendPush, studentId, teacherName, now 
   // 审计记录（invite 不受唯一索引约束），失败不影响结果
   await store.logInvite?.(studentId, shanghaiClock(now).date).catch(() => {});
   return r;
+}
+
+/**
+ * 「发送测试通知」：只发给该用户自己的订阅；不写 push_deliveries（不占每日额度）。
+ * 用 notification_prefs.last_test_at 做每用户 60 秒限流（条件更新，并发安全）。
+ * @returns {Promise<{ sent: number, removed: number, failed: number, skipped?: string, rateLimited?: boolean, retryAfter?: number, message?: string }>}
+ */
+export async function sendTest({ store, sendPush, userId, now = new Date() }) {
+  const none = { sent: 0, removed: 0, failed: 0 };
+  const subscriptions = await store.listSubscriptionsFor(userId);
+  if (subscriptions.length === 0) {
+    return { ...none, skipped: 'no-subscription', message: '这台设备还没开启通知' };
+  }
+  const [profile] = await store.loadProfiles([userId]);
+  const raw = profile?.notification_prefs && typeof profile.notification_prefs === 'object'
+    ? profile.notification_prefs : {};
+  const last = Date.parse(raw.last_test_at);
+  const waitMs = Number.isNaN(last) ? 0 : last + TEST_COOLDOWN_MS - now.getTime();
+  const limited = (retryAfter) => ({
+    ...none, rateLimited: true, retryAfter, message: `刚发过，请 ${retryAfter} 秒后再试`,
+  });
+  if (waitMs > 0) return limited(Math.ceil(waitMs / 1000));
+  const cutoff = new Date(now.getTime() - TEST_COOLDOWN_MS).toISOString();
+  if (!(await store.claimTest(userId, raw, now.toISOString(), cutoff))) {
+    return limited(Math.ceil(TEST_COOLDOWN_MS / 1000));
+  }
+  const badge = (await store.loadPendingCounts([userId]).catch(() => new Map())).get(userId) || 0;
+  const r = await deliver({ subscriptions, payload: buildPayload('test', { badge }), sendPush, store });
+  return r.sent > 0 ? r : { ...r, message: '没能送达，请稍后再试' };
+}
+
+/** 邮件里的一键退订：把 email_fallback 置为 false。 */
+export async function unsubscribeEmail({ store, userId }) {
+  await store.mergePrefs(userId, { email_fallback: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -599,11 +699,53 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch }) {
       }
       return out;
     },
+    /** 某天有（未删除）记录的学生 id（邮件兜底候选）。 */
+    async listLoggedOn(date) {
+      const rows = await getAll(`learning_sessions?select=student_id&deleted_at=is.null&session_date=eq.${date}`);
+      return [...new Set(rows.map((r) => r.student_id))];
+    },
+    /** 学生邮箱：GoTrue admin API（service role）。 */
+    async loadUserEmail(userId) {
+      const res = await fetchImpl(`${base}/auth/v1/admin/users/${encodeURIComponent(userId)}`, { headers });
+      if (!res.ok) throw new Error(`Supabase auth admin ${res.status}`);
+      const user = await res.json();
+      return user?.email || '';
+    },
+    /** 条件更新 last_test_at：只有从没发过或早于 cutoff 才成功。 @returns {Promise<boolean>} */
+    async claimTest(userId, rawPrefs, nowIso, cutoffIso) {
+      const cond = encodeURIComponent(
+        `(notification_prefs->>last_test_at.is.null,notification_prefs->>last_test_at.lt.${cutoffIso})`,
+      );
+      const res = await request(`profiles?id=eq.${encodeURIComponent(userId)}&or=${cond}&select=id`, {
+        method: 'PATCH',
+        body: { notification_prefs: { ...(rawPrefs || {}), last_test_at: nowIso } },
+        prefer: 'return=representation',
+      });
+      if (!res.ok) throw new Error(`Supabase ${res.status}: profiles test claim`);
+      const rows = await res.json();
+      return Array.isArray(rows) && rows.length > 0;
+    },
+    async mergePrefs(userId, patch) {
+      const [row] = await getJson(`profiles?select=notification_prefs&id=eq.${encodeURIComponent(userId)}`);
+      if (!row) throw new Error('profile not found');
+      const res = await request(`profiles?id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: { notification_prefs: { ...(row.notification_prefs || {}), ...patch } },
+        prefer: 'return=minimal',
+      });
+      if (!res.ok) throw new Error(`Supabase ${res.status}: profiles prefs update`);
+    },
+    async setDeliveryChannel(userId, date, channel) {
+      await request(
+        `push_deliveries?user_id=eq.${encodeURIComponent(userId)}&sent_date=eq.${date}&kind=eq.inactive`,
+        { method: 'PATCH', body: { channel }, prefer: 'return=minimal' },
+      );
+    },
     /** @returns {Promise<boolean>} true=占位成功；false=今天已发过（唯一索引冲突） */
-    async claimDaily(userId, date, kind) {
+    async claimDaily(userId, date, kind, channel) {
       const res = await request('push_deliveries', {
         method: 'POST',
-        body: { user_id: userId, sent_date: date, kind },
+        body: { user_id: userId, sent_date: date, kind, ...(channel ? { channel } : {}) },
         prefer: 'return=minimal',
       });
       if (res.ok) return true;

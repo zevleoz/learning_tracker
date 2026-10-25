@@ -9,7 +9,7 @@ import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
 import { logger } from '../../lib/logger.js';
 import {
-  getPermission, isIOSNeedsInstall, isPushSupported, subscribe, unsubscribe,
+  getPermission, hasDeviceSubscription, isIOSNeedsInstall, isPushSupported, sendTestNotification, subscribe, unsubscribe,
 } from '../../lib/push.js';
 import ProfileEditor from '../../components/ProfileEditor.jsx';
 import Notifications from '../Notifications.jsx';
@@ -140,6 +140,7 @@ export const REMINDER_ROWS = [
   { key: 'inactive_reminder', title: '几天没记录时提醒我', desc: () => '3 天没记录时提醒一次，7 天时再提醒一次', push: true },
   { key: 'daily_reminder', title: '每日提醒', desc: (p) => `${p.daily_reminder_time} · 只在当天还没记录时`, push: true, time: true },
   { key: 'invites', title: '导师邀请', desc: () => '立即', push: true },
+  { key: 'email_fallback', title: '推送不可用时，用邮件提醒（仅三天没记录时一次）', desc: () => '', push: false },
 ];
 
 const DENIED_COPY = {
@@ -159,6 +160,9 @@ export function Reminders() {
   const [permission, setPermission] = useState(() => getPermission());
   const [busyKey, setBusyKey] = useState(null);
   const [problem, setProblem] = useState('');
+  const [deviceSub, setDeviceSub] = useState(false);    // 这台设备是否有推送订阅
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);   // { ok, message }
   const needsInstall = isIOSNeedsInstall();
   const supported = isPushSupported();
 
@@ -187,12 +191,32 @@ export function Reminders() {
     return () => { cancelled = true; };
   }, []);
 
+  // 设备订阅状态随授权 / 开关变化重新读取（第一次开启、取消订阅之后）
+  useEffect(() => {
+    let cancelled = false;
+    hasDeviceSubscription().then((v) => { if (!cancelled) setDeviceSub(Boolean(v)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [permission, prefs, uid]);
+
+  async function sendTest() {
+    if (testing) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(await sendTestNotification());
+    } catch {
+      setTestResult({ ok: false, message: '没能发送，请稍后再试' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   const granted = permission === 'granted';
   const forced = isDailyForced(createdAt);
   const forcedUntil = forcedDailyUntil(createdAt);
   const isLocked = (row) => row.key === 'daily_reminder' && forced;
   // 推送类开关：没有授权时一律显示为关（服务端没有订阅就发不出去）；强制期内的每日提醒始终显示为开并锁定
-  const isOn = (row) => isLocked(row) || (granted && prefs[row.key]);
+  const isOn = (row) => (row.push ? isLocked(row) || (granted && prefs[row.key]) : Boolean(prefs[row.key]));
   const blocked = needsInstall || permission === 'denied' || (!supported && !needsInstall);
 
   async function persist(next) {
@@ -301,7 +325,7 @@ export function Reminders() {
               <li key={row.key} className="mep-li static">
                 <span className="mep-li-t">
                   <b id={`rem-${row.key}`}>{row.title}</b>
-                  <span>{row.desc(prefs)}</span>
+                  {row.desc(prefs) && <span>{row.desc(prefs)}</span>}
                   {locked && forcedUntil && (
                     <span className="mep-lock-note">注册后第一个月会每天提醒，{fmtMonthDay(forcedUntil)} 之后可以关闭</span>
                   )}
@@ -342,6 +366,17 @@ export function Reminders() {
           })}
         </ul>
       </section>
+
+      {deviceSub && (
+        <div className="mep-test">
+          <button type="button" className="yb-btn ghost sm" disabled={testing || !loaded} onClick={sendTest}>
+            {testing ? '发送中…' : '发送测试通知'}
+          </button>
+          {testResult && (
+            <p className={'mep-note' + (testResult.ok ? '' : ' warn')} role="status">{testResult.message}</p>
+          )}
+        </div>
+      )}
 
       <p className="mep-note mep-center">每天最多一条提醒（导师邀请除外），22:30–07:00 不打扰；几天没记录时只在第 3 天和第 7 天各提醒一次，记录一次后重新计算。</p>
     </div>

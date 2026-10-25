@@ -7,6 +7,7 @@ export const DEFAULT_PREFS = {
   daily_reminder: false,
   daily_reminder_time: '21:00',
   invites: true,
+  email_fallback: true,
   push_card_dismissed: false,
 };
 

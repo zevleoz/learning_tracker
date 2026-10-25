@@ -18,6 +18,8 @@ jest.mock('../src/lib/push.js', () => ({
   subscribe: jest.fn(async () => ({ ok: true })),
   unsubscribe: jest.fn(async () => ({ ok: true })),
   setAppBadge: jest.fn(async () => {}),
+  hasDeviceSubscription: jest.fn(async () => false),
+  sendTestNotification: jest.fn(async () => ({ ok: false, message: '' })),
 }));
 
 function renderApp(path) {
@@ -101,6 +103,6 @@ describe('学生端路由', () => {
   it('/me/reminders 渲染提醒设置', async () => {
     renderApp('/me/reminders');
     expect(await screen.findByRole('heading', { name: '提醒' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByRole('switch').length).toBe(3));
+    await waitFor(() => expect(screen.getAllByRole('switch').length).toBe(4));
   });
 });

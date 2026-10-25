@@ -82,6 +82,7 @@ describe('normalizePrefs', () => {
       daily_reminder: false,
       daily_reminder_time: '21:00',
       invites: true,
+      email_fallback: true,
     });
   });
   test('脏数据回退默认；旧版的字段被忽略', () => {

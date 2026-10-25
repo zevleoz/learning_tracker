@@ -6,3 +6,5 @@ export function getPermission() { return 'unsupported'; }
 export async function subscribe() { return { ok: false, reason: 'unsupported' }; }
 export async function unsubscribe() { return { ok: true }; }
 export async function setAppBadge() {}
+export async function hasDeviceSubscription() { return false; }
+export async function sendTestNotification() { return { ok: false, message: '' }; }

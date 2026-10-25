@@ -24,6 +24,8 @@ jest.mock('../src/lib/push.js', () => ({
   isPushSupported: jest.fn(() => true),
   subscribe: jest.fn(async () => ({ ok: true })),
   unsubscribe: jest.fn(async () => ({ ok: true })),
+  hasDeviceSubscription: jest.fn(async () => false),
+  sendTestNotification: jest.fn(async () => ({ ok: true, sent: 1, message: '已发送，几秒内会收到' })),
 }));
 
 function Where() {
@@ -74,6 +76,8 @@ beforeEach(() => {
   push.isIOSNeedsInstall.mockReturnValue(false);
   push.isPushSupported.mockReturnValue(true);
   push.subscribe.mockResolvedValue({ ok: true });
+  push.hasDeviceSubscription.mockResolvedValue(false);
+  push.sendTestNotification.mockResolvedValue({ ok: true, sent: 1, message: '已发送，几秒内会收到' });
 });
 
 describe('我的 · 资料与设置', () => {
@@ -188,12 +192,12 @@ describe('提醒设置', () => {
     expect(p).not.toHaveProperty('pending_digest');
   });
 
-  it('只有三行：几天没记录时提醒我 · 每日提醒 · 导师邀请；一句话说明规则', async () => {
+  it('四行：几天没记录时提醒我 · 每日提醒 · 导师邀请 · 邮件兜底；一句话说明规则', async () => {
     seed();
     renderAt('/me/reminders', <Reminders />);
     await screen.findByRole('switch', { name: '每日提醒' });
     const names = screen.getAllByRole('switch').map((s) => s.getAttribute('aria-labelledby'));
-    expect(names).toEqual(['rem-inactive_reminder', 'rem-daily_reminder', 'rem-invites']);
+    expect(names).toEqual(['rem-inactive_reminder', 'rem-daily_reminder', 'rem-invites', 'rem-email_fallback']);
     expect(screen.getByRole('switch', { name: '几天没记录时提醒我' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: '导师邀请' })).toBeInTheDocument();
     for (const gone of ['待补填', '连续记录快断了', '每周小结']) expect(screen.queryByText(gone)).not.toBeInTheDocument();
@@ -335,5 +339,51 @@ describe('提醒设置', () => {
     expect(screen.getByRole('switch', { name: '导师邀请' })).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(inactive);
     await waitFor(() => expect(push.unsubscribe).toHaveBeenCalled());
+  });
+});
+
+describe('提醒设置 · 邮件兜底与测试通知', () => {
+  it('邮件兜底一行：默认开，不需要通知权限；点一下写入 email_fallback=false', async () => {
+    seed();
+    renderAt('/me/reminders', <Reminders />);
+    const sw = await screen.findByRole('switch', { name: '推送不可用时，用邮件提醒（仅三天没记录时一次）' });
+    await waitFor(() => expect(sw).toBeEnabled());
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'false'));
+    expect(push.subscribe).not.toHaveBeenCalled();
+    expect(updates('profiles').pop().args.notification_prefs.email_fallback).toBe(false);
+  });
+
+  it('这台设备没有订阅 → 不显示「发送测试通知」', async () => {
+    seed();
+    renderAt('/me/reminders', <Reminders />);
+    await screen.findByRole('switch', { name: '每日提醒' });
+    await waitFor(() => expect(push.hasDeviceSubscription).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: '发送测试通知' })).not.toBeInTheDocument();
+  });
+
+  it('有订阅 → 显示按钮，点击后行内显示结果（非弹窗），发送中禁用', async () => {
+    seed();
+    push.hasDeviceSubscription.mockResolvedValue(true);
+    let resolve;
+    push.sendTestNotification.mockReturnValue(new Promise((r) => { resolve = r; }));
+    renderAt('/me/reminders', <Reminders />);
+    const btn = await screen.findByRole('button', { name: '发送测试通知' });
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送中…' })).toBeDisabled());
+    resolve({ ok: true, sent: 1, message: '已发送，几秒内会收到' });
+    expect(await screen.findByRole('status')).toHaveTextContent('已发送，几秒内会收到');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送测试通知' })).toBeEnabled();
+  });
+
+  it('失败 / 被限流时同样行内显示原因', async () => {
+    seed();
+    push.hasDeviceSubscription.mockResolvedValue(true);
+    push.sendTestNotification.mockResolvedValue({ ok: false, sent: 0, message: '刚发过，请 40 秒后再试' });
+    renderAt('/me/reminders', <Reminders />);
+    fireEvent.click(await screen.findByRole('button', { name: '发送测试通知' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('刚发过，请 40 秒后再试');
   });
 });

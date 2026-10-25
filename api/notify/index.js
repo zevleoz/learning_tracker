@@ -5,11 +5,19 @@
 //   2) 邀请即时推送：POST /api/notify  body {"type":"invite","student_id":"<uuid>","teacher_name":"..."}
 //      也兼容 Supabase 数据库 Webhook 的载荷（teacher_student_connections 的 INSERT，status=0）
 //
+//   3) 学生自己点「发送测试通知」：POST /api/notify  body {"type":"test"}，
+//      用登录学生的 Supabase access token（Authorization: Bearer <jwt>）鉴权，向 Supabase Auth 校验；
+//      只发给该用户自己的订阅，不占每日额度，每用户 60 秒一次。用户 JWT 永远无法触发 tick / invite。
+//   4) 邮件里的一键退订：GET /api/notify?type=unsubscribe&token=…（token 由 NOTIFY_SECRET 签名）
+//
 // 服务端密钥只来自环境变量：SUPABASE_SERVICE_ROLE_KEY / VAPID_PRIVATE_KEY / NOTIFY_SECRET，
 // 绝不进入前端 bundle。判定逻辑在 api-lib/notify.mjs（纯函数，已有单测）。
 import crypto from 'node:crypto';
 import webpush from 'web-push';
-import { createSupabaseStore, runTick, sendInvite } from '../../api-lib/notify.mjs';
+import {
+  createSupabaseStore, runTick, sendInvite, sendTest, unsubscribeEmail,
+} from '../../api-lib/notify.mjs';
+import { createMailer, unsubscribePage, verifyUnsubscribeToken } from '../../api-lib/notify-email.mjs';
 
 export const config = {
   maxDuration: 60,
@@ -67,9 +75,63 @@ export function normalizeRequest(body) {
   return { type };
 }
 
+/** 用 Supabase Auth 校验学生的 access token。@returns {Promise<{ id: string } | null>} */
+export async function verifyUserJwt(req, supabaseUrl) {
+  const m = /^Bearer\s+(.+)$/i.exec(String(headerValue(req, 'authorization')));
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!m || !anonKey) return null;
+  try {
+    const r = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${m[1].trim()}` },
+    });
+    if (!r.ok) return null;
+    const user = await r.json();
+    return user?.id ? { id: user.id } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleUnsubscribe(req, res) {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const send = (code, ok) => {
+    res.status(code);
+    res.setHeader?.('Content-Type', 'text/html; charset=utf-8');
+    res.send ? res.send(unsubscribePage(ok)) : res.json({ ok });
+  };
+  const userId = verifyUnsubscribeToken(req.query?.token, process.env.NOTIFY_SECRET);
+  if (!userId) return send(400, false);
+  if (!supabaseUrl || !serviceKey) return send(503, false);
+  try {
+    await unsubscribeEmail({ store: createSupabaseStore({ url: supabaseUrl, serviceKey }), userId });
+    return send(200, true);
+  } catch (err) {
+    console.error('[notify] 退订失败', err?.message);
+    return send(500, false);
+  }
+}
+
 export default async function handler(req, res) {
+  if (req.method === 'GET' && String(req.query?.type || '').toLowerCase() === 'unsubscribe') {
+    await handleUnsubscribe(req, res);
+    return;
+  }
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: '仅支持 POST 请求' });
+    return;
+  }
+
+  const body = parseBody(req);
+  if (body === null) {
+    res.status(400).json({ ok: false, error: '请求体不是合法 JSON' });
+    return;
+  }
+  const request = normalizeRequest(body);
+
+  // 唯一允许用户 JWT 的类型；其它类型（tick / invite / 未知）一律只认 NOTIFY_SECRET
+  if (request.type === 'test') {
+    await handleTest(req, res);
     return;
   }
 
@@ -96,13 +158,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  const body = parseBody(req);
-  if (body === null) {
-    res.status(400).json({ ok: false, error: '请求体不是合法 JSON' });
-    return;
-  }
-  const request = normalizeRequest(body);
-
   try {
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
     const sendPush = (subscription, payload) =>
@@ -127,7 +182,7 @@ export default async function handler(req, res) {
       return;
     }
     if (request.type === 'tick') {
-      const result = await runTick({ store, sendPush });
+      const result = await runTick({ store, sendPush, mailer: createMailer(process.env) });
       res.status(200).json({ ok: true, ...result });
       return;
     }
@@ -135,5 +190,37 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[notify] 失败', err?.message);
     res.status(500).json({ ok: false, error: '通知任务执行失败' });
+  }
+}
+
+async function handleTest(req, res) {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+  const vapidSubject = process.env.VAPID_SUBJECT;
+  if (!supabaseUrl || !serviceKey || !vapidPublic || !vapidPrivate || !vapidSubject) {
+    res.status(503).json({ ok: false, error: '服务端未配置推送' });
+    return;
+  }
+  const user = await verifyUserJwt(req, supabaseUrl);
+  if (!user) {
+    res.status(401).json({ ok: false, error: '未登录或登录已过期，请重新登录' });
+    return;
+  }
+  try {
+    webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
+    const sendPush = (subscription, payload) =>
+      webpush.sendNotification(subscription, payload, { TTL: 600, urgency: 'high' });
+    const store = createSupabaseStore({ url: supabaseUrl, serviceKey });
+    const result = await sendTest({ store, sendPush, userId: user.id });
+    if (result.rateLimited) {
+      res.status(429).json({ ok: false, ...result });
+      return;
+    }
+    res.status(200).json({ ok: result.sent > 0 || Boolean(result.skipped), ...result });
+  } catch (err) {
+    console.error('[notify] 测试通知失败', err?.message);
+    res.status(500).json({ ok: false, error: '测试通知发送失败' });
   }
 }

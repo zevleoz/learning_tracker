@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Search } from 'lucide-react';
-import { supabase, timeoutSignal } from '../lib/supabase.js';
+import { Search } from 'lucide-react';
+import { supabase, timeoutSignal, getAccessToken } from '../lib/supabase.js';
 import { updateWorkspace } from '../lib/e4Store.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
@@ -16,12 +16,22 @@ import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Badge } from '../components/ui/badge.jsx';
-import { Card } from '../components/ui/card.jsx';
 import { Sheet, SheetContent, SheetHeader } from '../components/ui/sheet.jsx';
 import { consultantColor, consultantKey, groupByConsultant, parseConsultant } from '../utils/consultant.js';
 import { evaluateInactivity, formatInactivity } from '../utils/inactivity.js';
 import { toLocalDateStr } from '../lib/date.js';
 import { useAuth } from '../lib/useAuth.js';
+import { applyPendingFilter, isPendingObjective } from '../lib/sessionRules.js';
+import { fillSummary } from '../lib/supervision.js';
+import StudentTable from '../components/mentor/StudentTable.jsx';
+import StudentCards from '../components/mentor/StudentCards.jsx';
+import TodayFeedback from '../components/mentor/TodayFeedback.jsx';
+import { SheetRecords } from '../components/mentor/SheetRecordRow.jsx';
+import { AttentionText, FillStrip, StageTag, StudentLink } from '../components/mentor/FillStrip.jsx';
+import { useDrafts, copyText, draftText } from '../components/mentor/useDrafts.js';
+import {
+  buildFillInfo, formatMD, gapLabel, sortGroupStudents, draftKindLabel,
+} from '../components/mentor/fillInfo.js';
 
 function fmtMinutes(mins) {
   if (!mins) return '0 分钟';
@@ -48,8 +58,25 @@ function isMissingFunction(error) {
     || /could not find the function|function .* does not exist/i.test(error?.message || '');
 }
 
+const VIEW_MODE_KEY = 'mentor.students.view';
+
+function readViewMode() {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === 'cards' ? 'cards' : 'list';
+  } catch (_) {
+    return 'list';
+  }
+}
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!el.isContentEditable;
+}
+
 export default function Mentor() {
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   // 角色与账号信息统一来自 useAuth（数据库 profile 为权威来源），
   // 不在本页重复实现认证，避免与 ProtectedRoute 逻辑漂移（MEN-2）
   const { user: authUser, profile: authProfile, loading: authLoading } = useAuth();
@@ -83,6 +110,15 @@ export default function Mentor() {
   const [deleteBusyId, setDeleteBusyId] = useState(null);  // 永久删除 per-student busy
   const [inviteBusyId, setInviteBusyId] = useState(null);  // 发送/撤回邀请 per-student busy
   const [isMobile, setIsMobile] = useState(false);
+  // 填写情况：近 7 天（+ 窗口外最后一条）的 session_date、待补填数量；today 为加载时的本地日期
+  const [fill, setFill] = useState({ loaded: false, today: null, datesByStudent: {}, pendingByStudent: null });
+  const [viewMode, setViewMode] = useState(readViewMode); // 'list' | 'cards'
+  const [selectedId, setSelectedId] = useState(null);      // 键盘游标 / 当前高亮学生
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [recordsExpanded, setRecordsExpanded] = useState(false);
+  const searchRef = useRef(null);
+  const statsArgsRef = useRef(null);
+  const statsAtRef = useRef(0);
   // 确认对话框状态（替代原生 confirm()）
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '确认', variant: 'danger', onConfirm: null });
 
@@ -272,8 +308,11 @@ export default function Mentor() {
           .filter((c) => c.status === 1)
           .map((c) => c.student_id);
     const targetStudents = rawTargets.filter((id) => !connectionsMap?.[id]?.virtual);
+    statsArgsRef.current = [connectionsMap, allStudents, admin];
+    statsAtRef.current = Date.now();
 
     if (targetStudents.length === 0) {
+      setFill({ loaded: true, today: toLocalDateStr(new Date()), datesByStudent: {}, pendingByStudent: {} });
       setClassStats({
         totalStudents: 0,
         avgDailyMinutes: 0,
@@ -333,6 +372,47 @@ export default function Mentor() {
       inactiveCount,
       inactiveByStudent,
     });
+
+    // —— 填写情况：沿用上面这批 session_date，再补两条轻量查询 ——
+    const todayIso = toLocalDateStr(new Date());
+    const datesByStudent = {};
+    for (const r of sessionData || []) {
+      const d = String(r.session_date || '').slice(0, 10);
+      if (!d) continue;
+      (datesByStudent[r.student_id] ||= []).push(d);
+    }
+    // 近 7 天一条都没有的学生：补查最后一条记录（用于「最后记录 / N 天没填」，否则 8 天前的记录会被误判成「从没记录」）
+    const quiet = targetStudents.filter((id) => !datesByStudent[id]);
+    const [olderRes, pendingRes] = await Promise.all([
+      quiet.length > 0
+        ? supabase
+            .from('learning_sessions')
+            .select('student_id, session_date')
+            .in('student_id', quiet)
+            .is('deleted_at', null)
+            .order('session_date', { ascending: false })
+            .limit(Math.min(5000, quiet.length * 40 + 200))
+            .abortSignal(timeoutSignal(30000))
+        : Promise.resolve({ data: [], error: null }),
+      // 待补填：练习 + 没有等第 + 没有分数（与学生端、数据分析同一口径）
+      applyPendingFilter(
+        supabase.from('learning_sessions').select('student_id').in('student_id', targetStudents).limit(5000)
+      ).abortSignal(timeoutSignal(30000)),
+    ]);
+    if (olderRes.error) logger.warn('last-record lookup failed:', olderRes.error);
+    for (const r of olderRes.data || []) {
+      const d = String(r.session_date || '').slice(0, 10);
+      if (!d || datesByStudent[r.student_id]) continue; // 每人只取最新一条
+      datesByStudent[r.student_id] = [d];
+    }
+    let pendingByStudent = null;
+    if (pendingRes.error) {
+      logger.warn('pending count failed:', pendingRes.error);
+    } else {
+      pendingByStudent = {};
+      for (const r of pendingRes.data || []) pendingByStudent[r.student_id] = (pendingByStudent[r.student_id] || 0) + 1;
+    }
+    setFill({ loaded: true, today: todayIso, datesByStudent, pendingByStudent });
   }
 
   const pickedIdRef = useRef(null);
@@ -342,7 +422,7 @@ export default function Mentor() {
     const { data, error } = await supabase
       .from('learning_sessions')
       .select(`
-        id, session_date, start_time, duration_minutes, category, form, eval_type,
+        id, session_date, start_time, end_time, duration_minutes, category, form, eval_type,
         score, self_rating, grade_label, notes, course_id, created_at,
         course:course_id(name, subject),
         chapter:chapter_id(name, deleted_at), unit:unit_id(name, deleted_at)
@@ -513,6 +593,7 @@ export default function Mentor() {
           if (isMissingFunction(error)) throw new Error('需要先在数据库执行 schema.patch-mentor-connections.sql 才能再次邀请');
           throw error;
         }
+        notifyReinvite(studentId); // 再次邀请要再推送一次邀请通知；不等待，失败不影响邀请本身
       } else {
         const { error } = await supabase
           .from('teacher_student_connections')
@@ -540,6 +621,20 @@ export default function Mentor() {
       }
     } finally {
       setInviteBusyId(null);
+    }
+  }
+
+  // 再次邀请成功后补发邀请推送（带导师登录令牌；客户端拿不到 NOTIFY_SECRET）。失败只记日志。
+  async function notifyReinvite(studentId) {
+    try {
+      const res = await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken()}` },
+        body: JSON.stringify({ type: 'reinvite', student_id: studentId }),
+      });
+      if (!res.ok) logger.warn('reinvite push not sent:', res.status);
+    } catch (e) {
+      logger.warn('reinvite push failed:', e);
     }
   }
 
@@ -730,7 +825,8 @@ export default function Mentor() {
       const alias = connections[s.id]?.mentor_alias || '';
       const q = searchQuery.toLowerCase();
       const matchesSearch =
-        name.toLowerCase().includes(q) || alias.toLowerCase().includes(q);
+        name.toLowerCase().includes(q) || alias.toLowerCase().includes(q)
+        || (s.school_name || '').toLowerCase().includes(q);
 
       const matchesSchool = filterSchool === 'all' || s.school_name === filterSchool;
 
@@ -778,6 +874,171 @@ export default function Mentor() {
     });
   };
 
+  // ── 填写情况（近 7 天 / 阶段 / 需关注 / 待补填）──
+  const infoById = useMemo(() => {
+    const m = {};
+    for (const s of students) {
+      const conn = connections[s.id];
+      const connected = fill.loaded && conn?.status === 1 && !conn?.virtual;
+      m[s.id] = buildFillInfo({
+        student: s,
+        connected,
+        dates: fill.datesByStudent[s.id],
+        todayIso: fill.today,
+        pending: fill.pendingByStudent ? (fill.pendingByStudent[s.id] || 0) : null,
+      });
+    }
+    return m;
+  }, [students, connections, fill]);
+  const infoOf = (id) => infoById[id] || { connected: false, pending: null };
+
+  const studentById = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students]);
+
+  // 组内排序：已连接在前 → 新生在前 → 没填天数多的在前 → 原顺序
+  const displayGroups = useMemo(
+    () => visibleGroups.map((g) => ({ ...g, students: sortGroupStudents(g.students, (id) => infoById[id]) })),
+    [visibleGroups, infoById],
+  );
+
+  // 键盘 J/K 的顺序：按页面上从上到下的学生（折叠的分组不参与）
+  const orderedIds = useMemo(
+    () => displayGroups.flatMap((g) => (collapsedGroups.has(consultantKey(g.consultant)) ? [] : g.students.map((s) => s.id))),
+    [displayGroups, collapsedGroups],
+  );
+
+  const personOf = (id) => {
+    const s = studentById[id];
+    const alias = connections[id]?.mentor_alias || '';
+    const { consultant, cleanName } = parseConsultant(alias);
+    return {
+      name: cleanName || alias || s?.full_name || '(未命名)',
+      advisor: consultant,
+      color: consultantColor(consultant),
+      info: infoById[id],
+    };
+  };
+
+  // 今日反馈的两份没填名单：用 attentionOf 在浏览器里实时算，学生补填后立刻消失
+  const attention = useMemo(() => {
+    const newMissed = [];
+    const gapList = [];
+    for (const s of students) {
+      const info = infoById[s.id];
+      if (!info?.connected || !info.attention) continue;
+      const alias = connections[s.id]?.mentor_alias || '';
+      const { consultant, cleanName } = parseConsultant(alias);
+      const base = {
+        id: s.id,
+        name: cleanName || alias || s.full_name || '(未命名)',
+        advisor: consultant,
+        color: consultantColor(consultant),
+        lastText: info.summary.lastDate ? `${formatMD(info.summary.lastDate)} · ${gapLabel(info.summary.gap)}` : '还没有记录',
+      };
+      if (info.attention === 'new-missed-yesterday') newMissed.push({ ...base, day: info.day, detail: `新生 · 第 ${info.day} 天` });
+      else gapList.push({ ...base, gap: info.summary.gap, detail: info.summary.gap == null ? '还没有记录' : `${info.summary.gap} 天没填` });
+    }
+    newMissed.sort((a, b) => a.day - b.day);
+    gapList.sort((a, b) => (b.gap ?? Infinity) - (a.gap ?? Infinity));
+    return { newMissed, gapList };
+  }, [students, connections, infoById]);
+
+  // 草稿：只看已连接（读得到记录）的学生
+  const draftStudentIds = useMemo(
+    () => students.filter((s) => connections[s.id]?.status === 1 && !connections[s.id]?.virtual).map((s) => s.id),
+    [students, connections],
+  );
+  const dr = useDrafts({ supabase, getAccessToken, userId: user?.id, studentIds: draftStudentIds });
+
+  function openStudent(s) {
+    if (!s) return;
+    setPicked(s);
+    setSelectedId(s.id);
+    setRecordsExpanded(false);
+  }
+  const openStudentById = (id) => openStudent(studentById[id]);
+
+  async function copyDraft(d) {
+    const r = await copyText(draftText(d), null);
+    toast(r === 'copied' ? '已复制' : '复制失败，请手动选中文字', { kind: r === 'copied' ? 'success' : 'error' });
+  }
+
+  function switchViewMode(mode) {
+    setViewMode(mode);
+    try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch (_) { /* 隐私模式等：不记住也不影响使用 */ }
+  }
+
+  // /mentor?student=<id>：E4 详情页等地方直接打开这位学生的侧栏
+  useEffect(() => {
+    const sid = searchParams.get('student');
+    if (!sid || students.length === 0) return;
+    const s = students.find((x) => x.id === sid);
+    if (s) { setActiveView('students'); openStudent(s); }
+    const next = new URLSearchParams(searchParams);
+    next.delete('student');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, students]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 切回标签页时（且距上次超过 2 分钟）重算填写情况，保证「昨天没填」「3 天以上没填」不过期
+  useEffect(() => {
+    if (!user) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!statsArgsRef.current || Date.now() - statsAtRef.current < 120000) return;
+      loadClassStats(...statsArgsRef.current).catch((e) => logger.warn('stats refresh failed:', e));
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 键盘：J/K 移动、Enter 打开、/ 搜索、T 今日反馈（在输入框里不触发；C / E 由今日反馈自己处理）
+  useEffect(() => {
+    if (isMobile || activeView !== 'students') return undefined;
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+      if (isTypingTarget(e.target) || confirmState.open) return;
+      const k = e.key;
+      if (k === 'j' || k === 'J' || k === 'k' || k === 'K') {
+        if (orderedIds.length === 0) return;
+        e.preventDefault();
+        const cur = orderedIds.indexOf(selectedId);
+        const down = k === 'j' || k === 'J';
+        const idx = cur < 0 ? (down ? 0 : orderedIds.length - 1) : Math.min(orderedIds.length - 1, Math.max(0, cur + (down ? 1 : -1)));
+        const id = orderedIds[idx];
+        setSelectedId(id);
+        if (picked && studentById[id]) { setPicked(studentById[id]); setRecordsExpanded(false); }
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-sid="${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
+        });
+      } else if (k === 'Enter') {
+        // 焦点在按钮 / 链接上时，让它自己处理 Enter
+        const tag = e.target?.tagName;
+        if (tag === 'BUTTON' || tag === 'A' || picked || !selectedId) return;
+        e.preventDefault();
+        openStudent(studentById[selectedId]);
+      } else if (k === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (k === 't' || k === 'T') {
+        e.preventDefault();
+        setFeedbackOpen((v) => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isMobile, activeView, orderedIds, selectedId, picked, studentById, confirmState.open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 列表 / 卡片共用的行内操作与编辑状态
+  const rowActions = {
+    isAdmin,
+    connections,
+    statusMeta,
+    deleteBusyId,
+    editingAliasId, editingAliasValue, setEditingAliasId, setEditingAliasValue, saveStudentAlias,
+    editingSchoolId, editingSchoolValue, setEditingSchoolId, setEditingSchoolValue, saveSchoolName,
+    sendInvite, withdrawInvite, disconnectStudent, deleteStudent,
+    onOpen: openStudentById,
+  };
+
   if (!user) {
     return (
       <div className="mentor-page" style={{ padding: 40, fontSize: 14, color: '#475569' }}>
@@ -804,72 +1065,64 @@ export default function Mentor() {
           )}
 
           {activeView === 'students' && (
-            <motion.div 
+            <motion.div
               className="mentor-students-page"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
             >
-              <motion.div 
-                className="mentor-page-header"
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <div>
-                  <h1 className="mentor-page-title">学生管理</h1>
-                  <p className="mentor-page-subtitle">管理你的学生连接和查看学习数据</p>
-                </div>
-              </motion.div>
+              {/* 今日反馈：折叠成一行计数，T 展开；没有内容时整块隐藏 */}
+              <TodayFeedback
+                open={feedbackOpen}
+                onToggle={() => setFeedbackOpen((v) => !v)}
+                dr={dr}
+                newMissed={attention.newMissed}
+                gapList={attention.gapList}
+                personOf={personOf}
+                onOpenStudent={openStudentById}
+                todayIso={fill.today}
+              />
 
-              {/* 工具栏：搜索 + 学校/状态筛选 + 顾问筛选 chip */}
-              <motion.div
-                className="mentor-toolbar"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1, duration: 0.3 }}
-              >
-                <div className="mentor-toolbar-row">
-                  <div className="mentor-search-field">
-                    <Search className="mentor-search-icon" aria-hidden="true" />
-                    <input
-                      type="text"
-                      placeholder="搜索学生…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="mentor-search-input"
-                    />
-                  </div>
-                  <select
-                    className="mentor-select"
-                    value={filterSchool}
-                    onChange={(e) => setFilterSchool(e.target.value)}
-                  >
-                    <option value="all">所有学校</option>
+              {/* 一行筛选：搜索 + 学校 + 连接 + 顾问 chip + 列表/卡片 */}
+              <div className="mt-filterbar">
+                <div className="mentor-search-field mt-search">
+                  <Search className="mentor-search-icon" aria-hidden="true" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    placeholder="搜索学生、备注、学校"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur(); }}
+                    className="mentor-search-input"
+                  />
+                  <kbd className="mt-kbd" aria-hidden="true">/</kbd>
+                </div>
+                <label className="mt-sel">
+                  <span>学校</span>
+                  <select value={filterSchool} onChange={(e) => setFilterSchool(e.target.value)}>
+                    <option value="all">全部</option>
                     {schools.map((school) => (
                       <option key={school} value={school}>{school}</option>
                     ))}
                   </select>
-                  <select
-                    className="mentor-select"
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                  >
-                    <option value="all">全部状态</option>
+                </label>
+                <label className="mt-sel">
+                  <span>连接</span>
+                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                    <option value="all">全部</option>
                     <option value="connected">已连接</option>
                     <option value="invited">邀请中</option>
                     <option value="rejected">已拒绝</option>
                     <option value="uninvited">未邀请</option>
                   </select>
-                </div>
-
-                <div className="mentor-chip-row">
+                </label>
+                <div className="mt-chips">
                   <button
                     type="button"
                     className={`mentor-chip ${filterConsultant === 'all' ? 'mentor-chip--active' : ''}`}
                     onClick={() => setFilterConsultant('all')}
                   >
-                    <span className="mentor-chip-dot" style={{ background: 'var(--mentor-color-text-muted)' }} />
                     全部
                     <span className="mentor-chip-count">{filteredStudents.length}</span>
                   </button>
@@ -883,218 +1136,78 @@ export default function Mentor() {
                         className={`mentor-chip ${active ? 'mentor-chip--active' : ''}`}
                         onClick={() => setFilterConsultant(active ? 'all' : key)}
                       >
-                        <span className="mentor-chip-dot" style={{ background: consultantColor(g.consultant) }} />
                         {g.consultant || '未分配'}
                         <span className="mentor-chip-count">{g.students.length}</span>
                       </button>
                     );
                   })}
                 </div>
-              </motion.div>
-
-              {/* 顾问分区：每人一组，组内卡片网格 */}
-              <div className="mentor-groups">
-
-                {visibleGroups.map((group) => {
-                  const groupKey = consultantKey(group.consultant);
-                  const collapsed = collapsedGroups.has(groupKey);
-                  const groupColor = consultantColor(group.consultant);
-                  return (
-                    <section key={groupKey} className="mentor-group">
-                      <header className="mentor-group-header">
-                        <button
-                          type="button"
-                          className="mentor-group-toggle"
-                          onClick={() => toggleGroup(groupKey)}
-                          aria-expanded={!collapsed}
-                        >
-                          <span
-                            className="mentor-group-monogram"
-                            style={{ background: `${groupColor}14`, color: groupColor }}
-                          >
-                            {(group.consultant || '未').charAt(0).toUpperCase()}
-                          </span>
-                          <span className="mentor-group-name">{group.consultant || '未分配'}</span>
-                          <ChevronDown className={`mentor-group-chevron ${collapsed ? 'is-collapsed' : ''}`} />
-                        </button>
-                        <Badge variant="secondary" className="mentor-group-count">
-                          {group.students.length} 位学生
-                        </Badge>
-                      </header>
-                      {!collapsed && (
-                        <div className="mentor-group-grid">
-                          {group.students.map((s) => {
-                            const conn = connections[s.id];
-                          const status = conn?.status ?? -1;
-                          const alias = conn?.mentor_alias || '';
-                          const isDeleting = deleteBusyId === s.id;
-                          const isAliasEditing = editingAliasId === s.id;
-                          const meta = statusMeta(status);
-                          // 备注名括号里是顾问归属（区头已表达），卡片主标题只显示干净姓名
-                          const { cleanName } = parseConsultant(alias);
-                          const displayName = cleanName || alias || s.full_name || '(未命名)';
-                          const avatarColor = consultantColor(group.consultant);
-                          return (
-                            <Card
-                              key={s.id}
-                              className="mentor-student-card group"
-                              onClick={() => setPicked(s)}
-                              style={{ opacity: isDeleting ? 0.55 : 1 }}
-                            >
-                              <div className="mentor-student-card__top">
-                                <div
-                                  className="mentor-student-avatar"
-                                  style={{ background: `${avatarColor}14`, color: avatarColor }}
-                                >
-                                  {(displayName || '?').charAt(0).toUpperCase()}
-                                </div>
-                                <div className="mentor-student-card__id">
-                                  <div className="mentor-student-card__name-row">
-                                    <span className="mentor-student-card__name">{displayName}</span>
-                                    {alias && <span className="mentor-student-card__tag">备注</span>}
-                                  </div>
-                                  <div className="mentor-student-card__meta">
-                                    {alias && <span>本名：{s.full_name || '-'}</span>}
-                                    <span>{s.school_name || '未设置学校'}</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mentor-student-card__foot">
-                                <div className="mentor-student-card__left">
-                                  <span className={`mentor-status mentor-status--${meta.key}`}>
-                                    <span className="mentor-status-dot" />
-                                    {meta.label}
-                                  </span>
-                                  {classStats.inactiveByStudent?.[s.id] && (
-                                    <span className="mentor-inactive">
-                                      <span className="mentor-inactive-dot" />
-                                      {formatInactivity(classStats.inactiveByStudent[s.id])}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mentor-student-card__actions">
-                                  {!isAdmin && status === -1 && (
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                    >邀请</Button>
-                                  )}
-                                  {!isAdmin && status === 0 && (
-                                    <>
-                                      <Button
-                                        size="sm" variant="outline"
-                                        onClick={(e) => { e.stopPropagation(); withdrawInvite(s.id); }}
-                                      >撤回</Button>
-                                      <Button
-                                        size="sm"
-                                        onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                      >重发</Button>
-                                    </>
-                                  )}
-                                  {!isAdmin && status === 2 && (
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => { e.stopPropagation(); sendInvite(s.id); }}
-                                    >再次邀请</Button>
-                                  )}
-                                  {!isAdmin && status === 1 && (
-                                    <Button
-                                      size="sm" variant="outline"
-                                      onClick={(e) => { e.stopPropagation(); disconnectStudent(s.id); }}
-                                    >断开</Button>
-                                  )}
-                                  {/* 备注名：status === 1（含 admin 自动连接）可编辑 */}
-                                  {status === 1 && !isAliasEditing && (
-                                    <Button
-                                      size="sm" variant="outline"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingAliasId(s.id);
-                                        setEditingAliasValue(alias);
-                                      }}
-                                    >{alias ? '改备注' : '备注名'}</Button>
-                                  )}
-                                  {/* 永久删除：admin only */}
-                                  {isAdmin && (
-                                    <Button
-                                      size="sm" variant="destructive"
-                                      className="mentor-btn-delete"
-                                      disabled={isDeleting}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (isDeleting) return;
-                                        deleteStudent(s.id);
-                                      }}
-                                    >{isDeleting ? '删除中…' : '删除'}</Button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {isAliasEditing && (
-                                <motion.div
-                                  className="mentor-alias-editor"
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: 'auto' }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                >
-                                  <input
-                                    type="text"
-                                    placeholder="输入备注名（留空清除）"
-                                    value={editingAliasValue}
-                                    onChange={(e) => setEditingAliasValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(s.id, editingAliasValue); }
-                                      if (e.key === 'Escape') { setEditingAliasId(null); setEditingAliasValue(''); }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    autoFocus
-                                    className="mentor-alias-input"
-                                  />
-                                  <div className="mentor-alias-actions">
-                                    <Button
-                                      size="sm" variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingAliasId(null);
-                                        setEditingAliasValue('');
-                                      }}
-                                    >取消</Button>
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => { e.stopPropagation(); saveStudentAlias(s.id, editingAliasValue); }}
-                                    >保存</Button>
-                                  </div>
-                                </motion.div>
-                              )}
-                            </Card>
-                          );
-                        })}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
-
-                  {visibleGroups.length === 0 && (
-                    <div className="mentor-empty-state" style={{ padding: '56px 20px' }}>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--mentor-color-text-secondary)' }}>
-                        未找到匹配的学生
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--mentor-color-text-tertiary)', marginTop: 4 }}>
-                        调整搜索关键词或筛选条件后重试
-                      </div>
-                    </div>
-                  )}
+                <div className="mt-switch" role="group" aria-label="显示方式">
+                  <button
+                    type="button"
+                    className={viewMode === 'list' ? 'is-active' : ''}
+                    aria-pressed={viewMode === 'list'}
+                    onClick={() => switchViewMode('list')}
+                  >列表</button>
+                  <button
+                    type="button"
+                    className={viewMode === 'cards' ? 'is-active' : ''}
+                    aria-pressed={viewMode === 'cards'}
+                    onClick={() => switchViewMode('cards')}
+                  >卡片</button>
+                </div>
               </div>
 
-              {/* 学生详情：右侧滑出 Sheet（替代原「320px 侧栏 + 详情」分栏） */}
+              {viewMode === 'list' ? (
+                <StudentTable
+                  groups={displayGroups}
+                  infoOf={infoOf}
+                  selectedId={selectedId}
+                  collapsedGroups={collapsedGroups}
+                  onToggleGroup={toggleGroup}
+                  actions={rowActions}
+                />
+              ) : (
+                <StudentCards
+                  groups={displayGroups}
+                  infoOf={infoOf}
+                  selectedId={selectedId}
+                  collapsedGroups={collapsedGroups}
+                  onToggleGroup={toggleGroup}
+                  actions={rowActions}
+                  inactiveByStudent={classStats.inactiveByStudent}
+                />
+              )}
+
+              {displayGroups.length === 0 && (
+                <div className="mentor-empty-state" style={{ padding: '56px 20px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--mentor-color-text-secondary)' }}>
+                    未找到匹配的学生
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--mentor-color-text-tertiary)', marginTop: 4 }}>
+                    调整搜索关键词或筛选条件后重试
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-hints">
+                <span><kbd>J</kbd><kbd>K</kbd> 上下移动</span>
+                <span><kbd>Enter</kbd> 打开学生</span>
+                <span><kbd>/</kbd> 搜索</span>
+                <span><kbd>T</kbd> 今日反馈</span>
+                <span className="mt-hints-note">新生 = 注册 30 天内，每天看；之后每周看</span>
+              </div>
+
+              {/* 学生详情：右侧滑出 Sheet（J/K 可在打开时切换学生） */}
               <Sheet open={!!picked} onOpenChange={(open) => { if (!open) setPicked(null); }}>
                 {picked && (() => {
                   const alias = connections[picked.id]?.mentor_alias || '';
                   const { consultant, cleanName } = parseConsultant(alias);
                   const consultantTone = consultantColor(consultant);
                   const title = cleanName || alias || picked.full_name || '学生';
+                  const summary = fill.today ? fillSummary(sessions.map((r) => r.date), fill.today) : null;
+                  const pendingCount = sessions.filter((r) => isPendingObjective({ ...r, deleted_at: null })).length;
+                  const pickedDraft = dr.drafts.find((d) => d.student_id === picked.id && d.status === 'draft');
                   return (
                   <SheetContent onClose={() => setPicked(null)}>
                     <SheetHeader>
@@ -1166,38 +1279,42 @@ export default function Mentor() {
                         <>
                           <div className="mentor-sheet-stats">
                             {[
-                              { label: '学习记录', value: sessions.length, suffix: '条' },
-                              { label: '累计时长', value: fmtMinutes(sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0)), suffix: '' },
-                              { label: '活跃天数', value: new Set(sessions.map(s => s.date?.split('T')[0])).size, suffix: '天' },
+                              { label: '近 7 天有记录', value: summary ? `${summary.count}/7` : '—', suffix: summary ? ' 天' : '' },
+                              { label: '待补填', value: pendingCount, suffix: '', warn: pendingCount > 0 },
+                              { label: '最后记录', value: summary?.lastDate ? formatMD(summary.lastDate) : '—', suffix: '' },
                             ].map((stat) => (
                               <div key={stat.label} className="mentor-sheet-stat">
-                                <div className="mentor-sheet-stat__value">{stat.value}{stat.suffix}</div>
+                                <div className={`mentor-sheet-stat__value ${stat.warn ? 'is-warn' : ''}`}>{stat.value}{stat.suffix}</div>
                                 <div className="mentor-sheet-stat__label">{stat.label}</div>
                               </div>
                             ))}
                           </div>
 
+                          {pickedDraft && (
+                            <div className="mt-sheet-draft">
+                              <div className="mt-sheet-draft-head">
+                                <span>待发反馈</span>
+                                <span>{draftKindLabel(pickedDraft, infoOf(picked.id), fill.today)}</span>
+                              </div>
+                              <div className="mt-sheet-draft-text">{draftText(pickedDraft)}</div>
+                              <div className="mt-sheet-draft-acts">
+                                <Button size="sm" onClick={() => copyDraft(pickedDraft)}>复制</Button>
+                                <Button size="sm" variant="outline" onClick={() => dr.markSent(pickedDraft)}>已发</Button>
+                              </div>
+                            </div>
+                          )}
+
                           {sessions.length > 0 ? (
                             <>
-                              <div className="mentor-sheet-note">
-                                <div className="mentor-sheet-note__title">详细周度复盘请前往「数据分析」页</div>
-                                <div className="mentor-sheet-note__sub">当前在学生管理页仅显示简要摘要</div>
+                              <div className="mentor-sheet-section-label">
+                                最近记录（按日期，学生填写的全部内容）
+                                {sessionsTruncated && ' · 仅显示最新 2000 条'}
                               </div>
-
-                              <div className="mentor-sheet-section-label">最新提交（按提交时间，含补填）</div>
-                              <div className="mentor-sheet-list">
-                                {recentSubmitted.slice(0, 8).map((s, i) => {
-                                  const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
-                                  return (
-                                    <div key={i} className="mentor-sheet-row">
-                                      <span className="mentor-sheet-row__subject">{s.subject}</span>
-                                      <span className="mentor-sheet-row__date">{s.date}</span>
-                                      {isBackfill && <span className="mentor-sheet-row__backfill">补填</span>}
-                                      <span className="mentor-sheet-row__dur">{fmtMinutes(s.duration_minutes || 0)}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                              <SheetRecords
+                                sessions={sessions}
+                                expanded={recordsExpanded}
+                                onExpand={() => setRecordsExpanded(true)}
+                              />
 
                               <div className="mentor-sheet-actions">
                                 <Button
@@ -1221,7 +1338,7 @@ export default function Mentor() {
                   );
                 })()}
               </Sheet>
-                  </motion.div>
+            </motion.div>
           )}
 
           {activeView === 'analytics' && (
@@ -1231,16 +1348,6 @@ export default function Mentor() {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
             >
-              <motion.div
-                className="mentor-page-header"
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <h1 className="mentor-page-title">数据分析</h1>
-                <p className="mentor-page-subtitle">选择学生查看周度学习复盘</p>
-              </motion.div>
-
               {/* Student selector */}
               <div className="mentor-analytics-picker" style={{
                 display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24,
@@ -1453,16 +1560,6 @@ export default function Mentor() {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
             >
-              <motion.div
-                className="mentor-page-header"
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <h1 className="mentor-page-title">课表</h1>
-                <p className="mentor-page-subtitle">查看学生的课程大纲</p>
-              </motion.div>
-
               {/* 学生选择器 */}
               <div className="mentor-analytics-picker" style={{
                 display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24,
@@ -1624,10 +1721,6 @@ export default function Mentor() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <div className="mentor-page-header">
-                <h1 className="mentor-page-title">账号设置</h1>
-                <p className="mentor-page-subtitle">管理你的导师账号资料</p>
-              </div>
               <WorkspacePreference />
               <ProfileEditor
                 mode="inline"
@@ -1698,6 +1791,18 @@ export default function Mentor() {
               <div style={{ marginTop: 4, fontSize: 12, color: '#991b1b' }}>{deployCheck.message}</div>
             </motion.div>
           )}
+
+          <TodayFeedback
+            open={feedbackOpen}
+            onToggle={() => setFeedbackOpen((v) => !v)}
+            dr={dr}
+            newMissed={attention.newMissed}
+            gapList={attention.gapList}
+            personOf={personOf}
+            onOpenStudent={openStudentById}
+            todayIso={fill.today}
+            hideShortcuts
+          />
 
           <section className="m-filter-bar">
             <div className="m-search-wrap">
@@ -1774,11 +1879,21 @@ export default function Mentor() {
                       {(s.full_name || '?').charAt(0).toUpperCase()}
                     </div>
                     <div className="m-student-card__info">
-                      <div className="m-student-card__name">{s.full_name || '(未命名)'}</div>
+                      <div className="m-student-card__name">
+                        <StudentLink id={s.id} onOpen={openStudentById}>{s.full_name || '(未命名)'}</StudentLink>
+                      </div>
                       <div className="m-student-card__meta">
                         {s.school_name || '未设置学校'} · {s.created_at ? toLocalDateStr(new Date(s.created_at)) : ''}
                       </div>
-                      {classStats.inactiveByStudent?.[s.id] && (
+                      {infoOf(s.id).connected && (
+                        <div className="m-fill">
+                          <StageTag info={infoOf(s.id)} />
+                          <AttentionText info={infoOf(s.id)} />
+                          <FillStrip summary={infoOf(s.id).summary} />
+                        </div>
+                      )}
+                      {/* 新生的「昨天」说明已经覆盖了没填，不再重复「N 天未填写」 */}
+                      {!infoOf(s.id).isNew && classStats.inactiveByStudent?.[s.id] && (
                         <div className="m-inactive">
                           <span className="m-inactive-dot" />
                           {formatInactivity(classStats.inactiveByStudent[s.id])}

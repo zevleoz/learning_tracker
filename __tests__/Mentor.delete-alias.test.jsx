@@ -188,12 +188,15 @@ describe('Mentor desktop — delete + alias features', () => {
     setupAliasForStudent1('隔壁小王');
     render(<MemoryRouter><Mentor /></MemoryRouter>);
     await waitFor(() => {
-      // Primary name = alias (appears in left list + right card)
+      // 列表视图（默认）：主名字 = 备注名，本名放在名字链接的 title 上
       expect(screen.getAllByText('隔壁小王').length).toBeGreaterThan(0);
-      // Real name shown as subtitle "本名：王小明" (left list + right card)
+    });
+    expect(screen.getByText('隔壁小王').getAttribute('title')).toBe('本名：王小明');
+    // 卡片视图：本名作为副标题，并带「备注」小标签
+    fireEvent.click(screen.getByRole('button', { name: '卡片' }));
+    await waitFor(() => {
       expect(screen.getAllByText('本名：王小明').length).toBeGreaterThan(0);
     });
-    // "备注" indicator chip is rendered (only in right card grid)
     expect(screen.getAllByText('备注').length).toBeGreaterThan(0);
     // 备注名 button label changes to "改备注" when alias is set
     expect(screen.getByRole('button', { name: '改备注' })).toBeInTheDocument();
@@ -209,7 +212,7 @@ describe('Mentor desktop — delete + alias features', () => {
     // Before search: 李小华 appears only in the right grid (left panel hidden
     // when no student is picked).
     expect(screen.getAllByText('李小华').length).toBe(1);
-    const searchInput = screen.getByPlaceholderText('搜索学生…');
+    const searchInput = screen.getByPlaceholderText('搜索学生、备注、学校');
     fireEvent.change(searchInput, { target: { value: '隔壁' } });
     await waitFor(() => {
       // student-1 (alias=隔壁小王) still visible
@@ -225,7 +228,7 @@ describe('Mentor desktop — delete + alias features', () => {
     await waitForStudents();
     // Before search: 李小华 only in right grid.
     expect(screen.getAllByText('李小华').length).toBe(1);
-    const searchInput = screen.getByPlaceholderText('搜索学生…');
+    const searchInput = screen.getByPlaceholderText('搜索学生、备注、学校');
     fireEvent.change(searchInput, { target: { value: '王小' } });
     await waitFor(() => {
       // student-1 (王小明) still visible

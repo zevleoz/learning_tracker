@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
-import logo from '../logo/logo_color.png';
+import logo from '../logo/crest.png';
 import '../styles/student-auth.css';
 
 const MOBILE_BREAKPOINT = 767;

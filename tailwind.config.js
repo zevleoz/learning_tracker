@@ -8,11 +8,11 @@ export default {
     extend: {
       colors: {
         brand: {
-          50:  '#f0fdf4',
-          100: '#dcfce7',
-          500: '#10b981',
-          600: '#059669',
-          700: '#047857'
+          50:  '#F6E5E6',
+          100: '#EBC8CB',
+          500: '#C2353C',
+          600: '#A3202A',
+          700: '#7F1820'
         },
         sig: {
           hesitant: '#f59e0b',
@@ -60,7 +60,7 @@ export default {
         sm: 'calc(var(--radius) - 4px)'
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['-apple-system', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
       },
       boxShadow: {

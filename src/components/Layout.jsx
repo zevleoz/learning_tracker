@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { supabase } from '../lib/supabase.js';
@@ -51,6 +51,14 @@ function IconBell() {
     </svg>
   );
 }
+function IconPlus() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
 
 // 导航项
 const NAV_ITEMS = [
@@ -59,14 +67,16 @@ const NAV_ITEMS = [
   { to: '/review',   label: '回顾', Icon: IconChart },
 ];
 
-const MOBILE_BREAKPOINT = 767;
+// 往下滚超过这个距离后，tab bar 才开始收起（避免顶部回弹时抖动）
+const SHRINK_AFTER = 48;
+// 单次滚动位移小于该阈值不改变状态（过滤触摸板细微抖动）
+const SCROLL_DELTA = 6;
 
 export default function Layout() {
   const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const location = useLocation();
-  const [isMobile, setIsMobile] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+  const [shrunk, setShrunk] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
@@ -130,242 +140,123 @@ export default function Layout() {
     [isTeacher]
   );
 
+  /* ---- 向下滚动收起 tab bar、向上滚动展开（仅手机底栏样式下有视觉效果） ---- */
   useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
     function update() {
-      setIsMobile(window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
+      ticking = false;
+      const y = window.scrollY;
+      const dy = y - lastY;
+      if (y <= SHRINK_AFTER) {
+        setShrunk(false);
+        lastY = y;
+      } else if (Math.abs(dy) >= SCROLL_DELTA) {
+        setShrunk(dy > 0);
+        lastY = y;
+      }
     }
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-
-  useEffect(() => {
-    function onScroll() { setScrolled(window.scrollY > 8); }
-    onScroll();
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // 换页后回到展开态
+  useEffect(() => { setShrunk(false); }, [location.pathname]);
 
   async function handleSignOut() {
     await signOut();
     nav('/login', { replace: true });
   }
 
-  /* ---- 左边缘滑动返回（iOS 原生感） ---- */
-  useEffect(() => {
-    const EDGE = 30; // 左边缘 30px 内开始
-    const MIN_DIST = 50; // 至少右滑 50px 触发返回
-    let startX = 0, startY = 0, tracking = false, triggered = false;
-
-    function onTouchStart(e) {
-      if (e.touches.length !== 1) return;
-      const t = e.touches[0];
-      if (t.clientX > EDGE) return;
-      startX = t.clientX; startY = t.clientY;
-      tracking = true; triggered = false;
+  // ＋：在 /learning 直接通知记录页打开 LogSheet，其它页先跳转再由 ?log=1 打开
+  const openLog = useCallback(() => {
+    if (location.pathname === '/learning') {
+      window.dispatchEvent(new CustomEvent('yb:open-log'));
+    } else {
+      nav('/learning?log=1');
     }
-    function onTouchMove(e) {
-      if (!tracking) return;
-      const t = e.touches[0];
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
-      // 必须是横向主导滑动（避免与垂直滚动冲突）
-      if (Math.abs(dx) > Math.abs(dy) && dx > 8) {
-        e.preventDefault();
-      }
-    }
-    function onTouchEnd(e) {
-      if (!tracking) return;
-      const t = (e.changedTouches && e.changedTouches[0]) || null;
-      if (!t) { tracking = false; return; }
-      const dx = t.clientX - startX;
-      if (!triggered && dx >= MIN_DIST) {
-        triggered = true;
-        // 导航返回
-        nav(-1);
-      }
-      tracking = false;
-    }
+  }, [location.pathname, nav]);
 
-    // passive:false 才能 preventDefault
-    document.addEventListener('touchstart', onTouchStart, { passive: true });
-    document.addEventListener('touchmove', onTouchMove, { passive: false });
-    document.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      document.removeEventListener('touchstart', onTouchStart);
-      document.removeEventListener('touchmove', onTouchMove);
-      document.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [nav]);
-
-  /* ---- 底部导航 pill 横向滑动切换 tab（配合 iOS 滑动选择） ---- */
-  const pillRef = useRef(null);
-  useEffect(() => {
-    const el = pillRef.current;
-    if (!el) return;
-    let startX = 0, startY = 0, tracking = false, moved = false;
-
-    function onStart(e) {
-      const t = (e.touches && e.touches[0]) || e;
-      startX = t.clientX; startY = t.clientY;
-      tracking = true; moved = false;
-    }
-    function onMove(e) {
-      if (!tracking) return;
-      const t = (e.touches && e.touches[0]) || e;
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
-        e.preventDefault();
-        moved = true;
-      }
-    }
-    function onEnd(e) {
-      if (!tracking) return;
-      const t = (e.changedTouches && e.changedTouches[0]) || (e.changedTouches ? null : e);
-      tracking = false;
-      if (!moved || !t) return;
-      const dx = t.clientX - startX;
-      if (Math.abs(dx) < 40) return;
-
-      // 在当前 nav items 中找到当前激活项的 index，左右移动
-      const currentPath = location.pathname;
-      const idx = finalNavItems.findIndex((x) => currentPath === x.to || currentPath.startsWith(x.to + '/'));
-      if (idx < 0) return;
-      const nextIdx = dx < 0 ? Math.min(idx + 1, finalNavItems.length - 1) : Math.max(idx - 1, 0);
-      if (nextIdx !== idx) nav(finalNavItems[nextIdx].to);
-    }
-
-    el.addEventListener('touchstart', onStart, { passive: true });
-    el.addEventListener('touchmove', onMove, { passive: false });
-    el.addEventListener('touchend', onEnd, { passive: true });
-    return () => {
-      el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove', onMove);
-      el.removeEventListener('touchend', onEnd);
-    };
-  }, [finalNavItems, location.pathname, nav]);
-
-  // 导师/管理员路由永远走桌面版，不受窗口宽度影响。
-  // 避免窄桌面窗口（480–767px）触发移动端外壳包裹桌面版内容的混合 UI。
-  const isMentorRoute = location.pathname === '/mentor';
-  const effectiveIsMobile = isMentorRoute ? false : isMobile;
-
-  const isMentorDesktop = !effectiveIsMobile && isMentorRoute;
-  if (isMentorDesktop) {
+  // 导师台 (/mentor) 自带整页布局，不套学生外壳。
+  if (location.pathname === '/mentor') {
     return <Outlet />;
   }
 
-  /* ========= 移动端：顶部极简 + 底部浮动 pill ========= */
-  if (effectiveIsMobile) {
-    return (
-      <div className="page-container">
-        <header className="m-topbar">
-          <img src={logoSmall} className="topbar-logo" alt="logo" />
-          {profile?.full_name && (
-            <button
-              className="signout-btn"
-              onClick={() => setProfileEditorOpen(true)}
-              title="点击编辑资料"
-            >
-              {profile.full_name}
-            </button>
-          )}
-        </header>
+  const initial = (profile?.full_name || '').trim().slice(0, 1) || '我';
 
-        {/* key = location.pathname 让 React 在路由切换时卸载旧 DOM、
-            装载新 DOM，从而触发 CSS animation 的 from → to */}
-        <main key={location.pathname} className="main page-enter">
-          <Outlet />
-        </main>
-
-        <nav className="m-nav-pill" aria-label="主导航" ref={pillRef}>
-          <div className="m-nav-pill-inner">
-            {finalNavItems.map(({ to, label, Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end
-                className={({ isActive }) => 'm-nav-link' + (isActive ? ' active' : '')}
-              >
-                <span className="m-nav-icon">
-                  <Icon />
-                  {to === '/notifications' && notificationCount > 0 && (
-                    <span className="m-nav-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
-                  )}
-                </span>
-                <span className="m-nav-label">{label}</span>
-              </NavLink>
-            ))}
-          </div>
-        </nav>
-
-        {profileEditorOpen && (
-          <ProfileEditor
-            mode="modal"
-            onClose={() => setProfileEditorOpen(false)}
-          />
-        )}
-      </div>
-    );
-  }
-
-  /* ========= 桌面端：顶部吸附条 + 横向胶囊导航 ========= */
   return (
-    <div className="page-container">
-      <header className={'d-topbar' + (scrolled ? ' is-scrolled' : '')}>
-        <div className="d-topbar-inner">
-          <img src={logoInline} className="brand-inline" alt="logo" />
-
-          <nav className="d-nav-group">
-            {finalNavItems.map(({ to, label, Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end
-                className={({ isActive }) => 'd-nav-link' + (isActive ? ' active' : '')}
-              >
-                <span className="d-nav-icon">
-                  <Icon />
-                  {to === '/notifications' && notificationCount > 0 && (
-                    <span className="d-nav-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
-                  )}
-                </span>
-                <span>{label}</span>
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className="d-right">
-            {profile?.full_name && (
-              <button
-                className="d-user"
-                onClick={() => setProfileEditorOpen(true)}
-                title="点击编辑资料"
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  font: 'inherit', padding: 0, color: 'inherit',
-                }}
-              >
-                {profile.full_name}
-              </button>
-            )}
-            {isTeacher && (
-              <span style={{
-                fontSize: '11px', padding: '3px 8px', borderRadius: '999px',
-                background: 'var(--brand-soft)', color: 'var(--brand)',
-                border: '1px solid rgba(193,39,45,0.25)', marginLeft: '4px',
-                fontWeight: 600,
-              }}>老师</span>
-            )}
-            <button className="signout-btn" onClick={handleSignOut}>退出</button>
-          </div>
-        </div>
+    <div className="page-container yb-student yb-shell">
+      {/* 手机顶栏：只在 <600px 显示；点姓名打开资料（含退出登录） */}
+      <header className="yb-topbar">
+        <img src={logoSmall} className="yb-topbar-logo" alt="一表人才" />
+        {profile?.full_name && (
+          <button
+            type="button"
+            className="yb-topbar-user"
+            onClick={() => setProfileEditorOpen(true)}
+            aria-label="编辑资料或退出登录"
+          >
+            {profile.full_name}
+          </button>
+        )}
       </header>
 
-      <main key={location.pathname} className="main page-enter">
+      {/* key = location.pathname：路由切换时重挂载，触发 120ms 淡入 */}
+      <main key={location.pathname} className="main yb-main page-enter">
         <Outlet />
       </main>
+
+      {/* 同一份 DOM，三种形态（见 index.css）：
+          ≥920px 浮动侧栏 · 600–919px 图标轨 · <600px 底部玻璃 tab bar */}
+      <nav className={'yb-nav' + (shrunk ? ' is-shrunk' : '')} aria-label="主导航">
+        <div className="yb-brand">
+          <img src={logoInline} alt="" />
+          <b>一表人才</b>
+        </div>
+
+        <button type="button" className="yb-add" onClick={openLog} aria-label="记一笔">
+          <IconPlus />
+          <span className="yb-add-label">记一笔</span>
+        </button>
+
+        <div className="yb-tabs">
+          {finalNavItems.map(({ to, label, Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end
+              className={({ isActive }) => 'yb-tab' + (isActive ? ' on' : '')}
+              aria-label={to === '/notifications' && notificationCount > 0 ? `${label}，${notificationCount} 条未处理` : undefined}
+            >
+              <span className="yb-tab-icon">
+                <Icon />
+                {to === '/notifications' && notificationCount > 0 && (
+                  <span className="yb-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
+                )}
+              </span>
+              <span className="yb-tab-label">{label}</span>
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="yb-me">
+          <button
+            type="button"
+            className="yb-me-btn"
+            onClick={() => setProfileEditorOpen(true)}
+            aria-label="编辑资料"
+          >
+            <span className="yb-avatar" aria-hidden="true">{initial}</span>
+            <span className="yb-me-name">{profile?.full_name || '我的资料'}</span>
+          </button>
+          <button type="button" className="yb-signout" onClick={handleSignOut}>退出</button>
+        </div>
+      </nav>
 
       {profileEditorOpen && (
         <ProfileEditor

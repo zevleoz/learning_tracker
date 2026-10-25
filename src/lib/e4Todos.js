@@ -41,7 +41,8 @@ export function isReportDue(student) {
   const date = student?.next_meeting_date;
   if (!date) return false;
   const d = daysUntil(date);
-  if (d === null || d > 0) return false;
+  // 当天的会议可能还没开：从第二天起才提醒写报告，当天留在「今天」
+  if (d === null || d >= 0) return false;
   const reportDay = localIsoDate(student.latest_report_at);
   return !(reportDay && reportDay >= date);
 }

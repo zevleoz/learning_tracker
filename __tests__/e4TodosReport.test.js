@@ -29,8 +29,9 @@ describe('isReportDue（待写报告）', () => {
     expect(isReportDue(stu({ next_meeting_date: iso(-4), latest_report_at: iso(-4) }))).toBe(false);
   });
 
-  it('今天的会议还没出报告 → 待写', () => {
-    expect(isReportDue(stu({ next_meeting_date: iso(0) }))).toBe(true);
+  it('今天的会议留在「今天」，第二天起才待写', () => {
+    expect(isReportDue(stu({ next_meeting_date: iso(0) }))).toBe(false);
+    expect(isReportDue(stu({ next_meeting_date: iso(-1) }))).toBe(true);
     expect(isReportDue(stu({ next_meeting_date: iso(0), latest_report_at: at(0) }))).toBe(false);
   });
 

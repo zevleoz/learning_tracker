@@ -140,8 +140,8 @@ describe('今天', () => {
     for (const t of ['2:00', '0:40', '0:45']) expect(screen.getByText(t)).toBeInTheDocument();
     // 上周同期（至 10/17）= 50 分
     expect(screen.getByText('比上周同期多 155 分')).toBeInTheDocument();
-    expect(screen.queryByText(/还可休息/)).toBeNull();   // 不提示剩余休息天数，避免打扰
-    expect(screen.getByText('6')).toBeInTheDocument();
+    expect(screen.queryByText(/还可休息/)).toBeNull();   // 不再有休息日额度文案
+    expect(screen.getByText('5')).toBeInTheDocument();   // 20–24 日；19 日没有记录
     // 没有任何目标 / 还差
     expect(screen.queryByText(/目标|还差/)).toBeNull();
   });

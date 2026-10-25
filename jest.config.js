@@ -28,6 +28,6 @@ export default {
     '**/*.test.js',
     '**/*.test.jsx',
   ],
-  testPathIgnorePatterns: ['/node_modules/', '/dist/', '/.claude/'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/', '<rootDir>/.claude/'],
   modulePathIgnorePatterns: ['<rootDir>/.claude/'],
 };

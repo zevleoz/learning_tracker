@@ -14,7 +14,7 @@ import { Sheet } from '../../components/student/LogSheet.jsx';
 import '../../styles/student-me.css';
 
 /* ================================================================
-   我的：资料 · 导师与邀请 · 我的课程 · 提醒 · 外观 · 退出登录
+   我的：资料 · 导师与邀请 · 我的课程 · 提醒 · 退出登录（深浅色跟随系统，不单设入口）
    提醒设置（/me/reminders）作为同文件的命名导出 Reminders。
    ================================================================ */
 
@@ -93,12 +93,6 @@ export default function Me() {
               <span className="mep-li-r">{pushState === 'granted' ? '已开启' : '未开启'}</span>
               <ChevronRight size={16} aria-hidden="true" className="mep-chev" />
             </Link>
-          </li>
-          <li>
-            <div className="mep-li static">
-              <span className="mep-li-t"><b>外观</b></span>
-              <span className="mep-li-r">跟随系统</span>
-            </div>
           </li>
         </ul>
       </section>

@@ -77,13 +77,13 @@ beforeEach(() => {
 });
 
 describe('我的 · 资料与设置', () => {
-  it('显示昵称、学校（纯文本）、邮箱、课程数和外观', async () => {
+  it('显示昵称、学校（纯文本）、邮箱和课程数，不再有无操作的「外观」行', async () => {
     seed();
     renderAt('/me', <Me />);
     expect(await screen.findByRole('heading', { name: '陈一舟' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/明德高中 · yz@school\.edu/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('2 门')).toBeInTheDocument()); // 只数自己的课程
-    expect(screen.getByText('跟随系统')).toBeInTheDocument();
+    expect(screen.queryByText('跟随系统')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /我的课程/ })).toHaveAttribute('href', '/me/courses');
     expect(screen.getByRole('link', { name: /提醒/ })).toHaveAttribute('href', '/me/reminders');
   });

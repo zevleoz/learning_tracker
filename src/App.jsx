@@ -25,10 +25,9 @@ const DebugTools = import.meta.env.DEV
   ? lazy(() => import('./pages/DebugTools.jsx'))
   : null;
 
-const MOBILE_BREAKPOINT = 767;
 
 // 登录后的根路由：
-//   导师/管理员 → 按 default_workspace 偏好（即上次打开的工作区，默认 E4）；学生维持原有设备分流
+//   导师/管理员 → 按 default_workspace 偏好（即上次打开的工作区，默认 E4）；学生一律落到「今天」
 function RootRedirect() {
   const { profile, loading } = useAuth();
   // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /syllabus
@@ -38,8 +37,7 @@ function RootRedirect() {
     // 导师只落两个工作区之一：一表人才（/mentor）或 E4，default_workspace 记录上次打开的页面
     return <Navigate to={profile?.default_workspace === 'tracker' ? '/mentor' : '/e4'} replace />;
   }
-  const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
-  return <Navigate to={isMobile ? '/learning' : '/syllabus'} replace />;
+  return <Navigate to="/today" replace />;
 }
 
 function DebugToolsFallback() {
@@ -57,7 +55,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/" element={<RootRedirect />} />
-            {/* 学生端路由见 src/pages/student/routes.jsx（WS6 的 /today、/insights 也在那里接入，见该文件的 TODO(WS6)） */}
+            {/* 学生端路由见 src/pages/student/routes.jsx */}
             {renderStudentRoutes()}
             {import.meta.env.DEV && DebugTools && (
               <Route

@@ -6,7 +6,6 @@ import { logger } from '../lib/logger.js';
 import logo from '../logo/crest.png';
 import '../styles/student-auth.css';
 
-const MOBILE_BREAKPOINT = 767;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AuthBrand() {
@@ -201,9 +200,8 @@ export default function Login() {
       }
 
       toast('登录成功', { kind: 'success' });
-      const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
       // 导师/管理员落到根路由，由 default_workspace 偏好决定进入 E4（默认）或一表人才
-      nav(role >= 2 ? '/' : (isMobile ? '/learning' : '/syllabus'), { replace: true });
+      nav(role >= 2 ? '/' : '/today', { replace: true });
     } catch (err) {
       // 统一错误消息，避免账户枚举（不区分"用户不存在"和"密码错误"）
       const msg = err?.message || '登录失败，请检查邮箱和密码';

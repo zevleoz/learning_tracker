@@ -81,6 +81,22 @@ describe('学生端路由', () => {
     expect(await screen.findByRole('heading', { name: '我的课程' })).toBeInTheDocument();
   });
 
+  it('/today 渲染「今天」页', async () => {
+    supabase.__setTableData('exam_scores', []);
+    renderApp('/today');
+    expect(await screen.findByRole('heading', { level: 1, name: /好，/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^待办/ })).toBeInTheDocument();
+  });
+
+  it('/insights 渲染「洞察」页，/review 重定向到 /insights', async () => {
+    supabase.__setTableData('exam_scores', []);
+    const first = renderApp('/insights');
+    expect(await screen.findByRole('heading', { level: 1, name: '洞察' })).toBeInTheDocument();
+    first.unmount();
+    renderApp('/review');
+    expect(await screen.findByRole('heading', { level: 1, name: '洞察' })).toBeInTheDocument();
+  });
+
   it('/me/reminders 渲染提醒设置', async () => {
     renderApp('/me/reminders');
     expect(await screen.findByRole('heading', { name: '提醒' })).toBeInTheDocument();

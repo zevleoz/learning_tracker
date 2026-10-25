@@ -4,8 +4,59 @@ import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import logo from '../logo/logo_color.png';
+import '../styles/student-auth.css';
 
 const MOBILE_BREAKPOINT = 767;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function AuthBrand() {
+  return (
+    <div className="ya-brand">
+      <img src={logo} alt="" />
+      <div className="ya-brand-name">一表人才</div>
+      <div className="ya-brand-motto">WORK HARD · DREAM BIG</div>
+    </div>
+  );
+}
+
+function EyeIcon({ off }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
+
+// 密码输入框 + 显示/隐藏切换
+export function PasswordInput({ id, value, onChange, placeholder, autoComplete, invalid, describedBy }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="ya-input-wrap">
+      <input
+        id={id}
+        className="ya-input has-action"
+        type={shown ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        aria-invalid={invalid ? 'true' : undefined}
+        aria-describedby={describedBy}
+      />
+      <button
+        type="button"
+        className="ya-eye"
+        onClick={() => setShown((v) => !v)}
+        aria-label={shown ? '隐藏密码' : '显示密码'}
+        aria-pressed={shown}
+      >
+        <EyeIcon off={shown} />
+      </button>
+    </div>
+  );
+}
 
 export default function Login() {
   const nav = useNavigate();
@@ -20,6 +71,7 @@ export default function Login() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [errors, setErrors] = useState({});
 
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.slice(1));
@@ -120,10 +172,17 @@ export default function Login() {
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (!email || !pw) return toast('请填写邮箱和密码', { kind: 'error' });
+    const next = {};
+    if (!email.trim()) next.email = '请填写邮箱';
+    else if (!EMAIL_RE.test(email.trim())) next.email = '请输入有效的邮箱地址';
+    if (!pw) next.pw = '请填写密码';
+    setErrors(next);
+    if (next.email || next.pw) {
+      return toast(next.email && next.pw ? '请填写邮箱和密码' : (next.email || next.pw), { kind: 'error' });
+    }
     setBusy(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pw });
       if (error) throw error;
 
       // 从 profiles 表读取权威 role（signUp 时不再把 role 写入 user_metadata，
@@ -151,6 +210,7 @@ export default function Login() {
       const safeMsg = /Invalid login credentials|Invalid credentials/i.test(msg)
         ? '邮箱或密码错误'
         : msg;
+      setErrors({ pw: safeMsg });
       toast(safeMsg, { kind: 'error' });
     } finally {
       setBusy(false);
@@ -158,202 +218,124 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <img src={logo} alt="logo" />
-        </div>
+    <div className="ya-page">
+      <div className="ya-col">
+        <AuthBrand />
 
         {recoveryMode ? (
-          <>
-            <h1 className="auth-title">设置新密码</h1>
-            <p className="auth-subtitle">请设置你的新密码</p>
+          <form className="ya-form" onSubmit={handleUpdatePassword} noValidate>
+            <h1 className="ya-h1">设置新密码</h1>
+            <p className="ya-note">请设置你的新密码</p>
 
-            <form onSubmit={handleUpdatePassword}>
-              <div className="field">
-                <label>新密码</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="至少 6 位"
-                  required
-                  autoComplete="new-password"
-                />
-              </div>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="login-new-pw">新密码</label>
+              <PasswordInput
+                id="login-new-pw" value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="至少 6 位" autoComplete="new-password"
+              />
+            </div>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="login-confirm-pw">确认密码</label>
+              <PasswordInput
+                id="login-confirm-pw" value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="再次输入密码" autoComplete="new-password"
+              />
+            </div>
 
-              <div className="field">
-                <label>确认密码</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="再次输入密码"
-                  required
-                  autoComplete="new-password"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={updateBusy}
-                className="btn btn-primary"
-                style={{ marginTop: '4px' }}
-              >
-                {updateBusy ? '设置中…' : '设置新密码'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setRecoveryMode(false);
-                  setNewPassword('');
-                  setConfirmPassword('');
-                  window.location.hash = '';
-                }}
-                className="btn btn-ghost"
-                style={{ marginTop: '8px' }}
-              >
-                返回登录
-              </button>
-            </form>
-          </>
+            <button type="submit" disabled={updateBusy} className="ya-btn">
+              {updateBusy ? '设置中…' : '设置新密码'}
+            </button>
+            <button
+              type="button"
+              className="ya-btn secondary"
+              onClick={() => {
+                setRecoveryMode(false);
+                setNewPassword('');
+                setConfirmPassword('');
+                window.location.hash = '';
+              }}
+            >
+              返回登录
+            </button>
+          </form>
         ) : (
-          <>
-            <h1 className="auth-title">欢迎回来</h1>
-            <p className="auth-subtitle">登录你的账号继续使用</p>
+          <form className="ya-form" onSubmit={onSubmit} noValidate>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="login-email">邮箱</label>
+              <input
+                id="login-email"
+                className="ya-input"
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors((x) => ({ ...x, email: undefined })); }}
+                placeholder="your@email.com"
+                autoComplete="email"
+                aria-invalid={errors.email ? 'true' : undefined}
+                aria-describedby={errors.email ? 'login-email-err' : undefined}
+              />
+              {errors.email && <p id="login-email-err" className="ya-error" role="alert">{errors.email}</p>}
+            </div>
 
-            <form onSubmit={onSubmit}>
-              <div className="field">
-                <label>邮箱</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  required
-                  autoComplete="email"
-                />
+            <div className="ya-field">
+              <div className="ya-label">
+                <label htmlFor="login-pw">密码</label>
+                <button type="button" className="ya-link" style={{ fontSize: 12.5 }} onClick={() => setShowReset(true)}>
+                  忘记密码？
+                </button>
               </div>
+              <PasswordInput
+                id="login-pw" value={pw}
+                onChange={(e) => { setPw(e.target.value); if (errors.pw) setErrors((x) => ({ ...x, pw: undefined })); }}
+                placeholder="至少 6 位" autoComplete="current-password"
+                invalid={!!errors.pw} describedBy={errors.pw ? 'login-pw-err' : undefined}
+              />
+              {errors.pw && <p id="login-pw-err" className="ya-error" role="alert">{errors.pw}</p>}
+            </div>
 
-              <div className="field">
-                <label>密码</label>
-                <input
-                  type="password"
-                  value={pw}
-                  onChange={(e) => setPw(e.target.value)}
-                  placeholder="至少 6 位"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={busy}
-                className="btn btn-primary"
-                style={{ marginTop: '4px' }}
-              >
-                {busy ? '登录中…' : '登录'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowReset(true)}
-                style={{
-                  marginTop: '8px', width: '100%', padding: '8px',
-                  background: 'transparent', border: 'none',
-                  fontSize: '13px', color: 'var(--brand)', cursor: 'pointer',
-                  fontWeight: 500, fontFamily: 'inherit',
-                  transition: 'opacity 120ms ease',
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                忘记密码？
-              </button>
-            </form>
-          </>
+            <button type="submit" disabled={busy} className="ya-btn" style={{ marginTop: 6 }}>
+              {busy ? '登录中…' : '登录'}
+            </button>
+          </form>
         )}
 
         {showReset && (
-          <div
-            className="auth-modal-overlay"
-            style={{
-              position: 'fixed', inset: 0, zIndex: 1000,
-              background: 'rgba(15,23,42,0.35)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 20, animation: 'fadeIn 180ms ease-out',
-            }}
-            onClick={() => !resetBusy && setShowReset(false)}
-          >
+          <div className="ya-overlay" onClick={() => !resetBusy && setShowReset(false)}>
             <div
-              className="auth-modal-card"
-              style={{
-                background: 'var(--glass-strong)',
-                backdropFilter: 'var(--blur-sheet)',
-                WebkitBackdropFilter: 'var(--blur-sheet)',
-                borderRadius: 20, padding: 24,
-                width: '100%', maxWidth: 340,
-                border: '1px solid var(--edge-bright)',
-                boxShadow: '0 2px 6px rgba(15,23,42,0.04), 0 18px 44px rgba(15,23,42,0.12)',
-                animation: 'authModalIn 220ms cubic-bezier(0.32,0.72,0,1)',
-              }}
+              className="ya-modal" role="dialog" aria-modal="true" aria-label="重置密码"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 style={{ margin: '0 0 4px 0', fontSize: 18, fontWeight: 700, color: 'var(--text-strong)' }}>重置密码</h3>
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-soft)' }}>输入注册邮箱，我们会发送重置链接</p>
-              <form onSubmit={handleReset}>
-                <div className="field">
-                  <label>邮箱</label>
+              <h3>重置密码</h3>
+              <p className="ya-note">输入注册邮箱，我们会发送重置链接</p>
+              <form className="ya-form" onSubmit={handleReset} noValidate>
+                <div className="ya-field">
+                  <label className="ya-label" htmlFor="reset-email">邮箱</label>
                   <input
-                    type="email" required
+                    id="reset-email" className="ya-input" type="email"
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    autoComplete="email"
+                    placeholder="your@email.com" autoComplete="email"
                   />
                 </div>
-                <button
-                  type="submit"
-                  disabled={resetBusy}
-                  className="btn btn-primary"
-                  style={{ marginTop: '8px' }}
-                >
+                <button type="submit" disabled={resetBusy} className="ya-btn">
                   {resetBusy ? '发送中…' : '发送重置邮件'}
                 </button>
               </form>
-              <button
-                onClick={() => setShowReset(false)}
-                disabled={resetBusy}
-                className="btn btn-ghost"
-                style={{ marginTop: '8px' }}
-              >
+              <button type="button" className="ya-btn secondary" onClick={() => setShowReset(false)} disabled={resetBusy}>
                 取消
               </button>
             </div>
           </div>
         )}
 
-        <div className="auth-link-row">
-          <span>还没有账号？</span>
-          <Link to="/signup">注册一个</Link>
+        <div className="ya-spacer" />
+        <div className="ya-foot">
+          还没有账号？ <Link to="/signup" className="ya-link">注册</Link>
         </div>
-
-        <div style={{
-          marginTop: '14px', padding: '10px 12px', fontSize: '12px',
-          color: 'var(--text-soft)', background: 'var(--brand-soft)',
-          border: '1px solid rgba(193,39,45,0.15)', borderRadius: '10px', lineHeight: 1.55,
-        }}>
-          <b style={{ color: 'var(--brand)' }}>老师登录：</b>
-          使用你注册时选择"我是老师"所填的邮箱和密码登录；登录后会自动进入
-          <b style={{ color: 'var(--brand)' }}>导师视图</b>，可下拉选择任意学生查看其 Review。
-        </div>
+        <div className="ya-foot small">老师账号同样在这里登录，登录后自动进入导师视图</div>
       </div>
 
-      {/* Toast */}
       <div className="toast-wrap">
         {toasts.map((t) => (
           <div key={t.id} className={'toast ' + (t.kind || '')}>{t.title}</div>

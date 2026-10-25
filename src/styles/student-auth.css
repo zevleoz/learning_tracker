@@ -1,0 +1,153 @@
+/* 学生端登录 / 注册 / 首次添加课程。
+   所有颜色走 --yb-* 令牌（WS1 的 tokens.css 合并前用回退值）；
+   登录页不在 .yb-student 壳内，所以深色值在 .ya-page 上就地定义。 */
+.ya-page {
+  --ya-bg: var(--yb-bg, #F2F3F5);
+  --ya-surface: var(--yb-surface, #FFFFFF);
+  --ya-sunken: var(--yb-sunken, #E8EAEE);
+  --ya-ink: var(--yb-ink, #14161B);
+  --ya-ink-2: var(--yb-ink-2, #434852);
+  --ya-ink-3: var(--yb-ink-3, #5F6570);
+  --ya-crest: var(--yb-crest, #A3202A);
+  --ya-crest-text: var(--yb-crest-text, #A3202A);
+  --ya-crest-soft: var(--yb-crest-soft, #F6E5E6);
+  --ya-radius: var(--yb-radius-card, 18px);
+
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  padding: max(48px, env(safe-area-inset-top)) 20px max(28px, env(safe-area-inset-bottom));
+  background: var(--ya-bg);
+  color: var(--ya-ink);
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: dark) {
+  .ya-page {
+    --ya-bg: #0E0F12;
+    --ya-surface: #17191E;
+    --ya-sunken: #21242B;
+    --ya-ink: #ECEDEF;
+    --ya-ink-2: #BCC0C7;
+    --ya-ink-3: #959BA5;
+    --ya-crest: #C2353C;
+    --ya-crest-text: #F08489;
+    --ya-crest-soft: #33191B;
+  }
+}
+
+.ya-col {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 品牌：校徽 + 名称 + 格言 */
+.ya-brand { text-align: center; margin-bottom: 10px; }
+.ya-brand img { height: 72px; width: auto; max-width: 240px; object-fit: contain; display: block; margin: 0 auto 10px; }
+.ya-brand-name { font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+.ya-brand-motto { margin-top: 4px; font-size: 11px; letter-spacing: .22em; color: var(--ya-ink-3); }
+
+/* 步骤条与标题 */
+.ya-steps { display: flex; gap: 6px; }
+.ya-steps i { flex: 1; height: 4px; border-radius: 2px; background: var(--ya-sunken); }
+.ya-steps i.on { background: var(--ya-crest); }
+.ya-eyebrow { font-size: 12.5px; color: var(--ya-ink-3); }
+.ya-h1 { margin: 0; font-size: 26px; line-height: 1.25; font-weight: 700; letter-spacing: -.01em; }
+.ya-note { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ya-ink-3); }
+
+/* 表单 */
+.ya-form { display: flex; flex-direction: column; gap: 14px; }
+.ya-field { display: flex; flex-direction: column; gap: 6px; }
+.ya-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; font-weight: 600; color: var(--ya-ink-2);
+}
+.ya-label small { font-size: 11.5px; font-weight: 400; color: var(--ya-ink-3); }
+.ya-input-wrap { position: relative; display: flex; align-items: center; }
+.ya-input {
+  width: 100%; box-sizing: border-box; height: 48px; padding: 0 14px;
+  border: 0; border-radius: 14px; background: var(--ya-sunken); color: var(--ya-ink);
+  font: inherit; font-size: 16px; /* 16px 防 iOS 聚焦放大 */
+  outline: 2px solid transparent; outline-offset: 0;
+  transition: outline-color 120ms ease;
+}
+.ya-input::placeholder { color: var(--ya-ink-3); }
+.ya-input:focus-visible { outline-color: var(--ya-crest); }
+.ya-input[aria-invalid="true"] { outline-color: var(--ya-crest-text); }
+.ya-input.has-action { padding-right: 48px; }
+.ya-eye {
+  position: absolute; right: 2px; top: 2px; width: 44px; height: 44px;
+  display: grid; place-items: center; border: 0; background: transparent;
+  color: var(--ya-ink-3); border-radius: 12px; cursor: pointer;
+}
+.ya-eye:focus-visible { outline: 2px solid var(--ya-crest); }
+.ya-eye svg { width: 20px; height: 20px; }
+.ya-error { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ya-crest-text); }
+
+/* 按钮与链接 */
+.ya-btn {
+  height: 50px; border: 0; border-radius: 14px; width: 100%;
+  background: var(--ya-crest); color: #fff;
+  font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.ya-btn:active:not(:disabled) { transform: scale(.98); }
+.ya-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ya-btn:focus-visible { outline: 2px solid var(--ya-crest); outline-offset: 2px; }
+.ya-btn.secondary { background: var(--ya-sunken); color: var(--ya-ink); }
+.ya-btn.sm { width: auto; height: 48px; padding: 0 18px; flex: none; }
+.ya-link {
+  border: 0; background: transparent; padding: 0; font: inherit; cursor: pointer;
+  color: var(--ya-crest-text); font-weight: 600; text-decoration: none;
+}
+.ya-link:hover { text-decoration: underline; }
+.ya-link:focus-visible { outline: 2px solid var(--ya-crest); outline-offset: 2px; border-radius: 4px; }
+.ya-foot { text-align: center; font-size: 13px; color: var(--ya-ink-3); }
+.ya-foot.small { font-size: 12px; }
+.ya-spacer { flex: 1; min-height: 8px; }
+
+/* 重置密码弹层 */
+.ya-overlay {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(15, 23, 42, .4);
+}
+.ya-modal {
+  width: 100%; max-width: 340px; box-sizing: border-box; padding: 22px;
+  border-radius: 22px; background: var(--ya-surface); color: var(--ya-ink);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.ya-modal h3 { margin: 0; font-size: 18px; }
+
+/* 首次添加课程 */
+.ya-add-row { display: flex; gap: 8px; }
+.ya-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ya-chip {
+  border: 0; border-radius: 999px; padding: 0 12px; min-height: 36px;
+  background: var(--ya-sunken); color: var(--ya-ink-2);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.ya-chip:focus-visible { outline: 2px solid var(--ya-crest); }
+.ya-courses { margin: 0; padding: 4px 14px; list-style: none; border-radius: var(--ya-radius); background: var(--ya-surface); }
+.ya-course { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.ya-course + .ya-course { border-top: 1px solid var(--ya-sunken); }
+.ya-course-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ya-course-t b { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.ya-course-t span { font-size: 12px; color: var(--ya-ink-3); }
+.ya-seg { display: inline-flex; padding: 2px; border-radius: 10px; background: var(--ya-sunken); flex: none; }
+.ya-seg button {
+  border: 0; background: transparent; color: var(--ya-ink-2); font: inherit; font-size: 13px;
+  min-height: 32px; padding: 0 12px; border-radius: 8px; cursor: pointer;
+}
+.ya-seg button[aria-pressed="true"] { background: var(--ya-surface); color: var(--ya-ink); font-weight: 600; }
+.ya-seg button:focus-visible { outline: 2px solid var(--ya-crest); }
+.ya-x {
+  width: 32px; height: 32px; flex: none; border: 0; border-radius: 8px; background: transparent;
+  color: var(--ya-ink-3); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.ya-x:focus-visible { outline: 2px solid var(--ya-crest); }

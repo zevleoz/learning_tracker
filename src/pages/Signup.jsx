@@ -1,108 +1,130 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { toast, useToasts } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
-import logo from '../logo/logo_color.png';
+import { AuthBrand, PasswordInput } from './Login.jsx';
+import CourseSetup from '../components/student/CourseSetup.jsx';
+import '../styles/student-auth.css';
 
-const COMMON_SCHOOLS = [
-  '南京市第一中学',
-  '北京师范大学附属中学',
-  '上海市格致中学',
-  '广州市执信中学',
-  '深圳市深圳中学',
-];
+const MOBILE_BREAKPOINT = 767;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateAccount(form) {
+  const errs = {};
+  if (!form.email.trim()) errs.email = '请填写邮箱';
+  else if (!EMAIL_RE.test(form.email.trim())) errs.email = '请输入有效的邮箱地址';
+  if (form.password.length < 6) errs.password = '密码至少 6 位';
+  else if (form.password.length > 128) errs.password = '密码不能超过 128 位';
+  return errs;
+}
 
 export default function Signup() {
   const nav = useNavigate();
   const toasts = useToasts();
-  const [form, setForm] = useState({ name: '', email: '', password: '', school: '', role: '1', teacherKey: '' });
-  const [showPasswordReset, setShowPasswordReset] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
+  const [params] = useSearchParams();
+  // 只有显式进入 /signup?role=teacher 才是导师注册；角色本身从不取自 user_metadata
+  const isTeacher = params.get('role') === 'teacher';
+
+  const [form, setForm] = useState({ name: '', email: '', password: '', school: '', teacherKey: '' });
+  const [errors, setErrors] = useState({});
+  const [step, setStep] = useState(1);
+  const [newUserId, setNewUserId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [schoolSuggestions, setSchoolSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
 
-  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
-
-  useEffect(() => {
-    async function loadSchools() {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('school_name')
-        .not('school_name', 'is', null)
-        .not('school_name', 'eq', '')
-        .limit(50);
-      if (!error) {
-        const schools = Array.from(new Set((data || []).map((p) => p.school_name)));
-        setSchoolSuggestions(schools);
-      }
-    }
-    loadSchools();
-  }, []);
-
-  function handleSchoolChange(e) {
-    const value = e.target.value;
-    set('school', value);
-    setShowSuggestions(value.length > 0);
+  function set(k, v) {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined }));
   }
 
-  function selectSchool(school) {
-    set('school', school);
-    setShowSuggestions(false);
+  function goHome() {
+    const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+    nav(isMobile ? '/learning' : '/syllabus', { replace: true });
   }
 
-  async function onSubmit(e) {
+  /* ===== 学生：第 1 步（账号）===== */
+  function onAccountNext(e) {
     e.preventDefault();
-    if (!form.name.trim()) return toast('请填写昵称', { kind: 'error' });
-    if (!form.email.trim()) return toast('请填写邮箱', { kind: 'error' });
-    // 基本邮箱格式校验，避免无效邮箱提交到 Supabase
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRe.test(form.email.trim())) return toast('请输入有效的邮箱地址', { kind: 'error' });
-    if (form.password.length < 6) return toast('密码至少 6 位', { kind: 'error' });
-    if (form.password.length > 128) return toast('密码不能超过 128 位', { kind: 'error' });
-    const role = Number(form.role) || 1;
-    if (role === 1 && !form.school.trim()) return toast('请填写学校名称', { kind: 'error' });
+    const errs = validateAccount(form);
+    setErrors(errs);
+    if (Object.keys(errs).length) return toast(errs.email || errs.password, { kind: 'error' });
+    setStep(2);
+  }
+
+  /* ===== 学生：第 2 步（关于你）→ 创建账号 ===== */
+  async function onAboutSubmit(e) {
+    e.preventDefault();
+    const errs = {};
+    if (!form.name.trim()) errs.name = '请填写姓名';
+    if (!form.school.trim()) errs.school = '请填写学校名称';
+    setErrors(errs);
+    if (Object.keys(errs).length) return toast(errs.name || errs.school, { kind: 'error' });
 
     setBusy(true);
     try {
-      // 老师注册：先预校验密钥（UX，快速失败），signUp 后由 register_teacher RPC 提权
-      if (role === 2) {
-        const { data: ok, error: keyErr } = await supabase.rpc('verify_teacher_key', {
-          key_text: form.teacherKey,
-        });
-        if (keyErr || !ok) {
-          toast('老师注册密钥错误', { kind: 'error' });
-          return;
-        }
+      // signUp 不传 role（避免用户自行提权）；handle_new_user trigger 默认创建 role=1 的 profile
+      const { data, error } = await supabase.auth.signUp({
+        email: form.email.trim(),
+        password: form.password,
+        options: {
+          data: { full_name: form.name.trim(), school_name: form.school.trim() },
+        },
+      });
+      if (error) throw error;
+
+      // 有 session 才能写 courses；开了邮箱确认时没有 session，跳过课程步骤，保持原有行为
+      if (data?.session && data?.user?.id) {
+        setNewUserId(data.user.id);
+        setStep(3);
+        return;
+      }
+      toast('账号已创建\n开始添加你的课程大纲吧！', { kind: 'success' });
+      nav('/syllabus', { replace: true });
+    } catch (err) {
+      logger.error('signup error:', err);
+      const msg = err?.message || '注册失败，请稍后再试';
+      setErrors({ form: msg });
+      toast(msg, { kind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ===== 老师：单页表单，行为与改版前一致 ===== */
+  async function onTeacherSubmit(e) {
+    e.preventDefault();
+    const errs = validateAccount(form);
+    if (!form.name.trim()) errs.name = '请填写姓名';
+    setErrors(errs);
+    if (Object.keys(errs).length) return toast(errs.name || errs.email || errs.password, { kind: 'error' });
+
+    setBusy(true);
+    try {
+      // 先预校验密钥（快速失败）；signUp 后由 register_teacher RPC 服务端提权
+      const { data: ok, error: keyErr } = await supabase.rpc('verify_teacher_key', {
+        key_text: form.teacherKey,
+      });
+      if (keyErr || !ok) {
+        setErrors({ teacherKey: '老师注册密钥错误' });
+        toast('老师注册密钥错误', { kind: 'error' });
+        return;
       }
 
-      // signUp 不再传 role（避免用户绕过密钥自行传 role=2 提权）
-      // handle_new_user trigger 会默认创建 role=1 的 profile
       const { data: signUpData, error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
         options: {
-          data: {
-            full_name: form.name.trim() || form.email.split('@')[0],
-            school_name: form.school.trim() || '',
-          }
-        }
+          data: { full_name: form.name.trim() || form.email.split('@')[0], school_name: '' },
+        },
       });
       if (error) throw error;
 
       const uid = signUpData?.user?.id;
-
-      // 老师注册：signUp 成功后调用 register_teacher RPC 服务端提权
-      // RPC 会再次验证密钥并 update profiles.role=2（绕过 guard_profile_role trigger）
-      if (role === 2 && uid) {
+      if (uid) {
         try {
-          const { error: elevateErr } = await supabase.rpc('register_teacher', {
-            key_text: form.teacherKey,
-          });
+          const { error: elevateErr } = await supabase.rpc('register_teacher', { key_text: form.teacherKey });
           if (elevateErr) {
             logger.error('register_teacher failed:', elevateErr);
-            // 提权失败：账号已创建但仍是学生角色，提示用户
             toast('账号已创建，但密钥验证失败，请登录后联系管理员', { kind: 'warning' });
             await supabase.auth.signOut();
             nav('/login', { replace: true });
@@ -121,178 +143,168 @@ export default function Signup() {
         nav('/login', { replace: true });
         return;
       }
-
       toast('账号已创建\n开始添加你的课程大纲吧！', { kind: 'success' });
       nav('/syllabus', { replace: true });
     } catch (err) {
       logger.error('signup error:', err);
-      toast(err.message || '注册失败，请稍后再试', { kind: 'error' });
+      const msg = err?.message || '注册失败，请稍后再试';
+      setErrors({ form: msg });
+      toast(msg, { kind: 'error' });
     } finally {
       setBusy(false);
     }
   }
 
+  const err = (id, msg) => msg && <p id={id} className="ya-error" role="alert">{msg}</p>;
+
+  function renderStudent() {
+    if (step === 3) {
+      return (
+        <CourseSetup
+          userId={newUserId}
+          onDone={(count) => {
+            if (count === 0) toast('账号已创建', { kind: 'success' });
+            goHome();
+          }}
+        />
+      );
+    }
+    return (
+      <>
+        <div className="ya-steps" aria-hidden="true">
+          <i className="on" /><i className={step >= 2 ? 'on' : ''} /><i />
+        </div>
+        <div className="ya-eyebrow">第 {step} 步，共 3 步 · {step === 1 ? '账号' : '关于你'}</div>
+
+        {step === 1 ? (
+          <form className="ya-form" onSubmit={onAccountNext} noValidate>
+            <h1 className="ya-h1">创建账号</h1>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="su-email">邮箱</label>
+              <input
+                id="su-email" className="ya-input" type="email" value={form.email}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="you@school.edu" autoComplete="email"
+                aria-invalid={errors.email ? 'true' : undefined}
+                aria-describedby={errors.email ? 'su-email-err' : undefined}
+              />
+              {err('su-email-err', errors.email)}
+            </div>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="su-pw">密码 <small>至少 6 位</small></label>
+              <PasswordInput
+                id="su-pw" value={form.password} onChange={(e) => set('password', e.target.value)}
+                autoComplete="new-password" invalid={!!errors.password}
+                describedBy={errors.password ? 'su-pw-err' : undefined}
+              />
+              {err('su-pw-err', errors.password)}
+            </div>
+            <button type="submit" className="ya-btn" style={{ marginTop: 6 }}>下一步</button>
+          </form>
+        ) : (
+          <form className="ya-form" onSubmit={onAboutSubmit} noValidate>
+            <h1 className="ya-h1">介绍一下你</h1>
+            <p className="ya-note">导师邀请你、查看你的记录时，会看到这些信息。</p>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="su-name">姓名</label>
+              <input
+                id="su-name" className="ya-input" type="text" value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder="如：陈一舟" autoComplete="name" maxLength={40}
+                aria-invalid={errors.name ? 'true' : undefined}
+                aria-describedby={errors.name ? 'su-name-err' : undefined}
+              />
+              {err('su-name-err', errors.name)}
+            </div>
+            <div className="ya-field">
+              <label className="ya-label" htmlFor="su-school">学校 <small>以后可以在「我的」里修改</small></label>
+              <input
+                id="su-school" className="ya-input" type="text" value={form.school}
+                onChange={(e) => set('school', e.target.value)}
+                placeholder="如：南京市第一中学" autoComplete="organization" maxLength={60}
+                aria-invalid={errors.school ? 'true' : undefined}
+                aria-describedby={errors.school ? 'su-school-err' : undefined}
+              />
+              {err('su-school-err', errors.school)}
+            </div>
+            {err('su-form-err', errors.form)}
+            <div className="ya-spacer" />
+            <button type="submit" className="ya-btn" disabled={busy}>{busy ? '创建中…' : '下一步'}</button>
+            <button type="button" className="ya-btn secondary" disabled={busy} onClick={() => setStep(1)}>上一步</button>
+          </form>
+        )}
+
+        <div className="ya-foot small">
+          我是老师？<Link to="/signup?role=teacher" className="ya-link">使用导师注册</Link>
+        </div>
+      </>
+    );
+  }
+
+  function renderTeacher() {
+    return (
+      <form className="ya-form" onSubmit={onTeacherSubmit} noValidate>
+        <div className="ya-eyebrow">导师注册</div>
+        <h1 className="ya-h1">创建导师账号</h1>
+        <p className="ya-note">注册后可以向学生发送邀请，学生接受后你就能看到他的学习数据。</p>
+        <div className="ya-field">
+          <label className="ya-label" htmlFor="tr-name">姓名</label>
+          <input
+            id="tr-name" className="ya-input" type="text" value={form.name}
+            onChange={(e) => set('name', e.target.value)} autoComplete="name" maxLength={40}
+            aria-invalid={errors.name ? 'true' : undefined}
+          />
+          {err('tr-name-err', errors.name)}
+        </div>
+        <div className="ya-field">
+          <label className="ya-label" htmlFor="tr-email">邮箱</label>
+          <input
+            id="tr-email" className="ya-input" type="email" value={form.email}
+            onChange={(e) => set('email', e.target.value)} autoComplete="email"
+            aria-invalid={errors.email ? 'true' : undefined}
+          />
+          {err('tr-email-err', errors.email)}
+        </div>
+        <div className="ya-field">
+          <label className="ya-label" htmlFor="tr-pw">密码 <small>至少 6 位</small></label>
+          <PasswordInput
+            id="tr-pw" value={form.password} onChange={(e) => set('password', e.target.value)}
+            autoComplete="new-password" invalid={!!errors.password}
+          />
+          {err('tr-pw-err', errors.password)}
+        </div>
+        <div className="ya-field">
+          <label className="ya-label" htmlFor="tr-key">老师注册密钥</label>
+          <input
+            id="tr-key" className="ya-input" type="password" value={form.teacherKey}
+            onChange={(e) => set('teacherKey', e.target.value)}
+            placeholder="请联系管理员获取" autoComplete="off"
+            aria-invalid={errors.teacherKey ? 'true' : undefined}
+          />
+          {err('tr-key-err', errors.teacherKey)}
+        </div>
+        {err('tr-form-err', errors.form)}
+        <button type="submit" className="ya-btn" disabled={busy} style={{ marginTop: 6 }}>
+          {busy ? '创建中…' : '创建导师账号'}
+        </button>
+        <div className="ya-foot small">
+          <Link to="/signup" className="ya-link">我是学生，返回学生注册</Link>
+        </div>
+      </form>
+    );
+  }
+
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <img src={logo} alt="logo" />
-        </div>
-
-        <h1 className="auth-title">创建账号</h1>
-        <p className="auth-subtitle">加入后与同校同学共享课程大纲</p>
-
-        <form onSubmit={onSubmit}>
-          <div className="field">
-            <label>昵称 <span style={{ color: 'var(--brand)' }}>*</span></label>
-            <input
-              type="text" required
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              placeholder="如：小王"
-              autoComplete="nickname"
-            />
-          </div>
-
-          <div className="field">
-            <label>邮箱 <span style={{ color: 'var(--brand)' }}>*</span></label>
-            <input
-              type="email" required
-              value={form.email}
-              onChange={(e) => set('email', e.target.value)}
-              placeholder="you@school.edu"
-              autoComplete="email"
-            />
-          </div>
-
-          <div className="field">
-            <label>密码（至少 6 位）<span style={{ color: 'var(--brand)' }}>*</span></label>
-            <input
-              type="password" required
-              value={form.password}
-              onChange={(e) => set('password', e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-
-          {Number(form.role) === 1 && (
-            <div className="field" style={{ position: 'relative' }}>
-              <label>你的学校 <span style={{ color: 'var(--brand)' }}>*</span></label>
-              <input
-                type="text" required
-                value={form.school}
-                onChange={handleSchoolChange}
-                onFocus={() => setShowSuggestions(form.school.length > 0)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="如：南京市第一中学"
-              />
-              <p style={{
-                fontSize: '12px', color: 'var(--text-soft)',
-                marginTop: '6px', marginBottom: 0, lineHeight: 1.5
-              }}>
-                同校同学可以看到彼此创建的课程大纲，省去重复录入。
-              </p>
-              
-              {showSuggestions && (
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-                  background: 'white', borderRadius: '10px',
-                  boxShadow: '0 4px 20px rgba(15,23,42,0.1)',
-                  border: '1px solid rgba(15,23,42,0.08)',
-                  zIndex: 100, maxHeight: '200px', overflowY: 'auto',
-                }}>
-                  {(schoolSuggestions.length > 0 ? schoolSuggestions : COMMON_SCHOOLS)
-                    .filter((s) => s.toLowerCase().includes(form.school.toLowerCase()))
-                    .slice(0, 8)
-                    .map((school) => (
-                      <button
-                        key={school}
-                        type="button"
-                        onClick={() => selectSchool(school)}
-                        style={{
-                          display: 'block', width: '100%',
-                          padding: '10px 14px', textAlign: 'left',
-                          fontSize: '13px', color: '#334155',
-                          background: 'transparent', border: 'none',
-                          cursor: 'pointer',
-                        }}
-                        onMouseEnter={(e) => e.target.style.background = 'rgba(99,102,241,0.06)'}
-                        onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                      >
-                        {school}
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="field">
-            <label>身份 <span style={{ color: 'var(--brand)' }}>*</span></label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '10px 12px', borderRadius: '10px', cursor: 'pointer',
-                border: form.role === '1' ? '1px solid var(--brand)' : '1px solid rgba(100,116,139,0.35)',
-                background: form.role === '1' ? 'var(--brand-soft)' : 'transparent',
-              }}>
-                <input type="radio" name="role" value="1"
-                       checked={form.role === '1'}
-                       onChange={(e) => set('role', e.target.value)} />
-                <span style={{ fontSize: '13px', color: '#0f172a' }}>我是学生</span>
-              </label>
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '10px 12px', borderRadius: '10px', cursor: 'pointer',
-                border: form.role === '2' ? '1px solid var(--brand)' : '1px solid rgba(100,116,139,0.35)',
-                background: form.role === '2' ? 'var(--brand-soft)' : 'transparent',
-              }}>
-                <input type="radio" name="role" value="2"
-                       checked={form.role === '2'}
-                       onChange={(e) => set('role', e.target.value)} />
-                <span style={{ fontSize: '13px', color: '#0f172a' }}>我是老师</span>
-              </label>
-            </div>
-            <p style={{ fontSize: '11px', color: 'var(--text-soft)', margin: '6px 0 0 0', lineHeight: 1.5 }}>
-              {Number(form.role) === 2
-                ? '老师不需要填写学校。注册后可以向学生发送邀请，学生接受后你就能看到他的学习数据。'
-                : '学生端用于记录学习，老师端用于查看与反馈。'}
-            </p>
-          </div>
-
-          {Number(form.role) === 2 && (
-            <div className="field">
-              <label>老师注册密钥 <span style={{ color: 'var(--brand)' }}>*</span></label>
-              <input
-                type="password"
-                value={form.teacherKey}
-                onChange={(e) => set('teacherKey', e.target.value)}
-                placeholder="请输入老师注册密钥"
-                autoComplete="off"
-              />
-              <p style={{
-                fontSize: '11px', color: '#94a3b8',
-                marginTop: '6px', marginBottom: 0, lineHeight: 1.5
-              }}>
-                请联系管理员获取注册密钥。
-              </p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="btn btn-primary"
-            style={{ marginTop: '6px' }}
-          >
-            {busy ? '创建中…' : '创建账号'}
-          </button>
-        </form>
-
-        <div className="auth-link-row">
-          <span>已有账号？</span>
-          <Link to="/login">直接登录</Link>
-        </div>
+    <div className="ya-page">
+      <div className="ya-col">
+        {step < 3 && <AuthBrand />}
+        {isTeacher ? renderTeacher() : renderStudent()}
+        {step < 3 && (
+          <>
+            <div className="ya-spacer" />
+            <div className="ya-foot">已有账号？ <Link to="/login" className="ya-link">直接登录</Link></div>
+          </>
+        )}
       </div>
 
       <div className="toast-wrap">

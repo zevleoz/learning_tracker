@@ -1004,6 +1004,37 @@ body:has(.yb-student) {
   font-variant-numeric: tabular-nums;
 }
 
+/* 深色：全局背景（body 底色 + 漂移色块 + 纸纹）是浅色的，学生端要换成 --yb-bg，
+   否则深色卡片下面是亮底、页面标题（--yb-ink）几乎看不见。只对学生端生效。 */
+@media (prefers-color-scheme: dark) {
+  body:has(.yb-student) {
+    background-color: var(--yb-bg);
+    color: var(--yb-ink);
+  }
+  body:has(.yb-student)::before,
+  body:has(.yb-student)::after { display: none; }
+  /* shadcn 组件（DatePicker 的 Popover / Calendar）在学生端深色下取同一套深色值 */
+  body:has(.yb-student) {
+    --background: 225 14% 7%;
+    --foreground: 220 8% 93%;
+    --card: 225 14% 10%;
+    --card-foreground: 220 8% 93%;
+    --popover: 225 14% 10%;
+    --popover-foreground: 220 8% 93%;
+    --primary: 220 8% 93%;
+    --primary-foreground: 225 14% 9%;
+    --secondary: 225 12% 15%;
+    --secondary-foreground: 220 8% 93%;
+    --muted: 225 12% 15%;
+    --muted-foreground: 220 7% 62%;
+    --accent: 225 12% 17%;
+    --accent-foreground: 220 8% 93%;
+    --border: 225 10% 18%;
+    --input: 225 10% 18%;
+    --ring: 220 8% 80%;
+  }
+}
+
 .yb-shell { padding-left: 248px; }
 
 .yb-topbar { display: none; }

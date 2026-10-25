@@ -84,20 +84,52 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// 简易 Web Push 通知（需要订阅后由后端触发）
+// Web Push：载荷为 /api/notify 发来的 JSON {title, body, url, tag}；
+// 兼容旧的纯文本载荷。同一 tag 的通知会互相替换，避免堆叠。
+function parsePushPayload(event) {
+  const fallback = { title: "一表人才", body: "该打卡啦！", url: "/", tag: "yb-default" };
+  if (!event.data) return fallback;
+  try {
+    const data = event.data.json();
+    if (data && typeof data === "object") {
+      return {
+        title: data.title || fallback.title,
+        body: data.body || fallback.body,
+        url: data.url || fallback.url,
+        tag: data.tag || fallback.tag,
+      };
+    }
+  } catch (e) {
+    // 非 JSON：当作纯文本正文
+  }
+  return { ...fallback, body: event.data.text() || fallback.body };
+}
+
 self.addEventListener("push", (event) => {
-  const payload = event.data ? event.data.text() : "该打卡啦！";
+  const { title, body, url, tag } = parsePushPayload(event);
   event.waitUntil(
-    self.registration.showNotification("一表人才", {
-      body: payload,
+    self.registration.showNotification(title, {
+      body,
+      tag,
       icon: "./icons/icon-192.png",
-      data: { url: "./index.html" },
+      badge: "./icons/icon-192.png",
+      data: { url },
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || "./index.html";
-  event.waitUntil(self.clients.openWindow(url));
+  const target = new URL(event.notification.data?.url || "/", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      // 已有同源窗口：聚焦并跳到目标页；否则新开
+      for (const client of clients) {
+        if (new URL(client.url).origin === new URL(target).origin && "focus" in client) {
+          return client.focus().then((c) => (c && "navigate" in c ? c.navigate(target) : c));
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
 });

@@ -235,7 +235,7 @@ export async function deleteReport(id) {
 // 待办查询：009 迁移未执行（无 next_meeting_end_date 列）时退化为不含结束日的查询，
 // 结束日视为 null，其余逻辑不变 —— 避免迁移执行前整个待办页读取失败。
 async function fetchTodoStudents() {
-  const base = 'id, display_name, grade, school, next_meeting_date, next_meeting_type';
+  const base = 'id, display_name, grade, school, advisor_id, next_meeting_date, next_meeting_type';
   const query = (cols) => supabase
     .from('e4_students')
     .select(cols)
@@ -256,7 +256,7 @@ export async function listUpcomingMeetings() {
     unwartch(
       supabase
         .from('e4_reports')
-        .select('id, e4_student_id, report_type, created_at')
+        .select('id, e4_student_id, report_type, status, created_at')
         .order('created_at', { ascending: false })
         .limit(2000) // 触达计数只需报告条数，加防御上限（E4-1）
         .abortSignal(timeoutSignal(30000)),
@@ -276,10 +276,20 @@ export async function listUpcomingMeetings() {
   const touchCounts = {};
   const latestPrepId = {};
   const latestReportId = {};
+  const latestReportAt = {}; // 最新 first/progress 报告的创建时间，供「待写报告」判断
+  const draftFirstId = {};
+  const draftProgressId = {};
   for (const r of reports || []) {
     if (['first', 'progress'].includes(r.report_type)) {
       touchCounts[r.e4_student_id] = (touchCounts[r.e4_student_id] || 0) + 1;
-      if (!latestReportId[r.e4_student_id]) latestReportId[r.e4_student_id] = r.id;
+      if (!latestReportId[r.e4_student_id]) {
+        latestReportId[r.e4_student_id] = r.id;
+        latestReportAt[r.e4_student_id] = r.created_at;
+      }
+      if (r.status === 'draft') {
+        const bucket = r.report_type === 'first' ? draftFirstId : draftProgressId;
+        if (!bucket[r.e4_student_id]) bucket[r.e4_student_id] = r.id;
+      }
     } else if (r.report_type === 'prep' && !latestPrepId[r.e4_student_id]) {
       latestPrepId[r.e4_student_id] = r.id;
     }
@@ -291,6 +301,9 @@ export async function listUpcomingMeetings() {
       touch_count: touchCounts[s.id] || 0,
       latest_prep_id: latestPrepId[s.id] || null,
       latest_report_id: latestReportId[s.id] || null,
+      latest_report_at: latestReportAt[s.id] || null,
+      draft_first_id: draftFirstId[s.id] || null,
+      draft_progress_id: draftProgressId[s.id] || null,
     }))
     .sort((a, b) => {
       if (!a.next_meeting_date && !b.next_meeting_date) return 0;
@@ -298,6 +311,42 @@ export async function listUpcomingMeetings() {
       if (!b.next_meeting_date) return -1;
       return a.next_meeting_date < b.next_meeting_date ? -1 : 1;
     });
+}
+
+// 学生中心用：每位学生最新 first/progress 报告的创建时间（{ [e4_student_id]: created_at }）。
+// 与待办事项的「待写报告」判断共用同一口径；仅读，不改任何写入。
+export async function listLatestReportDates() {
+  const rows = await unwartch(
+    supabase
+      .from('e4_reports')
+      .select('e4_student_id, report_type, created_at')
+      .in('report_type', ['first', 'progress'])
+      .order('created_at', { ascending: false })
+      .limit(2000)
+      .abortSignal(timeoutSignal(30000)),
+    '读取报告记录'
+  );
+  const latest = {};
+  for (const r of rows || []) if (!latest[r.e4_student_id]) latest[r.e4_student_id] = r.created_at;
+  return latest;
+}
+
+// 一表人才学生最近一次学习记录的日期（读不到 / 没有记录 / 无权限都返回 null）
+export async function getTrackerLastSessionDate(profileId) {
+  if (!profileId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('learning_sessions')
+      .select('session_date')
+      .eq('student_id', profileId)
+      .is('deleted_at', null)
+      .order('session_date', { ascending: false })
+      .limit(1);
+    if (error) return null;
+    return data?.[0]?.session_date || null;
+  } catch {
+    return null;
+  }
 }
 
 // ---- 成长地图 PDF（Storage 私有 bucket，见 migrations/006）----

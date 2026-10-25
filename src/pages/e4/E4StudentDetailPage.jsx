@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { getE4Student, listReportsForStudent, deleteReport } from '../../lib/e4Store.js';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { getE4Student, listReportsForStudent, deleteReport, getTrackerLastSessionDate } from '../../lib/e4Store.js';
+import {
+  formatMeetingRange, meetingTypeLabel, relativeDayText, daysUntil, nextStepFor, localIsoDate,
+} from '../../lib/e4Todos.js';
 import { fetchY4Markdown } from '../../lib/y4api.js';
 import { pushRecentStudent } from '../../lib/e4Recent.js';
 import { toast } from '../../lib/toast.js';
@@ -60,6 +63,7 @@ export default function E4StudentDetailPage() {
   const [y4Md, setY4Md] = useState('');
   const [y4Busy, setY4Busy] = useState(false);
   const [y4Error, setY4Error] = useState('');
+  const [lastRecord, setLastRecord] = useState(null); // 追踪学生最近一次学习记录日期
 
   // 查看 Y4 原始报告（只读预览；按需拉取并缓存）
   async function openY4Report() {
@@ -95,10 +99,25 @@ export default function E4StudentDetailPage() {
     load();
   }, [load]);
 
+  const trackerId = student?.tracker_profile_id || null;
+  useEffect(() => {
+    setLastRecord(null);
+    if (!trackerId) return undefined;
+    let alive = true;
+    getTrackerLastSessionDate(trackerId).then((d) => { if (alive) setLastRecord(d); });
+    return () => { alive = false; };
+  }, [trackerId]);
+
   // 会前准备 / 首次报告 / 过程中报告分开展示
   const prepReports = reports.filter((r) => r.report_type === 'prep');
   const firstReports = reports.filter((r) => r.report_type === 'first');
   const progressReports = reports.filter((r) => r.report_type === 'progress');
+
+  const nextStep = nextStepFor(student, reports);
+  // 主按钮 = 下一步对应的那个；其余「生成」按钮退为次要（仍可用）
+  const genClass = (key) => (nextStep.key === key ? 'e4-btn-primary' : 'e4-btn-mini');
+  const meetingDiff = daysUntil(student?.next_meeting_date);
+  const meetingRel = relativeDayText(student?.next_meeting_date);
 
   const reportTitle = (r) =>
     r.report_type === 'prep' ? '首次学习力会议会前准备' : r.report_type === 'progress' ? '过程学习力报告' : '首次学习力分析报告';
@@ -211,6 +230,49 @@ export default function E4StudentDetailPage() {
         <button type="button" className="e4-btn-ghost" onClick={() => setEditOpen(true)}>编辑资料</button>
       </div>
 
+      <div className="mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-5 gap-y-3 rounded-[10px] border border-[var(--e4-line-2)] bg-[var(--e4-bg-2)] px-4 py-3.5 max-[860px]:grid-cols-1">
+        <div>
+          <div className="text-[11px] tracking-[0.04em] text-[var(--e4-ink-3)]">下次会议</div>
+          {student.next_meeting_date ? (
+            <div className="mt-0.5 text-[14px] text-[var(--e4-ink)]">
+              {formatMeetingRange(student.next_meeting_date, student.next_meeting_end_date)}
+              {meetingRel && (
+                <span
+                  className={meetingDiff === 0
+                    ? 'font-semibold text-amber-500 [body.e4-light_&]:text-amber-700'
+                    : 'text-[var(--e4-ink-3)]'}
+                >
+                  {' '}· {meetingRel}
+                </span>
+              )}
+              <span className="text-[var(--e4-ink-2)]"> · {meetingTypeLabel(student.next_meeting_type)}{student.next_meeting_type === 'progress' ? '复盘' : '会议'}</span>
+            </div>
+          ) : (
+            <div className="mt-0.5 text-[14px] text-[var(--e4-ink-3)]">待安排</div>
+          )}
+        </div>
+        <div className="flex min-w-0 items-center gap-5">
+          <span className="h-[34px] w-px shrink-0 bg-[var(--e4-line-2)] max-[860px]:hidden" />
+          <div className="min-w-0">
+            <div className="text-[11px] tracking-[0.04em] text-[var(--e4-ink-3)]">下一步</div>
+            <div className="mt-0.5 text-[14px] text-[var(--e4-ink)]">{nextStep.reason}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="e4-btn-primary justify-self-start whitespace-nowrap"
+          disabled={nextStep.key === 'progress' ? !student.tracker_profile_id : !student.y4_report_id}
+          onClick={() => nav(`/e4/students/${student.id}/new-${nextStep.key}`)}
+          title={
+            nextStep.key === 'progress'
+              ? (student.tracker_profile_id ? '' : '请先关联一表人才学生')
+              : (student.y4_report_id ? '' : '请先关联 Y4 报告')
+          }
+        >
+          {nextStep.label}
+        </button>
+      </div>
+
       {student.notes && <p className="e4-detail-notes">{student.notes}</p>}
 
       <div className="e4-detail-summary">
@@ -263,7 +325,20 @@ export default function E4StudentDetailPage() {
           <div className="e4-info-card-head"><h2>一表人才关联</h2></div>
           {student.tracker_profile_id ? (
             <dl className="e4-def-list">
-              <div><dt>追踪学生</dt><dd>{student.tracker?.full_name || '已关联'}</dd></div>
+              <div>
+                <dt>追踪学生</dt>
+                <dd>
+                  <Link
+                    to={`/mentor?student=${student.tracker_profile_id}`}
+                    className="text-[var(--e4-accent-strong)] hover:underline"
+                  >
+                    {student.tracker?.full_name || '已关联'} · 查看学习数据 →
+                  </Link>
+                </dd>
+              </div>
+              {lastRecord && (
+                <div><dt>最后记录</dt><dd>{(() => { const d = localIsoDate(lastRecord); return d ? `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日` : lastRecord; })()}</dd></div>
+              )}
             </dl>
           ) : (
             <p className="e4-card-hint">暂未关联。过程中报告（后续功能）将使用一表人才的追踪数据。</p>
@@ -276,7 +351,7 @@ export default function E4StudentDetailPage() {
           <h2>首次学习力会议 · 会前准备</h2>
           <button
             type="button"
-            className="e4-btn-primary"
+            className={genClass('prep')}
             disabled={!student.y4_report_id}
             onClick={() => nav(`/e4/students/${student.id}/new-prep`)}
             title={student.y4_report_id ? '' : '请先关联 Y4 报告'}
@@ -326,7 +401,7 @@ export default function E4StudentDetailPage() {
           <h2>学习力分析报告</h2>
           <button
             type="button"
-            className="e4-btn-primary"
+            className={genClass('first')}
             disabled={!student.y4_report_id}
             onClick={() => nav(`/e4/students/${student.id}/new-first`)}
             title={student.y4_report_id ? '' : '请先关联 Y4 报告'}
@@ -369,7 +444,7 @@ export default function E4StudentDetailPage() {
           <h2>过程中报告</h2>
           <button
             type="button"
-            className="e4-btn-primary"
+            className={genClass('progress')}
             disabled={!student.tracker_profile_id}
             onClick={() => nav(`/e4/students/${student.id}/new-progress`)}
             title={student.tracker_profile_id ? '' : '请先关联一表人才学生'}

@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CalendarDays, CalendarClock, ChevronRight } from 'lucide-react';
 import { listUpcomingMeetings, updateE4Student } from '../../lib/e4Store.js';
-import { daysUntil, GROUPS } from '../../lib/e4Todos.js';
+import {
+  daysUntil, groupStudents, filterByScope, reportActionFor, formatMeetingRange, meetingTypeLabel,
+} from '../../lib/e4Todos.js';
+import { useAuth } from '../../lib/useAuth.js';
+import ScopeSwitch, { useE4Scope } from '../../components/e4/ScopeSwitch.jsx';
 import { toast } from '../../lib/toast.js';
 import { Card, CardContent } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
@@ -12,25 +16,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { DatePicker } from '@/components/ui/date-picker.jsx';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function formatDate(iso) {
-  if (!iso) return '待安排';
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
-}
-
-// 范围结束日省略 weekday，控制卡片宽度
-function formatEnd(iso) {
-  if (!iso) return '';
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-}
-
-// 卡片上的会议时间：有结束日时显示「起始日 ~ 结束日」，否则仅起始日
-function formatMeetingRange(start, end) {
-  if (!start) return '待安排';
-  return end ? `${formatDate(start)} ~ ${formatEnd(end)}` : formatDate(start);
-}
 
 function ScheduleDialog({ item, onClose, onSaved }) {
   const [type, setType] = useState('first');
@@ -126,12 +111,12 @@ function ScheduleDialog({ item, onClose, onSaved }) {
   );
 }
 
-function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
+function MeetingCard({ item, index, hot, onClick, onWriteReport, onSchedule }) {
   const diff = daysUntil(item.next_meeting_date);
   const overdue = diff !== null && diff < 0;
-  const typeLabel = item.next_meeting_type === 'progress' ? '进程中' : '首次';
-  // 首次会议日期已到（当天结束或已过）→ 提醒导师补首次会议记录报告
-  const needsFirstReport = item.next_meeting_type === 'first' && diff !== null && diff <= 0;
+  const typeLabel = meetingTypeLabel(item.next_meeting_type);
+  // 待写报告组：主操作按会议类型给出（首次会议记录报告 / 过程中报告）
+  const action = hot ? reportActionFor(item) : null;
 
   return (
     <motion.div
@@ -144,7 +129,11 @@ function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}
-        className="group h-full cursor-pointer border-[var(--e4-line)] bg-[var(--e4-bg-2)] text-[var(--e4-ink)] shadow-none transition-colors hover:border-[var(--e4-line-2)] hover:bg-[var(--e4-bg-3)]"
+        className={`group h-full cursor-pointer bg-[var(--e4-bg-2)] text-[var(--e4-ink)] shadow-none transition-colors hover:bg-[var(--e4-bg-3)] ${
+          hot
+            ? 'border-amber-500/35 hover:border-amber-500/55'
+            : 'border-[var(--e4-line)] hover:border-[var(--e4-line-2)]'
+        }`}
       >
         <CardContent className="flex h-full flex-col gap-3 p-4">
           <div className="flex items-center justify-between">
@@ -188,24 +177,24 @@ function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
           <div className="mt-auto flex items-center gap-1.5 text-[13px] text-[var(--e4-ink-2)]">
             <CalendarDays size={14} />
             <span>{formatMeetingRange(item.next_meeting_date, item.next_meeting_end_date)}</span>
-            {diff === 0 && <span className="font-semibold text-amber-500">· 今天</span>}
+            {diff === 0 && <span className="font-semibold text-amber-500 [body.e4-light_&]:text-amber-700">· 今天</span>}
             {diff !== null && diff > 0 && <span className="text-[var(--e4-ink-3)]">· {diff} 天后</span>}
-            {overdue && <span className="text-[var(--e4-ink-3)]">· 已过 {-diff} 天</span>}
+            {overdue && <span className="text-[var(--e4-ink-3)]">· {hot ? `${-diff} 天前` : `已过 ${-diff} 天`}</span>}
           </div>
 
-          {needsFirstReport && (
+          {action && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onWriteReport(); }}
+              onClick={(e) => { e.stopPropagation(); onWriteReport(action.path); }}
               onKeyDown={(e) => e.stopPropagation()}
-              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-[12px] font-medium text-amber-500 transition-colors hover:bg-amber-500/20"
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-[13px] font-semibold text-amber-500 transition-colors hover:bg-amber-500/20 [body.e4-light_&]:text-amber-700"
             >
-              会议已进行 · 点击填写首次会议记录报告 →
+              {action.label}
             </button>
           )}
 
           <div className="border-t border-[var(--e4-line)] pt-2.5 text-[12px] text-[var(--e4-ink-3)]">
-            已触达 <span className="font-semibold text-[var(--e4-ink-2)]">{item.touch_count}</span> 次
+            已出报告 <span className="font-semibold text-[var(--e4-ink-2)]">{item.touch_count}</span> 份
           </div>
         </CardContent>
       </Card>
@@ -215,6 +204,8 @@ function MeetingCard({ item, index, onClick, onWriteReport, onSchedule }) {
 
 export default function E4TodosPage() {
   const nav = useNavigate();
+  const { profile } = useAuth();
+  const [scope, setScope] = useE4Scope();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
   const [scheduleTarget, setScheduleTarget] = useState(null);
@@ -229,18 +220,17 @@ export default function E4TodosPage() {
     load();
   }, []);
 
-  const grouped = useMemo(() => {
-    if (!items) return [];
-    return GROUPS
-      .map((g) => ({ ...g, rows: items.filter((it) => g.match(daysUntil(it.next_meeting_date))) }))
-      .filter((g) => g.rows.length > 0);
-  }, [items]);
+  const visible = useMemo(
+    () => (items ? filterByScope(items, scope, profile?.id) : null),
+    [items, scope, profile?.id],
+  );
+  const grouped = useMemo(() => groupStudents(visible), [visible]);
 
   // 首次会议 → 会前准备工作台；进程中 → 最新报告编辑界面；都没有则回退到学生档案
   function openItem(item) {
     const diff = daysUntil(item.next_meeting_date);
     if (item.next_meeting_type === 'first' && diff !== null && diff <= 0) {
-      nav(`/e4/students/${item.id}/new-first`);
+      nav(reportActionFor(item).path);
     } else if (item.next_meeting_type === 'progress' && item.latest_report_id) {
       nav(`/e4/reports/${item.latest_report_id}/build`);
     } else if (item.next_meeting_type === 'first' && item.latest_prep_id) {
@@ -257,8 +247,9 @@ export default function E4TodosPage() {
       <div className="e4-page-head">
         <div>
           <h1 className="e4-page-title">待办事项</h1>
-          <p className="e4-page-subtitle">按时间顺序排列的 upcoming 会议；日期已过或未定日期的归入「待安排」，记得重新排期</p>
+          <p className="e4-page-subtitle">会议已过但还没写报告的排在最前；没有日期的归入「待安排」</p>
         </div>
+        <ScopeSwitch value={scope} onChange={setScope} />
       </div>
 
       {error && <div className="e4-inline-error">{error}</div>}
@@ -271,10 +262,14 @@ export default function E4TodosPage() {
         </div>
       )}
 
-      {items && items.length === 0 && (
+      {visible && visible.length === 0 && (
         <div className="e4-empty">
-          <p>暂无待办会议</p>
-          <span>新建 E4 学生或生成报告后，下次会议会出现在这里</span>
+          <p>{scope === 'mine' && items.length > 0 ? '你名下暂无待办会议' : '暂无待办会议'}</p>
+          <span>
+            {scope === 'mine' && items.length > 0
+              ? '学生的负责导师不是你；切换到「全部」可查看所有学生'
+              : '新建 E4 学生或生成报告后，下次会议会出现在这里'}
+          </span>
         </div>
       )}
 
@@ -293,8 +288,9 @@ export default function E4TodosPage() {
                 key={item.id}
                 item={item}
                 index={i}
+                hot={group.key === 'report'}
                 onClick={() => openItem(item)}
-                onWriteReport={() => nav(`/e4/students/${item.id}/new-first`)}
+                onWriteReport={(path) => nav(path)}
                 onSchedule={() => setScheduleTarget(item)}
               />
             ))}

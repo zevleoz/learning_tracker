@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { listE4Students, setE4StudentArchived } from '../../lib/e4Store.js';
+import { listE4Students, listLatestReportDates, setE4StudentArchived } from '../../lib/e4Store.js';
+import { filterByScope, meetingCell } from '../../lib/e4Todos.js';
+import { useAuth } from '../../lib/useAuth.js';
+import ScopeSwitch, { useE4Scope } from '../../components/e4/ScopeSwitch.jsx';
 import { toast } from '../../lib/toast.js';
 
 function IconPlus() {
@@ -69,9 +72,10 @@ function SkeletonRows() {
             </div>
           </td>
           <td><span className="e4-skeleton" style={{ width: w[1], height: 11 }} /></td>
-          <td><span className="e4-skeleton" style={{ width: w[2], height: 11 }} /></td>
+          <td className="max-[1180px]:!hidden"><span className="e4-skeleton" style={{ width: w[2], height: 11 }} /></td>
           <td><span className="e4-skeleton" style={{ width: w[3], height: 11 }} /></td>
           <td><span className="e4-skeleton" style={{ width: w[4], height: 11 }} /></td>
+          <td><span className="e4-skeleton" style={{ width: w[1] + 20, height: 11 }} /></td>
           <td />
         </tr>
       ))}
@@ -96,6 +100,24 @@ function SortableTh({ label, className, col, sort, onSort }) {
   );
 }
 
+// 下次会议列：今天 / 待写报告 用琥珀色，其余为「10/28 首次」或「待安排」
+function MeetingCell({ cell }) {
+  if (cell.kind === 'none') return <span className="e4-table-cell-muted">待安排</span>;
+  const hot = cell.kind === 'today' || cell.kind === 'due';
+  return (
+    <span className="inline-flex items-baseline gap-1.5 text-[12.5px]">
+      <span
+        className={hot
+          ? 'font-semibold text-amber-500 [body.e4-light_&]:text-amber-700'
+          : 'text-[var(--e4-ink)]'}
+      >
+        {cell.text}
+      </span>
+      <span className="text-[11.5px] text-[var(--e4-ink-3)]">{cell.type}</span>
+    </span>
+  );
+}
+
 function LinkState({ linked, primary, secondary }) {
   return (
     <span className={`e4-link-state ${linked ? 'is-on' : 'is-off'}`}>
@@ -110,7 +132,10 @@ function LinkState({ linked, primary, secondary }) {
 
 export default function E4StudentListPage() {
   const nav = useNavigate();
+  const { profile } = useAuth();
+  const [scope, setScope] = useE4Scope();
   const [students, setStudents] = useState(null);
+  const [latestReports, setLatestReports] = useState(null); // null = 没取到：不判断「待写报告」
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState({ key: null, dir: 'asc' });
@@ -124,6 +149,7 @@ export default function E4StudentListPage() {
         setError('');
       })
       .catch((err) => setError(err.message));
+    listLatestReportDates().then(setLatestReports).catch(() => setLatestReports(null));
   }
 
   useEffect(() => {
@@ -152,9 +178,12 @@ export default function E4StudentListPage() {
   }
 
   const activeStudents = useMemo(
-    () => (students || []).filter((s) => !s.archived_at),
-    [students],
+    () => filterByScope((students || []).filter((s) => !s.archived_at), scope, profile?.id)
+      .map((s) => ({ ...s, latest_report_at: latestReports?.[s.id] || null })),
+    [students, scope, profile?.id, latestReports],
   );
+  const mineEmpty = scope === 'mine' && students && activeStudents.length === 0
+    && students.some((s) => !s.archived_at);
   const archivedStudents = useMemo(
     () => (students || []).filter((s) => !!s.archived_at),
     [students],
@@ -188,10 +217,13 @@ export default function E4StudentListPage() {
           <h1 className="e4-page-title">学生中心</h1>
           <p className="e4-page-subtitle">为每位学生建立 E4 档案，关联 Y4 测评并生成学习力分析报告</p>
         </div>
-        <button type="button" className="e4-btn-primary" onClick={() => nav('/e4/new')}>
-          <IconPlus />
-          <span>新建 E4 学生</span>
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <ScopeSwitch value={scope} onChange={setScope} />
+          <button type="button" className="e4-btn-primary" onClick={() => nav('/e4/new')}>
+            <IconPlus />
+            <span>新建 E4 学生</span>
+          </button>
+        </div>
       </div>
 
       <div className="e4-toolbar">
@@ -220,9 +252,10 @@ export default function E4StudentListPage() {
               <tr>
                 <th className="col-student">学生</th>
                 <th className="col-grade">年级</th>
-                <th className="col-school">学校</th>
+                <th className="col-school max-[1180px]:!hidden">学校</th>
                 <th className="col-y4">Y4 测评</th>
                 <th className="col-tracker">一表人才</th>
+                <th className="col-meeting">下次会议</th>
                 <th className="col-action" aria-label="查看" />
               </tr>
             </thead>
@@ -233,7 +266,14 @@ export default function E4StudentListPage() {
         </div>
       )}
 
-      {students && activeStudents.length === 0 && archivedStudents.length === 0 && (
+      {mineEmpty && (
+        <div className="e4-empty">
+          <p>你名下还没有学生</p>
+          <span>学生的负责导师不是你；切换到「全部」可查看所有学生</span>
+        </div>
+      )}
+
+      {students && activeStudents.length === 0 && archivedStudents.length === 0 && !mineEmpty && (
         <div className="e4-empty">
           <p>还没有 E4 学生档案</p>
           <span>建立第一位学生的 E4 档案，之后手动关联对应的 Y4 报告</span>
@@ -260,9 +300,10 @@ export default function E4StudentListPage() {
               <tr>
                 <SortableTh label="学生" className="col-student" col="name" sort={sort} onSort={toggleSort} />
                 <SortableTh label="年级" className="col-grade" col="grade" sort={sort} onSort={toggleSort} />
-                <th className="col-school">学校</th>
+                <th className="col-school max-[1180px]:!hidden">学校</th>
                 <th className="col-y4">Y4 测评</th>
                 <th className="col-tracker">一表人才</th>
+                <th className="col-meeting">下次会议</th>
                 <th className="col-action" aria-label="查看" />
               </tr>
             </thead>
@@ -283,7 +324,7 @@ export default function E4StudentListPage() {
                     </div>
                   </td>
                   <td className="e4-table-cell-muted">{s.grade || '—'}</td>
-                  <td className="e4-table-cell-muted">{s.school || '—'}</td>
+                  <td className="e4-table-cell-muted max-[1180px]:!hidden">{s.school || '—'}</td>
                   <td>
                     {s.y4_report_id ? (
                       <LinkState linked primary="已关联" secondary={s.y4_student_name ? `${s.y4_student_name} · #${s.y4_report_id}` : `#${s.y4_report_id}`} />
@@ -296,6 +337,7 @@ export default function E4StudentListPage() {
                       ? <LinkState linked primary={s.tracker?.full_name || '已关联'} />
                       : <span className="e4-table-cell-muted">—</span>}
                   </td>
+                  <td><MeetingCell cell={meetingCell(s, latestReports !== null)} /></td>
                   <td className="col-action">
                     <span className="e4-row-actions">
                       <button

@@ -13,6 +13,7 @@ jest.mock('../src/lib/push.js', () => ({
   subscribe: jest.fn(async () => ({ ok: true })),
   unsubscribe: jest.fn(async () => ({ ok: true })),
   setAppBadge: jest.fn(async () => {}),
+  syncSubscription: jest.fn(async () => ({ ok: true })),
 }));
 const push = require('../src/lib/push.js');
 

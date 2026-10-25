@@ -26,6 +26,7 @@ jest.mock('../src/lib/push.js', () => ({
   unsubscribe: jest.fn(async () => ({ ok: true })),
   hasDeviceSubscription: jest.fn(async () => false),
   sendTestNotification: jest.fn(async () => ({ ok: true, sent: 1, message: '已发送，几秒内会收到' })),
+  syncSubscription: jest.fn(async () => ({ ok: true })),
 }));
 
 function Where() {
@@ -385,5 +386,16 @@ describe('提醒设置 · 邮件兜底与测试通知', () => {
     renderAt('/me/reminders', <Reminders />);
     fireEvent.click(await screen.findByRole('button', { name: '发送测试通知' }));
     expect(await screen.findByRole('status')).toHaveTextContent('刚发过，请 40 秒后再试');
+  });
+
+  it('发送前先把这台设备的订阅补存到服务器；补存失败 → 行内显示服务器原因，不再发送', async () => {
+    seed();
+    push.hasDeviceSubscription.mockResolvedValue(true);
+    push.syncSubscription.mockResolvedValueOnce({ ok: false, reason: 'save-failed', detail: 'permission denied for function register_push_subscription' });
+    push.sendTestNotification.mockClear();
+    renderAt('/me/reminders', <Reminders />);
+    fireEvent.click(await screen.findByRole('button', { name: '发送测试通知' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('这台设备的订阅没能保存到服务器：permission denied for function register_push_subscription');
+    expect(push.sendTestNotification).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
+import { syncSubscription } from '../lib/push.js';
 import { supabase } from '../lib/supabase.js';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_red.png';
@@ -98,6 +99,13 @@ export default function Layout() {
   const [notificationCount, setNotificationCount] = useState(0);
 
   const isTeacher = Number(profile?.role) >= 2;
+
+  // 打开应用时，把这台设备已授权的推送订阅重新写到服务器（幂等）。
+  // 修复「浏览器里有订阅、服务器却没记录」：之前保存失败，或同一台设备换了账号登录。
+  useEffect(() => {
+    if (!profile?.id || isTeacher || typeof syncSubscription !== 'function') return;
+    syncSubscription().catch(() => {});
+  }, [profile?.id, isTeacher]);
 
   useEffect(() => {
     async function loadCount() {

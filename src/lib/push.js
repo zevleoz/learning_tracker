@@ -74,6 +74,11 @@ export async function subscribe(userId, { vapidKey } = {}) {
     });
   }
 
+  return saveSubscription(subscription);
+}
+
+/** 把浏览器里的订阅写到服务器（幂等：同一 endpoint 重复写只会更新）。失败时带上服务器给的原因，便于排查。 */
+async function saveSubscription(subscription) {
   const json = subscription.toJSON();
   const { error } = await supabase.rpc('register_push_subscription', {
     p_endpoint: json.endpoint,
@@ -81,8 +86,24 @@ export async function subscribe(userId, { vapidKey } = {}) {
     p_auth: json.keys?.auth,
     p_user_agent: (navigator.userAgent || '').slice(0, 300),
   });
-  if (error) return { ok: false, reason: 'save-failed' };
+  if (error) return { ok: false, reason: 'save-failed', detail: String(error.message || error.code || '').slice(0, 160) };
   return { ok: true };
+}
+
+/**
+ * 已授权且浏览器里有订阅时，把它重新写到服务器。
+ * 用于：打开应用时自愈（之前保存失败、换账号登录同一台设备），以及发送测试通知前确认服务器有这台设备。
+ */
+export async function syncSubscription() {
+  if (!isPushSupported() || Notification.permission !== 'granted') return { ok: false, reason: 'not-granted' };
+  const registration = await Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+  ]);
+  if (!registration) return { ok: false, reason: 'no-service-worker' };
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return { ok: false, reason: 'no-subscription' };
+  return saveSubscription(subscription);
 }
 
 /** 取消本设备的订阅并删除对应的库内记录。 */

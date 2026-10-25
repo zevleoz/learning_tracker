@@ -129,7 +129,8 @@ export default function Today({ today: todayProp } = {}) {
     try {
       const res = await subscribe(userId);
       setPermission(getPermission());
-      if (!res.ok && getPermission() === 'default') toast('没能开启提醒，可以稍后在「我的 › 提醒」里再试', { kind: 'error' });
+      // 授权成功但保存失败也要说出来，否则学生以为已经开启了
+      if (!res.ok && res.reason !== 'denied') toast('没能开启提醒，可以稍后在「我的 › 提醒」里再试', { kind: 'error' });
     } finally {
       setCardBusy(false);
     }

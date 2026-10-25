@@ -271,6 +271,15 @@ describe('sendTest 限流', () => {
     expect((await sendTest({ store, sendPush, userId: 'a', now: NOW })).rateLimited).toBe(true);
     expect(sendPush).not.toHaveBeenCalled();
   });
+  test('全部没送达 → 还原 last_test_at，不占限流额度', async () => {
+    const { store } = base({ prefs: { daily_reminder: true } });
+    store.releaseTest = jest.fn().mockResolvedValue();
+    const failing = jest.fn().mockRejectedValue(Object.assign(new Error('BadJwtToken'), { statusCode: 403 }));
+    const r = await sendTest({ store, sendPush: failing, userId: 'a', now: NOW });
+    expect(r).toMatchObject({ sent: 0, failed: 1, message: '没能送达，请稍后再试' });
+    expect(store.releaseTest).toHaveBeenCalledWith('a', expect.objectContaining({ daily_reminder: true }));
+    expect(store.releaseTest.mock.calls[0][1]).not.toHaveProperty('last_test_at');
+  });
   test('没有订阅 → 提示且不占限流额度', async () => {
     const claimTest = jest.fn();
     const store = makeStore({ profiles: [profile('a')], extra: { claimTest } });

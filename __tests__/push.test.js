@@ -142,7 +142,7 @@ describe('push.js', () => {
     const push = loadPush();
     installPushEnv();
     supabase.__setRpcResponse('register_push_subscription', { data: null, error: { message: 'boom' } });
-    expect(await push.subscribe('u')).toEqual({ ok: false, reason: 'save-failed' });
+    expect(await push.subscribe('u')).toEqual({ ok: false, reason: 'save-failed', detail: 'boom' });
   });
 
   test('unsubscribe：取消浏览器订阅并按 endpoint 删除库内记录', async () => {

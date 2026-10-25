@@ -9,7 +9,7 @@ import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
 import { logger } from '../../lib/logger.js';
 import {
-  getPermission, hasDeviceSubscription, isIOSNeedsInstall, isPushSupported, sendTestNotification, subscribe, unsubscribe,
+  getPermission, hasDeviceSubscription, isIOSNeedsInstall, isPushSupported, sendTestNotification, subscribe, syncSubscription, unsubscribe,
 } from '../../lib/push.js';
 import ProfileEditor from '../../components/ProfileEditor.jsx';
 import Notifications from '../Notifications.jsx';
@@ -203,6 +203,12 @@ export function Reminders() {
     setTesting(true);
     setTestResult(null);
     try {
+      // 先确认服务器上有这台设备的订阅（之前保存失败时在这里补上），再发
+      const synced = await syncSubscription();
+      if (!synced.ok && synced.reason === 'save-failed') {
+        setTestResult({ ok: false, message: `这台设备的订阅没能保存到服务器${synced.detail ? `：${synced.detail}` : ''}` });
+        return;
+      }
       setTestResult(await sendTestNotification());
     } catch {
       setTestResult({ ok: false, message: '没能发送，请稍后再试' });
@@ -232,7 +238,10 @@ export function Reminders() {
   async function requestPermission() {
     const res = await subscribe(uid);
     setPermission(getPermission());
-    if (!res.ok) setProblem(DENIED_COPY[res.reason] || '没能开启提醒，请稍后再试。');
+    if (!res.ok) {
+      const base = DENIED_COPY[res.reason] || '没能开启提醒，请稍后再试。';
+      setProblem(res.reason === 'save-failed' && res.detail ? `${base}（${res.detail}）` : base);
+    }
     return res.ok;
   }
 

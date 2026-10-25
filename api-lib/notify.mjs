@@ -572,7 +572,10 @@ export async function sendTest({ store, sendPush, userId, now = new Date() }) {
   }
   const badge = (await store.loadPendingCounts([userId]).catch(() => new Map())).get(userId) || 0;
   const r = await deliver({ subscriptions, payload: buildPayload('test', { badge }), sendPush, store });
-  return r.sent > 0 ? r : { ...r, message: '没能送达，请稍后再试' };
+  if (r.sent > 0) return r;
+  // 没送达不占用 60 秒额度：把 last_test_at 还原
+  await store.releaseTest?.(userId, raw).catch(() => {});
+  return { ...r, message: '没能送达，请稍后再试' };
 }
 
 /** 邮件里的一键退订：把 email_fallback 置为 false。 */
@@ -724,6 +727,13 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch }) {
       if (!res.ok) throw new Error(`Supabase ${res.status}: profiles test claim`);
       const rows = await res.json();
       return Array.isArray(rows) && rows.length > 0;
+    },
+    async releaseTest(userId, rawPrefs) {
+      const res = await request(`profiles?id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: { notification_prefs: { ...(rawPrefs || {}) } },
+      });
+      if (!res.ok) throw new Error(`Supabase ${res.status}: profiles test release`);
     },
     async mergePrefs(userId, patch) {
       const [row] = await getJson(`profiles?select=notification_prefs&id=eq.${encodeURIComponent(userId)}`);

@@ -7,4 +7,5 @@ export async function subscribe() { return { ok: false, reason: 'unsupported' };
 export async function unsubscribe() { return { ok: true }; }
 export async function setAppBadge() {}
 export async function hasDeviceSubscription() { return false; }
+export async function syncSubscription() { return { ok: false, reason: 'not-granted' }; }
 export async function sendTestNotification() { return { ok: false, message: '' }; }

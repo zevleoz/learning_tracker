@@ -20,6 +20,7 @@ jest.mock('../src/lib/push.js', () => ({
   setAppBadge: jest.fn(async () => {}),
   hasDeviceSubscription: jest.fn(async () => false),
   sendTestNotification: jest.fn(async () => ({ ok: false, message: '' })),
+  syncSubscription: jest.fn(async () => ({ ok: true })),
 }));
 
 function renderApp(path) {

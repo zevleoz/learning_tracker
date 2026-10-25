@@ -6,7 +6,7 @@ import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 import { loadOutbox, OUTBOX_KEY } from '../src/lib/outbox.js';
 
 // 回归背景：学生网络失败时保存只弹瞬时 toast，"以为存上了其实没存上"。
-// 现在：失败 → 本机暂存 + 常驻横幅；恢复 → 手动/自动重试补传。
+// 现在：失败 → 本机暂存 + 常驻「N 条待同步」状态条；恢复 → 手动/自动重试补传。
 
 const COURSE_ROW = {
   id: 'course-1', name: '数学', subject: '', course_type: 1,
@@ -29,17 +29,20 @@ function renderLearning() {
 }
 
 async function waitForForm() {
+  fireEvent.click(await screen.findByRole('button', { name: '记一笔' }));
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: '保存记录' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^保存记录/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();
   });
 }
+const syncStatus = () => screen.queryByText(/条待同步/);
 
 function fillAndSubmit() {
   const timeInputs = document.querySelectorAll('input[type="time"]');
   fireEvent.change(timeInputs[0], { target: { value: '09:00' } });
   fireEvent.change(timeInputs[1], { target: { value: '10:00' } });
-  fireEvent.change(screen.getAllByRole('combobox')[3], { target: { value: '自主预习' } });
-  fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+  fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+  fireEvent.click(screen.getByRole('button', { name: /^保存记录/ }));
 }
 
 describe('Learning · 保存失败暂存与补传', () => {
@@ -57,7 +60,7 @@ describe('Learning · 保存失败暂存与补传', () => {
     ]);
   });
 
-  test('保存失败：记录暂存本机 + 常驻横幅出现，不写库', async () => {
+  test('保存失败：记录暂存本机 + 待同步状态出现，不写库', async () => {
     seedBase();
     supabase.__setInsertError('learning_sessions', { message: 'fetch failed' });
     renderLearning();
@@ -66,7 +69,8 @@ describe('Learning · 保存失败暂存与补传', () => {
     fillAndSubmit();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('1 条记录未保存成功');
+      expect(syncStatus()).not.toBeNull();
+      expect(syncStatus().closest('[role="status"]')).toHaveTextContent('1 条待同步');
     });
     // 没写进库，但本机队列里有
     expect(supabase.__getTableData('learning_sessions')).toHaveLength(0);
@@ -76,20 +80,20 @@ describe('Learning · 保存失败暂存与补传', () => {
     expect(items[0].payload.end_time).toBe('10:00:00');
   });
 
-  test('恢复后点「立即重试」：补传成功、横幅消失', async () => {
+  test('恢复后点「重试」：补传成功、待同步状态消失', async () => {
     seedBase();
     supabase.__setInsertError('learning_sessions', { message: 'fetch failed' });
     renderLearning();
     await waitForForm();
     fillAndSubmit();
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    await waitFor(() => expect(syncStatus()).not.toBeNull());
 
     // 网络恢复
     supabase.__setInsertError('learning_sessions', null);
-    fireEvent.click(screen.getByRole('button', { name: '立即重试' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
 
     await waitFor(() => {
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(syncStatus()).toBeNull();
     });
     const rows = supabase.__getTableData('learning_sessions');
     expect(rows).toHaveLength(1);
@@ -103,7 +107,7 @@ describe('Learning · 保存失败暂存与补传', () => {
     renderLearning();
     await waitForForm();
     fillAndSubmit();
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    await waitFor(() => expect(syncStatus()).not.toBeNull());
 
     // 暂存期间，同一时段已有别的记录落库（比如学生换设备补填了）
     supabase.__setInsertError('learning_sessions', null);
@@ -113,10 +117,10 @@ describe('Learning · 保存失败暂存与补传', () => {
         start_time: '09:30:00', end_time: '10:30:00', deleted_at: null },
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: '立即重试' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
 
     await waitFor(() => {
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(syncStatus()).toBeNull();
     });
     // 队列清空，且没有重复写入
     expect(loadOutbox()).toHaveLength(0);

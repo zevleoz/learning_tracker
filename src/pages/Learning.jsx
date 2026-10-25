@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Pencil, Trash2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Pencil, Trash2, Plus, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { SUBJECTIVE_STEPS } from '../lib/rating.js';
 import { useAuth } from '../lib/useAuth.js';
@@ -9,337 +8,77 @@ import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
+import LogSheet, { Sheet } from '../components/student/LogSheet.jsx';
+import GradeChips from '../components/student/GradeChips.jsx';
+import {
+  CATEGORY_OPTS, ALL_FORM_PRESET, GRADE_RANGES,
+  validateSession, buildSessionPayload, applyPendingFilter, pendingGradePayload, recentCombos,
+} from '../lib/sessionRules.js';
 
 /* ---------- 常量定义 ---------- */
-
-// 学习行为类别（category）— 与数据库/分析面板一致：1=学习 2=复习 3=练习
-const CATEGORY_OPTS = [
-  { key: 1, label: '学习' },
-  { key: 2, label: '复习' },
-  { key: 3, label: '练习' },
-];
-
-// 学习行为形式（预设 form，字符串；按学习行为类别分组；
-// 额外的 "+其他/自定义" 通过 ADD_OTHER_SENTINEL 让用户新增，不与预设重复）
-const ADD_OTHER_SENTINEL = '__ADD_OTHER__';
-const FORM_PRESET_BY_CATEGORY = {
-  1: ['自主预习', '校外线上', '校外线下'],                                 // 学习
-  2: ['自主复习', '校外线上', '校外线下'],                                 // 复习
-  3: ['自主练习', '校外线上', '校外线下', '课外作业', '学校作业'],          // 练习
-};
-const ALL_FORM_PRESET = Array.from(new Set(Object.values(FORM_PRESET_BY_CATEGORY).flat()));
-
-// 客观评估 13 档
-const OBJECTIVE_STEPS = [
-  { value: 0,  label: 'F'  },
-  { value: 1,  label: 'D-' },
-  { value: 2,  label: 'D'  },
-  { value: 3,  label: 'D+' },
-  { value: 4,  label: 'C-' },
-  { value: 5,  label: 'C'  },
-  { value: 6,  label: 'C+' },
-  { value: 7,  label: 'B-' },
-  { value: 8,  label: 'B'  },
-  { value: 9,  label: 'B+' },
-  { value: 10, label: 'A-' },
-  { value: 11, label: 'A'  },
-  { value: 12, label: 'A+' },
-];
-
-// letter grade → 百分制区间（作为参考显示在客观评估下方）
-const GRADE_RANGES = {
-  'A+': '97–100',
-  'A':  '93–96',
-  'A-': '90–92',
-  'B+': '87–89',
-  'B':  '83–86',
-  'B-': '80–82',
-  'C+': '77–79',
-  'C':  '73–76',
-  'C-': '70–72',
-  'D+': '67–69',
-  'D':  '63–66',
-  'D-': '60–62',
-  'F':  '0–59',
-};
 
 // 成绩 tab 预设等第（仅 letter grade A+ ~ F）
 const GRADE_PRESET_CHIPS = [
   'A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F',
 ];
 
-const SUBJECT_COLORS = {
-  '数学': { bg: 'rgba(99, 102, 241, 0.15)', text: '#4338ca', border: 'rgba(99, 102, 241, 0.3)' },
-  '物理': { bg: 'rgba(34, 197, 94, 0.15)', text: '#166534', border: 'rgba(34, 197, 94, 0.3)' },
-  '英语': { bg: 'rgba(249, 115, 22, 0.15)', text: '#9a3412', border: 'rgba(249, 115, 22, 0.3)' },
-  '历史': { bg: 'rgba(168, 85, 247, 0.15)', text: '#7e22ce', border: 'rgba(168, 85, 247, 0.3)' },
-  '化学': { bg: 'rgba(236, 72, 153, 0.15)', text: '#be185d', border: 'rgba(236, 72, 153, 0.3)' },
-  '生物': { bg: 'rgba(6, 182, 212, 0.15)', text: '#0891b2', border: 'rgba(6, 182, 212, 0.3)' },
-};
+// 最近记录的查询列（含 course_id/chapter_id/unit_id：编辑回填与「再记一次」都要用）
+const RECENT_SELECT = `
+  id, session_date, start_time, end_time, duration_minutes,
+  category, form, eval_type, self_rating, grade_label, notes,
+  course_id, chapter_id, unit_id,
+  course:courses(id,name,subject,course_type),
+  chapter:chapters(id,name),
+  unit:units(id,name)
+`;
+const RECENT_LIMIT = 30;
+
+const TABS = [
+  { key: 'record', label: '记录' },
+  { key: 'pending', label: '待补填' },
+  { key: 'scores', label: '成绩' },
+];
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-function toTimeStr(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
-function fmtRecentDate(iso, timeStr) {
+function fmtDay(iso) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
   const now = new Date();
-  const today = toDateStr(now);
   const yest = new Date(now); yest.setDate(now.getDate() - 1);
   const ds = toDateStr(d);
-  const ts = timeStr ? timeStr.slice(0, 5) : toTimeStr(d);
-  if (ds === today) return `今天 ${ts}`;
-  if (ds === toDateStr(yest)) return `昨天 ${ts}`;
-  return `${d.getMonth()+1}/${d.getDate()} ${ts}`;
+  if (ds === toDateStr(now)) return '今天';
+  if (ds === toDateStr(yest)) return '昨天';
+  return `${d.getMonth()+1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}`;
 }
-
-/* ============ 渐变吸附式滑轨 GlassRail ============ */
-function GlassRail({ steps, idx, onChange, disabled, labelFn }) {
-  const n = steps.length;
-  const trackRef = useRef(null);
-  const draggingRef = useRef(false);
-
-  // 吸附点百分比（首尾留一点空间让 thumb 不贴边）
-  const pct = (i) => {
-    if (n === 1) return 50;
-    return (i / (n - 1)) * 100;
-  };
-  const label = (labelFn || ((s) => s.label))(steps[idx]);
-
-  // 把 pointer 坐标转换为 step index
-  function pointerToStep(clientX) {
-    const el = trackRef.current;
-    if (!el) return idx;
-    const rect = el.getBoundingClientRect();
-    // 轨道有效范围：padding 20px 两侧
-    const usableLeft = rect.left + 20;
-    const usableWidth = rect.width - 40;
-    if (usableWidth <= 0) return idx;
-    let ratio = (clientX - usableLeft) / usableWidth;
-    ratio = Math.max(0, Math.min(1, ratio));
-    return Math.round(ratio * (n - 1));
-  }
-
-  function onPointerDown(e) {
-    if (disabled) return;
-    try { e.target.setPointerCapture(e.pointerId); } catch {}
-    draggingRef.current = true;
-    onChange(pointerToStep(e.clientX));
-  }
-  function onPointerMove(e) {
-    if (!draggingRef.current || disabled) return;
-    onChange(pointerToStep(e.clientX));
-  }
-  function onPointerUp(e) {
-    draggingRef.current = false;
-    try { e.target.releasePointerCapture(e.pointerId); } catch {}
-  }
-
-  return (
-    <div className="glass-rail">
-      <div
-        className="glass-rail-track"
-        ref={trackRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        style={{ touchAction: 'none' }}
-      >
-        {/* 吸附点 */}
-        <div className="glass-rail-steps">
-          {steps.map((_, i) => <span key={i} style={{ opacity: i === idx ? 1 : 0.55 }} />)}
-        </div>
-        {/* 隐藏的原生 input（键盘无障碍用，pointer 已由 track 接管） */}
-        <input
-          type="range"
-          min={0}
-          max={n - 1}
-          step={1}
-          value={idx}
-          disabled={disabled}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
-        {/* 绝对定位 thumb（用 SVG 绘制圆形，避免 Safari 的 CSS border-radius 泄漏问题） */}
-        <div className="glass-rail-thumb-wrap">
-          <div
-            className="glass-rail-thumb"
-            style={{ left: `${pct(idx)}%` }}
-          >
-            <svg width="28" height="28" viewBox="0 0 28 28" style={{ display: 'block' }}>
-              <circle cx="14" cy="14" r="12" fill="#ffffff" stroke="rgba(255,255,255,0.9)" strokeWidth="2"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-      {/* 当前标签 tooltip（在滑轨下方居中） */}
-      <div className="glass-rail-tooltip">{label}</div>
-      {/* 刻度标签（可选：只在 ≤ 6 档显示） */}
-      {n <= 6 && (
-        <div className="glass-rail-labels">
-          {steps.map((s, i) => (
-            <span key={i} className={'tick' + (i === idx ? ' active' : '')}>
-              {(labelFn || ((x) => x.label))(s)}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function fmtShortDate(iso) {
+  if (!iso) return '';
+  const day = fmtDay(iso);
+  return day === '今天' || day === '昨天' ? day : day.split(' ')[0];
 }
-
-/* ============ Inline Spinner（14px，用于按钮 busy 态左侧） ============ */
-function Spinner({ size = 14, color = 'currentColor' }) {
-  return (
-    <motion.svg
-      width={size}
-      height={size}
-      viewBox="0 0 50 50"
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
-      style={{ display: 'inline-block', verticalAlign: 'middle' }}
-    >
-      <circle
-        cx="25" cy="25" r="20"
-        fill="none"
-        stroke={color}
-        strokeOpacity="0.25"
-        strokeWidth="5"
-      />
-      <path
-        d="M25 5 a20 20 0 0 1 20 20"
-        fill="none"
-        stroke={color}
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
-    </motion.svg>
-  );
-}
-
-/* ============ Liquid Glass Checkmark（成功/失败反馈 overlay） ============ */
-function LiquidGlassFlash({ show, variant = 'success', size = 88, duration = 500, onComplete }) {
-  const [visible, setVisible] = useState(false);
-  const [animKey, setAnimKey] = useState(0);
-  useEffect(() => {
-    if (show) {
-      setVisible(true);
-      setAnimKey(k => k + 1);
-      const t = setTimeout(() => {
-        setVisible(false);
-        onComplete && onComplete();
-      }, duration);
-      return () => clearTimeout(t);
-    }
-  }, [show]); // eslint-disable-line
-  if (!show && !visible) return null;
-  const isSuccess = variant === 'success';
-  // 用全屏 flex 容器保证任何分辨率/横屏/软键盘弹出时都严格居中
-  // dvh = 动态视口高度，随 iOS Safari 地址栏收起/展开实时更新（vh 是固定值会偏上）
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        width: '100vw',
-        height: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1500,
-        pointerEvents: 'none',
-      }}
-    >
-      <motion.div
-        key={animKey}
-        initial={{ opacity: 0, scale: 0.85 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 1.05 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 24 }}
-        style={{
-          width: size, height: size,
-          borderRadius: Math.round(size * 0.26),
-          background: 'rgba(255,255,255,0.78)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: `1px solid ${isSuccess ? 'rgba(148,163,184,0.55)' : 'rgba(254,202,202,0.9)'}`,
-          boxShadow: '0 24px 60px rgba(15,23,42,0.18)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-      >
-        {isSuccess ? (
-          <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
-            <motion.path
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.28, ease: 'easeOut' }}
-              d="M14 27 L23 36 L39 18"
-              stroke="#0f172a"
-              strokeWidth="4.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : (
-          <svg width={size * 0.54} height={size * 0.54} viewBox="0 0 52 52" fill="none">
-            <motion.g
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.28, ease: 'easeOut' }}
-              stroke="#0f172a"
-              strokeWidth="4.5"
-              strokeLinecap="round"
-            >
-              <line x1="16" y1="16" x2="36" y2="36" />
-              <line x1="36" y1="16" x2="16" y2="36" />
-            </motion.g>
-          </svg>
-        )}
-      </motion.div>
-    </div>
-  );
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
+const catLabel = (k) => CATEGORY_OPTS.find(c => c.key === k)?.label || '';
+const subjLabel = (v) => SUBJECTIVE_STEPS.find(s => s.value === v)?.label || '-';
+// 校内/校外用文字表达，不靠颜色区分
+const whereLabel = (course) => (course?.course_type === 2 ? '校外' : '校内');
+function coursePath(r) {
+  const parts = [r.chapter?.name, r.unit?.name].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '未选章节';
 }
 
 /* ============ 页面主体 ============ */
 export default function LearningPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  /* --- 下拉数据 --- */
+  /* --- 课程与自定义形式 --- */
   const [courses, setCourses] = useState([]);
-  const [courseId, setCourseId] = useState('');
-  const [chapterId, setChapterId] = useState('');
-  const [unitId, setUnitId] = useState('');
-
-  /* --- 学习行为形式（预设 + 自定义） --- */
+  const [loadingCourses, setLoadingCourses] = useState(true);
   const [customForms, setCustomForms] = useState([]); // string[]
-  const [formValue, setFormValue] = useState('');     // 选中的 form 名
-  const [addingCustom, setAddingCustom] = useState(false);
-  const [customInput, setCustomInput] = useState('');
 
-  /* --- 时间 --- */
-  const now = new Date();
-  const [dateStr, setDateStr] = useState(toDateStr(now));
-  const [startStr, setStartStr] = useState(toTimeStr(now));
-  const [endStr, setEndStr] = useState('');
-
-  /* --- 学习行为类别 --- */
-  const [category, setCategory] = useState(1); // 默认"学习"（1=学习 2=复习 3=练习）
-
-  /* --- 评估方式 --- */
-  // 主观：必填，始终展示
-  // 客观：可选，仅"练习"(category=3)展示，可滞后填写（objDeferred=true 表示暂不填写）
-  //       或标记为不适用（isObjNA=true 时 grade_label='N/A'，自动从待补填列表排除）
-  const [subjIdx, setSubjIdx] = useState(3);     // 默认"基本掌握" → 80
-  const [objIdx, setObjIdx] = useState(9);        // 默认 B+；展开即给默认值
-  const [objDeferred, setObjDeferred] = useState(false); // 默认"现在填写"
-  const [isObjNA, setIsObjNA] = useState(false);  // 客观不适用 (N/A)
-  const [editHadGrade, setEditHadGrade] = useState(false); // 被编辑记录原本是否有客观评价
-
-  /* --- 备注 --- */
-  const [notes, setNotes] = useState('');
-
-  /* --- 错误状态 --- */
-  const [errors, setErrors] = useState({});
+  /* --- 记一笔 sheet --- */
+  const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null });
 
   /* --- 提交状态 / 最近记录 --- */
   const [busy, setBusy] = useState(false);
@@ -347,37 +86,30 @@ export default function LearningPage() {
   // 保存失败的本机暂存队列（网络中断/会话失效时兜底，恢复后自动重试）
   const [outboxItems, setOutboxItems] = useState(() => loadOutbox());
   const [outboxRetrying, setOutboxRetrying] = useState(false);
-  const [editingSessionId, setEditingSessionId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [loadingCourses, setLoadingCourses] = useState(true);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
   const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
+  const tabRefs = useRef([]);
 
   /* --- 待补填客观评价列表 --- */
   const [pending, setPending] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
-  const [pendingModalSession, setPendingModalSession] = useState(null); // 选中的 session
-  const [pendingModalGrade, setPendingModalGrade] = useState(null);     // 选中的 grade label
-  const [pendingSaving, setPendingSaving] = useState(false);
+  const [pendingSavingId, setPendingSavingId] = useState(null);
+  const [pendingDone, setPendingDone] = useState({}); // { [sessionId]: grade_label }
+  const pendingReloadTimer = useRef(null);
 
   /* --- 成绩 Tab：校内课程 + 考试成绩 --- */
   const [scoreCourses, setScoreCourses] = useState([]);   // 校内课程列表 course_type=1
   const [examScores, setExamScores] = useState([]);      // 所有 exam_scores 记录
   const [loadingScores, setLoadingScores] = useState(false);
-  // 新增/编辑成绩 modal
+  // 新增/编辑成绩 sheet
   const [scoreModalOpen, setScoreModalOpen] = useState(false);
   const [scoreModalEditing, setScoreModalEditing] = useState(null);  // exam_score 对象或 null(新增)
   const [scoreModalCourseId, setScoreModalCourseId] = useState('');
   const [scoreForm, setScoreForm] = useState({ exam_name: '', exam_date: '', score: '', grade_label: '', notes: '' });
   const [scoreSaving, setScoreSaving] = useState(false);
   const [scoreDeletingId, setScoreDeletingId] = useState(null);
-
-  /* --- Liquid Glass 成功/失败反馈 flash --- */
-  const [flashState, setFlashState] = useState({ show: false, variant: 'success', size: 88, duration: 500 });
-  function triggerFlash(variant = 'success', size = 88, duration = 500) {
-    setFlashState({ show: true, variant, size, duration });
-  }
 
   /* ========== 载入：课程 tree ========== */
   useEffect(() => {
@@ -397,34 +129,9 @@ export default function LearningPage() {
           .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
       }));
       setCourses(list);
-      if (list.length) setCourseId(list[0].id);
       setLoadingCourses(false);
     })();
   }, [user]);
-
-  /* --- 课程变化 -> 预选第一个章节 --- */
-  useEffect(() => {
-    const c = courses.find(x => x.id === courseId);
-    if (c && c.chapters && c.chapters.length) {
-      setChapterId(c.chapters[0].id);
-    } else {
-      setChapterId('');
-    }
-  }, [courseId, courses]);
-
-  /* --- 章节变化 -> 预选第一个 unit --- */
-  useEffect(() => {
-    const c = courses.find(x => x.id === courseId);
-    const ch = c?.chapters?.find(x => x.id === chapterId);
-    if (ch && ch.units && ch.units.length) {
-      setUnitId(ch.units[0].id);
-    } else {
-      setUnitId('');
-    }
-  }, [chapterId, courseId, courses]);
-
-  const activeCourse = useMemo(() => courses.find(c => c.id === courseId), [courses, courseId]);
-  const activeChapter = useMemo(() => activeCourse?.chapters?.find(c => c.id === chapterId), [activeCourse, chapterId]);
 
   /* ========== 载入：自定义学习行为形式 ========== */
   useEffect(() => {
@@ -440,36 +147,30 @@ export default function LearningPage() {
     })();
   }, [user]);
 
-  /* ========== 载入：最近记录 ========== */
-  useEffect(() => {
+  /* ========== 最近记录（载入 / 提交成功 / 队列冲刷后共用） ========== */
+  async function refreshRecent() {
     if (!user) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from('learning_sessions')
-        .select(`
-          id, session_date, start_time, end_time, duration_minutes,
-          category, form, eval_type, self_rating, grade_label, notes,
-          course_id, chapter_id, unit_id,
-          course:courses(id,name,subject,course_type),
-          chapter:chapters(id,name),
-          unit:units(id,name)
-        `)
-        .eq('student_id', user.id)
-        .is('deleted_at', null)
-        .order('session_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) { logger.error('加载最近记录失败:', error); return; }
-      setRecent(data || []);
-    })();
-  }, [user]);
+    const { data, error } = await supabase
+      .from('learning_sessions')
+      .select(RECENT_SELECT)
+      .eq('student_id', user.id)
+      .is('deleted_at', null)
+      .order('session_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(RECENT_LIMIT);
+    if (error) { logger.error('加载最近记录失败:', error); return; }
+    setRecent(data || []);
+  }
+  useEffect(() => {
+    if (user) refreshRecent();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ========== 载入：待补填客观评价列表（练习类 + 无客观） ========== */
   const loadPending = async () => {
     if (!user) return;
     setLoadingPending(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await applyPendingFilter(supabase
         .from('learning_sessions')
         .select(`
           id, session_date, start_time, end_time, duration_minutes,
@@ -478,11 +179,7 @@ export default function LearningPage() {
           chapter:chapters(id,name),
           unit:units(id,name)
         `)
-        .eq('student_id', user.id)
-        .eq('category', 3)            // 练习
-        .is('grade_label', null)      // 无 letter grade
-        .is('score', null)            // 也无分数（排除旧 seed 数据）
-        .is('deleted_at', null)
+        .eq('student_id', user.id))
         .order('session_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(50);
@@ -618,7 +315,6 @@ export default function LearningPage() {
         const preMsg = friendlyErr(preCheckErr, '成绩数据表异常');
         logger.error('[saveScore] pre-check failed:', JSON.stringify(preCheckErr, null, 2));
         toast(preMsg, { kind: 'error', duration: 6000 });
-        triggerFlash('failure', 92, 450);
         return;
       }
 
@@ -645,14 +341,12 @@ export default function LearningPage() {
         if (error) throw error;
         toast('已保存', { kind: 'success' });
       }
-      triggerFlash('success', 92, 500);
       closeScoreModal();
       await loadScores();
     } catch (e) {
       logger.error('[saveScore] failed:', JSON.stringify(e, null, 2));
       const msg = friendlyErr(e, '保存失败');
       toast(msg, { kind: 'error', duration: 6000 });
-      triggerFlash('failure', 92, 450);
     } finally {
       setScoreSaving(false);
     }
@@ -673,58 +367,53 @@ export default function LearningPage() {
     }
   }
 
+  /* ========== 打开记一笔：＋ 按钮事件 / ?log=1 / 再记一次 ========== */
+  function openNew(detail) {
+    const d = detail && typeof detail === 'object' ? detail : {};
+    setSheet({
+      open: true, mode: 'new', editRow: null,
+      preset: {
+        courseId: d.courseId || '',
+        chapterId: d.chapterId || '',
+        unitId: d.unitId || '',
+        category: d.category,
+        form: d.form || '',
+        durationMinutes: Number(d.durationMinutes) || 0,
+      },
+    });
+  }
+  function closeSheet() {
+    setSheet(s => ({ ...s, open: false }));
+  }
+
+  useEffect(() => {
+    const onOpen = (e) => openNew(e.detail);
+    window.addEventListener('yb:open-log', onOpen);
+    return () => window.removeEventListener('yb:open-log', onOpen);
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get('log') !== '1') return;
+    openNew(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete('log');
+    setSearchParams(next, { replace: true });
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ========== 添加自定义 学习行为形式 ========== */
-  async function onAddCustomForm() {
-    const name = customInput.trim();
-    if (!name) return;
-    if (ALL_FORM_PRESET.includes(name) || customForms.includes(name)) {
-      setFormValue(name);
-      setAddingCustom(false);
-      setCustomInput('');
-      return;
-    }
+  async function onAddCustomForm(name) {
+    if (ALL_FORM_PRESET.includes(name) || customForms.includes(name)) return true;
     try {
       const { error } = await supabase.from('user_learning_forms').insert({
         student_id: user.id, name,
       });
       if (error) throw error;
       setCustomForms([name, ...customForms]);
-      setFormValue(name);
-      setAddingCustom(false);
-      setCustomInput('');
+      return true;
     } catch (e) {
       toast(e.message || '保存失败', { kind: 'error' });
+      return false;
     }
-  }
-
-  /* ========== 计算用时（分钟） ========== */
-  function computeDuration() {
-    if (!startStr || !endStr) return null;
-    const [sh, sm] = startStr.split(':').map(Number);
-    const [eh, em] = endStr.split(':').map(Number);
-    if ([sh,sm,eh,em].some(Number.isNaN)) return null;
-    let mins = (eh*60+em) - (sh*60+sm);
-    if (mins <= 0) mins += 24*60;       // 跨午夜
-    return mins;
-  }
-
-  /* ========== 最近记录刷新（提交成功 / 队列冲刷后共用） ========== */
-  async function refreshRecent() {
-    const { data } = await supabase
-      .from('learning_sessions')
-      .select(`
-        id, session_date, start_time, end_time, duration_minutes,
-        category, form, eval_type, self_rating, grade_label, notes,
-        course:courses(id,name,subject,course_type),
-        chapter:chapters(id,name),
-        unit:units(id,name)
-      `)
-      .eq('student_id', user.id)
-      .is('deleted_at', null)
-      .order('session_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(10);
-    setRecent(data || []);
   }
 
   /* ========== 失败队列：自动/手动重试 ========== */
@@ -784,49 +473,12 @@ export default function LearningPage() {
     return () => window.removeEventListener('online', onOnline);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ========== 提交 ========== */
-  async function onSubmit(e) {
-    e.preventDefault();
-    setErrors({});
+  /* ========== 提交（新增） ========== */
+  async function onSubmit(values) {
+    const newErrors = validateSession(values);
+    if (Object.keys(newErrors).length > 0) return { errors: newErrors };
 
-    const newErrors = {};
-    if (!courseId) newErrors.course = '请选择课程';
-    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
-    if (!formValue) newErrors.form = '请选择学习行为形式';
-
-    const duration = computeDuration();
-    if ((startStr && endStr) && (!duration || duration <= 0)) {
-      newErrors.time = '结束时间需晚于开始时间';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    const newStartTime = startStr + ':00';
-    const newEndTime = endStr + ':00';
-
-    const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
-    const gradeLabelValue = category === 3
-      ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
-      : null;
-    const payload = {
-      student_id: user.id,
-      course_id: courseId,
-      chapter_id: chapterId || null,
-      unit_id: unitId || null,
-      category,
-      form: formValue,
-      eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
-      duration_minutes: duration,
-      notes: notes.trim() || null,
-      session_date: dateStr,
-      start_time: newStartTime,
-      end_time: newEndTime,
-      self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-      grade_label: gradeLabelValue,
-    };
+    const payload = buildSessionPayload({ studentId: user.id, ...values });
 
     setBusy(true);
     try {
@@ -834,40 +486,28 @@ export default function LearningPage() {
         .from('learning_sessions')
         .select('id, start_time, end_time')
         .eq('student_id', user.id)
-        .eq('session_date', dateStr)
+        .eq('session_date', payload.session_date)
         .is('deleted_at', null)
-        .lt('start_time', newEndTime)
-        .gt('end_time', newStartTime);
+        .lt('start_time', payload.end_time)
+        .gt('end_time', payload.start_time);
 
       if (conflictError) throw conflictError;
       if (conflicts && conflicts.length > 0) {
         const conflict = conflicts[0];
-        newErrors.time = `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）`;
-        setErrors(newErrors);
-        setBusy(false);
-        return;
+        return { errors: { time: `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）` } };
       }
 
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
 
       toast('记录已保存', { kind: 'success' });
-      triggerFlash('success', 88, 480);
-
-      const d = new Date();
-      setStartStr(toTimeStr(d));
-      setEndStr('');
-      setNotes('');
-      setSubjIdx(3);
-      setObjIdx(9);
-      setObjDeferred(false);
-      setIsObjNA(false);
-
+      closeSheet();
       await refreshRecent();
       await loadPending();
       flushOutbox();  // 网络已通，顺带冲刷暂存队列（不阻塞本次提交）
+      return { ok: true };
     } catch (err) {
-      // 保存失败：暂存本机，常驻横幅会持续提示并自动重试——绝不让记录无声丢失
+      // 保存失败：暂存本机，同步状态条会持续提示并自动重试——绝不让记录无声丢失
       enqueueOutbox({ kind: 'learning_session', payload });
       setOutboxItems(loadOutbox());
       let msg = err.message || '保存失败';
@@ -879,6 +519,8 @@ export default function LearningPage() {
         msg = '网络连接失败';
       }
       toast(`${msg}。本条已暂存本机，恢复后会自动重试`, { kind: 'error' });
+      closeSheet();
+      return { ok: false };
     } finally {
       setBusy(false);
     }
@@ -886,79 +528,16 @@ export default function LearningPage() {
 
   /* ========== 编辑现有记录 ========== */
   function onStartEdit(r) {
-    setEditingSessionId(r.id);
-    setCourseId(r.course_id);
-    const course = (courses || []).find(c => c.id === r.course_id);
-    const chapter = (course?.chapters || []).find(ch => ch.id === r.chapter_id);
-    if (chapter) setChapterId(chapter.id);
-    // 只按记录本身的 unit_id 回填；记录没有单元时保持为空，
-    // 避免保存时把「无单元」的记录静默改成第一单元（STU-2）
-    setUnitId(r.unit_id || '');
-
-    setDateStr(String(r.session_date || toDateStr(new Date())));
-    setStartStr(String(r.start_time || toTimeStr(new Date())).slice(0, 5));
-    setEndStr(String(r.end_time || '').slice(0, 5));
-    setCategory(r.category || 1);
-    setFormValue(r.form || '');
-    setEditHadGrade(!!r.grade_label);
-    // 主观：始终回显
-    const subjIdxLoaded = SUBJECTIVE_STEPS.findIndex(s => s.value === r.self_rating);
-    setSubjIdx(subjIdxLoaded >= 0 ? subjIdxLoaded : 3);
-    // 客观：按字段存在性独立回显（不依赖 eval_type）
-    if (r.grade_label === 'N/A') {
-      setIsObjNA(true);
-      setObjIdx(9);
-      setObjDeferred(false);
-    } else if (r.grade_label) {
-      setIsObjNA(false);
-      const objIdxLoaded = OBJECTIVE_STEPS.findIndex(s => s.label === r.grade_label);
-      setObjIdx(objIdxLoaded >= 0 ? objIdxLoaded : 9);
-      setObjDeferred(false);
-    } else {
-      setIsObjNA(false);
-      setObjIdx(9);
-      setObjDeferred(true);  // 无客观评价时默认稍后补充，避免保存时注入默认 B+
-    }
-    setNotes(r.notes || '');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSheet({ open: true, mode: 'edit', editRow: r, preset: null });
   }
 
-  function onCancelEdit() {
-    setEditingSessionId(null);
-    const d = new Date();
-    setDateStr(toDateStr(d));
-    setStartStr(toTimeStr(d));
-    setEndStr('');
-    setCategory(1);
-    setFormValue('');
-    setSubjIdx(3);
-    setObjIdx(9);
-    setObjDeferred(false);
-    setIsObjNA(false);
-    setNotes('');
-    setEditHadGrade(false);
-  }
+  async function onSaveEdit(values) {
+    const editingSessionId = sheet.editRow?.id;
+    if (!editingSessionId) return { ok: false };
+    const newErrors = validateSession(values);
+    if (Object.keys(newErrors).length > 0) return { errors: newErrors };
 
-  async function onSaveEdit() {
-    setErrors({});
-
-    const newErrors = {};
-    if (!courseId) newErrors.course = '请选择课程';
-    if (!startStr || !endStr) newErrors.time = '请填写开始和结束时间';
-    if (!formValue) newErrors.form = '请选择学习行为形式';
-
-    const duration = computeDuration();
-    if ((startStr && endStr) && (!duration || duration <= 0)) {
-      newErrors.time = '结束时间需晚于开始时间';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    const newStartTime = startStr + ':00';
-    const newEndTime = endStr + ':00';
+    const payload = buildSessionPayload(values);
 
     setBusy(true);
     try {
@@ -966,40 +545,17 @@ export default function LearningPage() {
         .from('learning_sessions')
         .select('id, start_time, end_time')
         .eq('student_id', user.id)
-        .eq('session_date', dateStr)
+        .eq('session_date', payload.session_date)
         .is('deleted_at', null)
         .neq('id', editingSessionId)
-        .lt('start_time', newEndTime)
-        .gt('end_time', newStartTime);
+        .lt('start_time', payload.end_time)
+        .gt('end_time', payload.start_time);
 
       if (conflictError) throw conflictError;
       if (conflicts && conflicts.length > 0) {
         const conflict = conflicts[0];
-        newErrors.time = `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）`;
-        setErrors(newErrors);
-        setBusy(false);
-        return;
+        return { errors: { time: `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）` } };
       }
-
-      const hasObjective = category === 3 && !objDeferred && (isObjNA || objIdx !== null);
-      const gradeLabelValue = category === 3
-        ? (isObjNA ? 'N/A' : (!objDeferred && objIdx !== null ? OBJECTIVE_STEPS[objIdx].label : null))
-        : null;
-      const payload = {
-        course_id: courseId,
-        chapter_id: chapterId || null,
-        unit_id: unitId || null,
-        category,
-        form: formValue,
-        eval_type: hasObjective ? 2 : 1,  // 1=仅主观 / 2=含客观 (含 N/A)
-        duration_minutes: duration,
-        notes: notes.trim() || null,
-        session_date: dateStr,
-        start_time: newStartTime,
-        end_time: newEndTime,
-        self_rating: SUBJECTIVE_STEPS[subjIdx].value,  // 始终写入
-        grade_label: gradeLabelValue,
-      };
 
       const { error } = await supabase
         .from('learning_sessions')
@@ -1010,43 +566,23 @@ export default function LearningPage() {
         throw error;
       }
       toast('已更新', { kind: 'success' });
-      triggerFlash('success', 88, 480);
-
-      const { data } = await supabase
-        .from('learning_sessions')
-        .select(`
-          id, session_date, start_time, end_time, duration_minutes,
-          category, form, eval_type, self_rating, grade_label, notes,
-          course_id, chapter_id, unit_id,
-          course:courses(id,name,subject,course_type),
-          chapter:chapters(id,name),
-          unit:units(id,name)
-        `)
-        .eq('student_id', user.id)
-        .is('deleted_at', null)
-        .order('session_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(10);
-      setRecent(data || []);
-      setEditingSessionId(null);
-      setEditHadGrade(false);
+      closeSheet();
+      await refreshRecent();
       await loadPending();
+      return { ok: true };
     } catch (err) {
       let msg = err.message || '保存失败';
       if (msg.includes('row-level security')) {
         msg = '权限不足：您只能操作自己的学习记录。';
       }
       toast(msg, { kind: 'error' });
+      return { ok: false };
     } finally {
       setBusy(false);
     }
   }
 
   /* ========== 删除（软删除）========== */
-  function onDeleteClick(r) {
-    setDeletingId(r.id);
-  }
-
   async function onConfirmDelete(r) {
     setDeletingId(null);
     setBusy(true);
@@ -1058,6 +594,7 @@ export default function LearningPage() {
       if (error) throw error;
       toast('已删除', { kind: 'success' });
       setRecent(prev => prev.filter(x => x.id !== r.id));
+      loadPending();
     } catch (err) {
       let msg = err.message || '删除失败';
       if (msg.includes('row-level security')) {
@@ -1069,1204 +606,413 @@ export default function LearningPage() {
     }
   }
 
-  function onCancelDelete() {
-    setDeletingId(null);
-  }
-
-  /* ========== helper 渲染 ========== */
-  // 预设列表按学习行为类别切换；用户自定义项在任意类别下都可选择
-  const currentPreset = FORM_PRESET_BY_CATEGORY[category] || FORM_PRESET_BY_CATEGORY[1];
-  const customForCategory = customForms.filter(n => !ALL_FORM_PRESET.includes(n));
-  const formOptions = [...currentPreset, ...customForCategory];
-
-  // 当学习行为类别改变时，如果当前 formValue 不在新列表里，就清空，避免提交时漏选
-  useEffect(() => {
-    if (formValue && !formOptions.includes(formValue)) setFormValue('');
-  }, [category]); // eslint-disable-line react-hooks/exhaustive-deps
-  const catLabel = (k) => CATEGORY_OPTS.find(c => c.key === k)?.label || '';
-  const autoDur = computeDuration();
-
-  /* ========== 待补填：一键保存客观评价 ========== */
-  async function onSavePendingGrade() {
-    if (!pendingModalSession || !pendingModalGrade) return;
-    setPendingSaving(true);
+  /* ========== 待补填：点等第即保存 ========== */
+  async function onPendingGrade(r, gradeLabel) {
+    if (pendingSavingId) return;
+    setPendingSavingId(r.id);
     try {
       const { error } = await supabase
         .from('learning_sessions')
-        .update({
-          grade_label: pendingModalGrade,
-          eval_type: 2,  // 含客观
-        })
-        .eq('id', pendingModalSession.id);
+        .update(pendingGradePayload(gradeLabel))
+        .eq('id', r.id);
       if (error) throw error;
+      setPendingDone(d => ({ ...d, [r.id]: gradeLabel }));
       toast('客观评价已保存', { kind: 'success' });
-      triggerFlash('success', 108, 750);
-      await new Promise(r => setTimeout(r, 750));
-      setPendingModalSession(null);
-      setPendingModalGrade(null);
-      await loadPending();  // 刷新待补填列表
+      // 稍等片刻让学生看到确认，再刷新列表（连续补填时合并成一次刷新）
+      clearTimeout(pendingReloadTimer.current);
+      pendingReloadTimer.current = setTimeout(async () => {
+        await loadPending();
+        setPendingDone({});
+      }, 1200);
     } catch (err) {
       let msg = err.message || '保存失败';
       if (msg.includes('row-level security')) {
         msg = '权限不足：您只能操作自己的学习记录。';
       }
       toast(msg, { kind: 'error' });
-      triggerFlash('failure', 108, 500);
     } finally {
-      setPendingSaving(false);
+      setPendingSavingId(null);
     }
+  }
+  useEffect(() => () => clearTimeout(pendingReloadTimer.current), []);
+
+  /* ========== 派生数据 ========== */
+  const combos = useMemo(() => recentCombos(recent, 4), [recent]);
+  const days = useMemo(() => {
+    const out = [];
+    for (const r of recent) {
+      const last = out[out.length - 1];
+      if (last && last.date === r.session_date) { last.rows.push(r); last.total += r.duration_minutes || 0; }
+      else out.push({ date: r.session_date, rows: [r], total: r.duration_minutes || 0 });
+    }
+    return out;
+  }, [recent]);
+  const pendingOpen = pending.filter(r => !pendingDone[r.id]).length;
+
+  function onTabKeyDown(e, i) {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const next = (i + step + TABS.length) % TABS.length;
+    tabRefs.current[next]?.focus();
+    setView(TABS[next].key);
   }
 
   /* ========== JSX ========== */
-  // 备注块：桌面下非练习类时嵌入主观评估右侧（rec-row 第二格），练习类时独占一行
-  const notesBlock = (
-    <div className="rec-block">
-      <div className="rec-label">备注</div>
-      <textarea
-        rows="2"
-        className="input input-strong"
-        placeholder={category === 3 && !objDeferred
-          ? "这次分数的解释：比如这次考试的哪一部分丢分最多？是知识点没掌握、审题粗心、时间分配不合理，还是题目本身偏难？下次可以通过什么方式改进？"
-          : "关于这次学习，你想记录的补充说明：例如自己的专注度如何？有哪些点掌握了，哪些还需要再巩固？学习过程中出现的问题或感悟？"}
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        disabled={busy}
-      />
-    </div>
-  );
-
   return (
-    <>
-    <div className="learn-wrap animate-fade-in">
-
-      <div className="page-title">
-        <h1>记录</h1>
-        <p>填写一次学习行为，数据积累帮你了解自己</p>
+    <div className="yb-lg yb-lg-page animate-fade-in">
+      <div className="yb-lg-head">
+        <div>
+          <h1>记录</h1>
+          <p>记下每一次学习，数据会帮你看清自己</p>
+        </div>
+        <button type="button" className="yb-btn sm" aria-haspopup="dialog" onClick={() => openNew(null)}>
+          <Plus size={16} strokeWidth={2.4} aria-hidden="true" />记一笔
+        </button>
       </div>
 
       {/* ====== 顶部 Tab: 记录 / 待补填 / 成绩 ====== */}
-      <div className="seg-tabs">
-        <button
-          type="button"
-          className={'seg-tab' + (view === 'record' ? ' active' : '')}
-          onClick={() => setView('record')}
-        >记录</button>
-        <button
-          type="button"
-          className={'seg-tab' + (view === 'pending' ? ' active' : '')}
-          onClick={() => setView('pending')}
-        >
-          待补填
-          {pending.length > 0 && (
-            <span className="seg-tab-badge">{pending.length}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          className={'seg-tab' + (view === 'scores' ? ' active' : '')}
-          onClick={() => setView('scores')}
-        >
-          成绩
-          {examScores.length > 0 && (
-            <span className="seg-tab-badge">{examScores.length}</span>
-          )}
-        </button>
+      <div className="yb-seg" role="tablist" aria-label="记录分类">
+        {TABS.map((t, i) => {
+          const count = t.key === 'pending' ? pending.length : t.key === 'scores' ? examScores.length : 0;
+          return (
+            <button
+              key={t.key}
+              ref={el => { tabRefs.current[i] = el; }}
+              type="button"
+              role="tab"
+              id={`yb-tab-${t.key}`}
+              aria-selected={view === t.key}
+              aria-controls={`yb-panel-${t.key}`}
+              tabIndex={view === t.key ? 0 : -1}
+              onClick={() => setView(t.key)}
+              onKeyDown={(e) => onTabKeyDown(e, i)}
+            >
+              {t.label}
+              {count > 0 && <span className="count num" aria-label={`${count} 条`}>{count}</span>}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ====== 失败暂存队列：常驻横幅（消失=已全部补传成功） ====== */}
+      {/* ====== 失败暂存队列：中性同步状态（消失=已全部补传成功） ====== */}
       {outboxItems.length > 0 && (
-        <div
-          role="alert"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            padding: '10px 14px', margin: '10px 0 4px', borderRadius: 12,
-            background: 'rgba(220,38,38,0.08)',
-            border: '1px solid rgba(220,38,38,0.3)',
-            fontSize: 13, color: '#991b1b', lineHeight: 1.5,
-          }}
-        >
-          <span style={{ flex: 1, minWidth: 200 }}>
-            有 <strong>{outboxItems.length}</strong> 条记录未保存成功，已暂存在本机。
-            恢复网络或重新登录后会自动补传；在横幅消失前请不要认为它们已保存。
+        <div className="yb-sync" role="status" aria-live="polite">
+          <span className="yb-dot warn" aria-hidden="true" />
+          <span className="grow">
+            <b className="num">{outboxItems.length}</b> 条待同步 · 已暂存在本机，联网后自动补传
           </span>
-          <button
-            type="button"
-            onClick={flushOutbox}
-            disabled={outboxRetrying}
-            style={{
-              padding: '5px 14px', fontSize: 12, fontWeight: 600,
-              borderRadius: 8, border: 'none', cursor: outboxRetrying ? 'default' : 'pointer',
-              background: '#dc2626', color: 'white', flexShrink: 0,
-              opacity: outboxRetrying ? 0.6 : 1,
-            }}
-          >
-            {outboxRetrying ? '重试中…' : '立即重试'}
+          <button type="button" className="yb-btn sm ghost" onClick={flushOutbox} disabled={outboxRetrying}>
+            {outboxRetrying ? '同步中…' : '重试'}
           </button>
         </div>
       )}
 
+      <div role="tabpanel" id={`yb-panel-${view}`} aria-labelledby={`yb-tab-${view}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {view === 'scores' ? (
         /* ====== 成绩视图 ====== */
-        <div className="scores-section">
-          {loadingScores ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 13 }}>
-              加载中…
-            </div>
-          ) : scoreCourses.length === 0 ? (
-            <div style={{
-              textAlign: 'center', padding: '50px 24px',
-              color: '#94a3b8', fontSize: 13, lineHeight: 1.7,
-            }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                还没有校内课程
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                先在「课表」页面创建勾选「校内课程」的课程，
-                <br/>这里就会自动出现，可以自由记录考试成绩。
-              </div>
-              <a href="/syllabus" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
-                去创建课程
-              </a>
-            </div>
-          ) : (
-            <div className="scores-grid">
-              {scoreCourses.map(c => {
-                const scores = examScores.filter(s => s.course_id === c.id);
-                return (
-                  <div key={c.id} className="glass-sheet" style={{ padding: '16px 16px 14px' }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      marginBottom: 10,
-                    }}>
-                      <div style={{
-                        fontSize: 15, fontWeight: 700, color: '#0f172a',
-                      }}>{c.name}</div>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600,
-                        padding: '3px 8px', borderRadius: 999,
-                        background: 'rgba(15,23,42,0.05)', color: '#475569',
-                      }}>
-                        已记录 {scores.length} 次
-                      </span>
-                    </div>
-                    {scores.length === 0 ? (
-                      <div style={{
-                        fontSize: 12, color: '#94a3b8', textAlign: 'center',
-                        padding: '18px 0 4px',
-                      }}>
-                        还没有成绩记录
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 4 }}>
-                        {scores.map(s => (
-                          <div key={s.id} style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            background: 'rgba(15,23,42,0.02)',
-                          }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{
-                                  fontSize: 13, fontWeight: 700, color: '#0f172a',
-                                }}>{s.exam_name}</span>
-                                <span style={{
-                                  fontSize: 11, color: '#94a3b8',
-                                  fontFamily: 'ui-monospace, monospace',
-                                }}>{String(s.exam_date || '').slice(5)}</span>
-                              </div>
-                              {(s.score != null || s.grade_label) && (
-                                <div style={{
-                                  marginTop: 2, fontSize: 13, fontWeight: 600,
-                                  color: '#0f172a',
-                                  fontFamily: 'ui-monospace, monospace', tabularNums: true,
-                                }}>
-                                  {s.score != null && `${s.score} 分`}
-                                  {s.score != null && s.grade_label ? ' · ' : ''}
-                                  {s.grade_label}
-                                </div>
-                              )}
-                              {s.notes && (
-                                <div style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
-                                  {s.notes}
-                                </div>
-                              )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                              {scoreDeletingId === s.id ? (
-                                <>
-                                  <button
-                                    onClick={() => deleteScore(s)}
-                                    title="确认删除"
-                                    style={{
-                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
-                                      border: 'none', borderRadius: 6,
-                                      background: '#fee2e2', color: '#b91c1c',
-                                      cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
-                                  >确认</button>
-                                  <button
-                                    onClick={() => setScoreDeletingId(null)}
-                                    title="取消"
-                                    style={{
-                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
-                                      border: '1px solid #e2e8f0', borderRadius: 6,
-                                      background: '#fff', color: '#475569',
-                                      cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
-                                  >取消</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => openScoreModal(c.id, s)}
-                                    title="编辑"
-                                    style={{
-                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
-                                      border: '1px solid #e2e8f0', borderRadius: 6,
-                                      background: '#fff', color: '#475569',
-                                      cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
-                                  >编辑</button>
-                                  <button
-                                    onClick={() => setScoreDeletingId(s.id)}
-                                    title="删除"
-                                    style={{
-                                      padding: '4px 8px', fontSize: 11, fontWeight: 600,
-                                      border: '1px solid #e2e8f0', borderRadius: 6,
-                                      background: '#fff', color: '#94a3b8',
-                                      cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
-                                  >删除</button>
-                                </>
-                              )}
-                            </div>
+        loadingScores ? (
+          <div className="yb-empty">加载中…</div>
+        ) : scoreCourses.length === 0 ? (
+          <div className="yb-empty">
+            <b>还没有校内课程</b>
+            在「课程」里创建课程时选择「校内」，这里就会出现，可以记录考试成绩。
+            <div><a href="/syllabus" className="yb-btn sm">去创建课程</a></div>
+          </div>
+        ) : (
+          <div className="yb-scores">
+            {scoreCourses.map(c => {
+              const scores = examScores.filter(s => s.course_id === c.id);
+              return (
+                <section key={c.id} className="yb-score-card" aria-label={`${c.name} 成绩`}>
+                  <div className="yb-score-card__h">
+                    <b>{c.name}</b>
+                    <small>已记录 {scores.length} 次</small>
+                  </div>
+                  {scores.length === 0 ? (
+                    <p className="yb-note">还没有成绩记录</p>
+                  ) : scores.map(s => (
+                    <div key={s.id} className="yb-score">
+                      <div className="yb-score__md">
+                        <div className="yb-score__name">
+                          {s.exam_name}
+                          <time dateTime={String(s.exam_date || '')}>{String(s.exam_date || '').slice(5)}</time>
+                        </div>
+                        {(s.score != null || s.grade_label) && (
+                          <div className="yb-score__val">
+                            {s.score != null && `${s.score} 分`}
+                            {s.score != null && s.grade_label ? ' · ' : ''}
+                            {s.grade_label}
                           </div>
-                        ))}
+                        )}
+                        {s.notes && <div className="yb-score__notes">{s.notes}</div>}
                       </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => openScoreModal(c.id, null)}
-                      style={{
-                        marginTop: 8,
-                        width: '100%',
-                        padding: '8px 12px',
-                        fontSize: 12, fontWeight: 600,
-                        border: '1px dashed #cbd5e1',
-                        borderRadius: 8,
-                        background: '#fafafa',
-                        color: '#475569',
-                        cursor: 'pointer',
-                        transition: 'all 160ms ease',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      + 新增成绩
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : view === 'pending' ? (
-        /* ====== 待补填视图 ====== */
-        <div className="pending-section">
-          {loadingPending ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 13 }}>
-              加载中…
-            </div>
-          ) : pending.length === 0 ? (
-            <div style={{
-              textAlign: 'center', padding: '40px 20px',
-              color: '#94a3b8', fontSize: 13,
-            }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
-              暂无待补填的客观评价
-            </div>
-          ) : (
-            <div className="recent-list">
-              {pending.map(r => (
-                <div
-                  key={r.id}
-                  className="record-card"
-                  onClick={() => {
-                    setPendingModalSession(r);
-                    setPendingModalGrade(null);
-                  }}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <div className="record-card__info">
-                    <div className="record-card__course">
-                      {r.course?.name || '-'}
-                      <span className="record-card__subject" style={{ color: r.course?.course_type === 2 ? '#f59e0b' : '#64748b' }}>
-                        {r.course?.course_type === 2 ? '校外' : '校内'}
-                      </span>
-                    </div>
-                    <div className="record-card__path">{r.chapter?.name || '-'} · {r.unit?.name || '-'}</div>
-                    <div className="record-card__tags">
-                      <span className="record-tag record-tag--form">{r.form}</span>
-                      {r.self_rating != null && (
-                        <span className="record-tag record-tag--eval">
-                          主观：{SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label || '-'}
-                        </span>
+                      {scoreDeletingId === s.id ? (
+                        <div className="yb-score-confirm">
+                          <button type="button" className="yb-btn sm" onClick={() => deleteScore(s)}>确认删除</button>
+                          <button type="button" className="yb-btn sm quiet" onClick={() => setScoreDeletingId(null)}>取消</button>
+                        </div>
+                      ) : (
+                        <div className="yb-rec__acts">
+                          <button type="button" className="yb-icon-btn" aria-label={`编辑 ${s.exam_name}`} onClick={() => openScoreModal(c.id, s)}>
+                            <Pencil size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                          <button type="button" className="yb-icon-btn" aria-label={`删除 ${s.exam_name}`} onClick={() => setScoreDeletingId(s.id)}>
+                            <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        </div>
                       )}
-                      <span className="record-tag record-tag--eval" style={{ color: '#94a3b8' }}>
-                        客观：待补充 ›
-                      </span>
                     </div>
-                  </div>
-                  <div className="record-card__top-right">
-                    <div className="record-card__time">{fmtRecentDate(r.session_date, r.start_time)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* ====== 记录视图（表单 + 最近记录）====== */
-        <>
-      {courses.length > 0 && (
-        <div className="quick-actions">
-          <div className="quick-actions-label">快速记录</div>
-          <div className="quick-actions-grid">
-            {courses.slice(0, 6).map((course) => (
-              <button
-                key={course.id}
-                className="quick-action-btn"
-                onClick={() => {
-                  setCourseId(course.id);
-                  setStartStr(toTimeStr(new Date()));
-                  setCategory(1);  // 学习
-                  setFormValue('自主预习');
-                  setObjIdx(9);
-                  setObjDeferred(false);
-                  setIsObjNA(false);
-                }}
-              >
-                <span className="quick-action-course">{course.name}</span>
-                <span className="quick-action-form">自主预习</span>
-              </button>
-            ))}
-            {courses.length > 6 && (
-              <button
-                className="quick-action-btn quick-action-more"
-                onClick={() => {
-                  if (courses.length > 6) {
-                    setCourseId(courses[6].id);
-                  }
-                  setStartStr(toTimeStr(new Date()));
-                }}
-              >
-                <span className="quick-action-course">更多课程</span>
-              </button>
-            )}
+                  ))}
+                  <button type="button" className="yb-btn sm ghost block" onClick={() => openScoreModal(c.id, null)}>
+                    <Plus size={15} aria-hidden="true" />新增成绩
+                  </button>
+                </section>
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* ====== 表单卡片 + 最近记录（桌面双栏容器）====== */}
-      <div className="learn-cols">
-      {/* ====== 表单卡片 ====== */}
-      <div className="glass-sheet record-sheet">
-        {editingSessionId && (
-          <div className="edit-indicator">
-            <span className="edit-indicator-icon">编辑</span>
-            <span className="edit-indicator-text">编辑中</span>
-            <button className="edit-indicator-close" onClick={onCancelEdit}>✕</button>
-          </div>
-        )}
-
-        {loadingCourses ? (
-          <div className="loading-state">
-            <div className="loading-spinner"></div>
-            <span>加载课程中…</span>
-          </div>
-        ) : courses.length === 0 ? (
-          <div className="empty-state" style={{ padding: '40px 20px' }}>
-            <h3>还没有课程</h3>
-            <p>需要先创建课程大纲，才能记录学习行为。</p>
-            <a href="/syllabus" className="btn btn-primary btn-sm" style={{ marginTop: 12, textDecoration: 'none' }}>
-              去创建课程
-            </a>
-          </div>
+        )
+      ) : view === 'pending' ? (
+        /* ====== 待补填视图：等第格直接放在卡片上，点一下即保存 ====== */
+        loadingPending && pending.length === 0 ? (
+          <div className="yb-empty">加载中…</div>
+        ) : pending.length === 0 ? (
+          <div className="yb-empty"><b>都补齐了</b>暂无待补填的客观评价</div>
         ) : (
           <>
-            {/* ---- 1) 课程 / 章节 / 单元 ---- */}
-            <div className="rec-block">
-              <div className="rec-label">课程 / 章节 / 单元</div>
-              <div className="three-col three-col-stay">
-                <div className="field">
-                  <label>课程</label>
-                  <select className={`input input-strong ${errors.course ? 'input-error' : ''}`}
-                    value={courseId}
-                    onChange={(e) => setCourseId(e.target.value)}
-                    disabled={busy}>
-                    <option value="">请选择</option>
-                    {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  {errors.course && <span className="field-error">{errors.course}</span>}
-                </div>
-
-                <div className="field">
-                  <label>章节 <span className="field-optional">可选</span></label>
-                  <select className="input input-strong"
-                    value={chapterId}
-                    onChange={(e) => setChapterId(e.target.value)}
-                    disabled={busy || !activeCourse}>
-                    <option value="">{activeCourse ? '不选' : '先选课程'}</option>
-                    {activeCourse?.chapters?.map(ch => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label>单元 <span className="field-optional">可选</span></label>
-                  <select className="input input-strong"
-                    value={unitId}
-                    onChange={(e) => setUnitId(e.target.value)}
-                    disabled={busy || !activeChapter}>
-                    <option value="">{activeChapter ? '不选' : '先选章节'}</option>
-                    {activeChapter?.units?.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-              </div>
+            <div className="yb-lg-section-title">
+              补填 {pendingOpen} 条客观评价
+              <small>点一下等第即保存</small>
             </div>
-
-            {/* ---- 2) 日期 + 开始/结束时间 ---- */}
-            <div className="rec-block">
-              <div className="rec-label">时间</div>
-              <div className="three-col three-col-stay">
-                <div className="field">
-                  <label>日期</label>
-                  <DatePicker
-                    value={dateStr}
-                    onChange={setDateStr}
-                    disabled={busy}
-                    className="h-12 rounded-xl text-sm font-normal"
-                    placeholder="选择日期"
-                  />
-                </div>
-                <div className="field">
-                  <label>开始</label>
-                  <input type="time" className={`input input-strong ${errors.time ? 'input-error' : ''}`}
-                    value={startStr}
-                    onChange={(e) => setStartStr(e.target.value)}
-                    disabled={busy} />
-                </div>
-                <div className="field">
-                  <label>结束</label>
-                  <input type="time" className={`input input-strong ${errors.time ? 'input-error' : ''}`}
-                    value={endStr}
-                    onChange={(e) => setEndStr(e.target.value)}
-                    disabled={busy} />
-                </div>
-              </div>
-              {errors.time && <span className="field-error">{errors.time}</span>}
-              {autoDur ? (
-                <div className="rec-hint">系统自动记录用时：<b>{autoDur}</b> 分钟</div>
-              ) : (
-                <div className="rec-hint rec-hint-dim">填写开始和结束后自动计算用时</div>
-              )}
-              <div className="duration-shortcuts">
-                <span className="duration-shortcuts-label">快速设置时长：</span>
-                {[30, 45, 60, 90, 120].map(mins => (
-                  <button
-                    key={mins}
-                    type="button"
-                    className="duration-shortcut-btn"
-                    onClick={() => {
-                      if (!startStr) return;
-                      const [h, m] = startStr.split(':').map(Number);
-                      const total = h * 60 + m + mins;
-                      const nh = Math.floor(total / 60) % 24;
-                      const nm = total % 60;
-                      setEndStr(`${pad(nh)}:${pad(nm)}`);
-                    }}
-                    disabled={busy || !startStr}
-                  >
-                    {mins}分钟
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* ---- 3) 学习行为类别 + 4) 学习行为形式（桌面并排） ---- */}
-            <div className="rec-row">
-            <div className="rec-block">
-              <div className="rec-label">学习行为类别</div>
-              <div className="btn-row">
-                {CATEGORY_OPTS.map(opt => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    className={'seg-btn' + (category === opt.key ? ' active' : '')}
-                    onClick={() => setCategory(opt.key)}
-                    disabled={busy}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rec-block">
-              <div className="rec-label">学习行为形式</div>
-              {!addingCustom ? (
-                <>
-                  <select className={`input input-strong ${errors.form ? 'input-error' : ''}`}
-                    value={formValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === ADD_OTHER_SENTINEL) { setAddingCustom(true); return; }
-                      setFormValue(v);
-                    }}
-                    disabled={busy}>
-                    <option value="">请选择</option>
-                    {formOptions.map(n => <option key={n} value={n}>{n}</option>)}
-                    <option value={ADD_OTHER_SENTINEL}>＋ 其他 / 自定义…</option>
-                  </select>
-                  {errors.form && <span className="field-error">{errors.form}</span>}
-                </>
-              ) : (
-                <div className="custom-add-row">
-                  <input type="text" className="input input-strong"
-                    placeholder="填写一个新的形式名称，如：家教辅导"
-                    value={customInput}
-                    onChange={(e) => setCustomInput(e.target.value)}
-                    disabled={busy}
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddCustomForm(); } }}
-                  />
-                  <button type="button" className="btn btn-ghost" onClick={onAddCustomForm} disabled={busy}>添加</button>
-                  <button type="button" className="btn btn-ghost btn-ghost-dim" onClick={() => { setAddingCustom(false); setCustomInput(''); }} disabled={busy}>取消</button>
-                </div>
-              )}
-            </div>
-            </div>
-
-            {/* ---- 5) 主观评估 + 5b) 客观评估（桌面并排） ---- */}
-            <div className="rec-row">
-            <div className="rec-block">
-              <div className="rec-label">
-                主观评估
-                <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 400, marginLeft: 6 }}>* 必填</span>
-              </div>
-              <GlassRail
-                steps={SUBJECTIVE_STEPS}
-                idx={subjIdx}
-                onChange={setSubjIdx}
-                disabled={busy}
-              />
-            </div>
-
-            {/* ---- 5b) 客观评估（仅练习类）；非练习时第二格放备注（桌面并排省一行） ---- */}
-            {category === 3 ? (
-              <div className="rec-block">
-                <div className="rec-label">
-                  客观评估
-                  <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 400, marginLeft: 6 }}>（可选）</span>
-                </div>
-                {/* iOS-style segmented control: 现在填写 / 稍后补充 */}
-                <div className="eval-seg" role="tablist" style={{
-                  display: 'inline-flex',
-                  background: 'rgba(15,23,42,0.05)',
-                  borderRadius: 10,
-                  padding: 2,
-                  marginBottom: 10,
-                  position: 'relative',
-                }}>
-                  <button
-                    type="button"
-                    onClick={() => { setObjDeferred(false); setIsObjNA(false); }}
-                    disabled={busy}
-                    style={{
-                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
-                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
-                      background: !objDeferred ? '#fff' : 'transparent',
-                      color: !objDeferred ? '#0f172a' : '#94a3b8',
-                      boxShadow: !objDeferred ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
-                      transition: 'all 160ms ease',
-                      fontFamily: 'inherit',
-                    }}
-                  >现在填写</button>
-                  <button
-                    type="button"
-                    onClick={() => { setObjDeferred(true); setIsObjNA(false); }}
-                    disabled={busy}
-                    style={{
-                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
-                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
-                      background: objDeferred ? '#fff' : 'transparent',
-                      color: objDeferred ? '#0f172a' : '#94a3b8',
-                      boxShadow: objDeferred ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
-                      transition: 'all 160ms ease',
-                      fontFamily: 'inherit',
-                    }}
-                  >稍后补充</button>
-                  <button
-                    type="button"
-                    onClick={() => { setObjDeferred(false); setIsObjNA(true); }}
-                    disabled={busy}
-                    style={{
-                      flex: 1, padding: '6px 14px', fontSize: 12, fontWeight: 600,
-                      border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer',
-                      background: isObjNA ? '#fff' : 'transparent',
-                      color: isObjNA ? '#0f172a' : '#94a3b8',
-                      boxShadow: isObjNA ? '0 1px 2px rgba(15,23,42,0.08)' : 'none',
-                      transition: 'all 160ms ease',
-                      fontFamily: 'inherit',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >N/A 不适用</button>
-                </div>
-                {!objDeferred && (
-                  <>
-                    <GlassRail
-                      steps={OBJECTIVE_STEPS}
-                      idx={objIdx}
-                      onChange={(v) => { setObjIdx(v); setIsObjNA(false); }}
-                      disabled={busy || isObjNA}
-                    />
-                    <div className="grade-legend" style={{
-                      marginTop: 12,
-                      padding: '10px 12px',
-                      borderRadius: 12,
-                      background: 'rgba(99,102,241,0.05)',
-                      border: '1px solid rgba(99,102,241,0.18)',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
-                      rowGap: 4,
-                      columnGap: 10,
-                      fontSize: 12,
-                      color: '#334155',
-                      opacity: isObjNA ? 0.45 : 1,
-                      transition: 'opacity 160ms ease',
-                    }}>
-                      <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b', marginBottom: 2 }}>
-                        letter grade 对应的百分制区间（参考）
+            {pending.map(r => {
+              const done = pendingDone[r.id];
+              return (
+                <section key={r.id} className="yb-pend" aria-label={`${r.course?.name || ''} ${fmtShortDate(r.session_date)} 的练习`}>
+                  <div className="yb-pend__top">
+                    <div>
+                      <div className="yb-pend__title">
+                        {r.course?.name || '-'} <span className="yb-rec__where">{whereLabel(r.course)}</span>
                       </div>
-                      {['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F'].map(g => (
-                        <div key={g} style={{
-                          display: 'flex',
-                          alignItems: 'baseline',
-                          justifyContent: 'space-between',
-                          padding: '2px 4px',
-                          background: g === OBJECTIVE_STEPS[objIdx]?.label && !isObjNA
-                            ? 'rgba(99,102,241,0.18)'
-                            : 'transparent',
-                          borderRadius: 6,
-                        }}>
-                          <span style={{ fontWeight: 700, color: g === OBJECTIVE_STEPS[objIdx]?.label && !isObjNA ? '#4338ca' : '#475569' }}>
-                            {g}
-                          </span>
-                          <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-                            {GRADE_RANGES[g]}
-                          </span>
-                        </div>
-                      ))}
+                      <div className="yb-pend__meta">
+                        {fmtShortDate(r.session_date)} {hhmm(r.start_time)} · {coursePath(r)} · {r.form}
+                        {r.duration_minutes ? ` · ${r.duration_minutes} 分钟` : ''}
+                      </div>
                     </div>
-                  </>
-                )}
-                {objDeferred && (
-                  <div style={{
-                    padding: '10px 12px', borderRadius: 10,
-                    background: 'rgba(99,102,241,0.05)',
-                    border: '1px dashed rgba(99,102,241,0.25)',
-                    fontSize: 12, color: '#64748b',
-                  }}>
-                    已选择稍后补充。可在顶部「待补填」标签页一键补填客观评价。
-                    {editingSessionId && editHadGrade && (
-                      <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
-                        保存后将清除原有客观评价，记录回到待补填。
-                      </div>
+                    {r.self_rating != null && (
+                      <div className="yb-pend__self">主观：{subjLabel(r.self_rating)}</div>
                     )}
                   </div>
-                )}
-              </div>
-            ) : notesBlock}
+                  {done ? (
+                    <div className="yb-pend__done" role="status">
+                      <Check size={16} aria-hidden="true" />
+                      已补填 {done}{GRADE_RANGES[done] ? ` · ${GRADE_RANGES[done]}` : ''}
+                    </div>
+                  ) : (
+                    <GradeChips
+                      value={null}
+                      includeNA
+                      showBand={false}
+                      label={`为 ${r.course?.name || ''} 这次练习补填客观评价`}
+                      disabled={!!pendingSavingId}
+                      onChange={(g) => onPendingGrade(r, g)}
+                    />
+                  )}
+                </section>
+              );
+            })}
+          </>
+        )
+      ) : (
+        /* ====== 记录视图：再记一次 + 按天分组的最近记录 ====== */
+        <>
+          {!loadingCourses && courses.length === 0 && (
+            <div className="yb-empty">
+              <b>还没有课程</b>
+              需要先创建课程大纲，才能记录学习行为。
+              <div><a href="/syllabus" className="yb-btn sm">去创建课程</a></div>
             </div>
+          )}
 
-            {/* ---- 6) 备注（练习类时独占一行；非练习已嵌入上行右侧） ---- */}
-            {category === 3 && notesBlock}
-
-            {/* ---- 提交 ---- */}
-            {editingSessionId ? (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                <button type="button" className="btn btn-primary btn-submit" onClick={onSaveEdit} disabled={busy}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {busy && <Spinner color="#ffffff" />}
-                    {busy ? '保存中…' : '保存修改'}
-                  </span>
-                </button>
-                <button type="button" className="btn btn-ghost btn-submit" onClick={onCancelEdit} disabled={busy}>
-                  取消编辑
-                </button>
+          {combos.length > 0 && (
+            <section aria-labelledby="yb-again-title">
+              <div className="yb-lg-section-title" id="yb-again-title" style={{ marginBottom: 8 }}>
+                再记一次 <small>点一下，预填好</small>
               </div>
-            ) : (
-              <button type="button" className="btn btn-primary btn-submit" onClick={onSubmit} disabled={busy}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {busy && <Spinner color="#ffffff" />}
-                  {busy ? '保存中…' : '保存记录'}
-                </span>
-              </button>
-            )}
+              <div className="yb-again">
+                {combos.map(c => (
+                  <button key={c.key} type="button" aria-haspopup="dialog"
+                    aria-label={`再记一次：${c.courseName} · ${catLabel(c.category)} · ${c.form} · ${c.durationMinutes} 分钟`}
+                    onClick={() => openNew(c)}>
+                    <span className="t">{c.courseName}</span>
+                    <span className="m">
+                      <span className={`yb-dot c${c.category}`} aria-hidden="true" />
+                      {`${c.form} · ${c.durationMinutes} 分钟`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className="yb-lg-section-title">
+            最近记录
+            <small className="num">{recent.length} 条</small>
+          </div>
+          {recent.length === 0 ? (
+            courses.length > 0 && (
+              <div className="yb-empty">
+                <b>还没有记录</b>
+                点「记一笔」记下第一次学习。
+              </div>
+            )
+          ) : days.map(day => (
+            <section key={day.date} className="yb-day" aria-label={fmtDay(day.date)}>
+              <div className="yb-day__h">
+                <span>{fmtDay(day.date)}</span>
+                <span className="num">共 {day.total} 分钟</span>
+              </div>
+              <div className="yb-day__list">
+                {day.rows.map(r => (
+                  <article key={r.id} className={`yb-rec ${sheet.open && sheet.mode === 'edit' && sheet.editRow?.id === r.id ? 'yb-rec--editing' : ''}`}>
+                    <time className="yb-rec__tm" dateTime={hhmm(r.start_time)}>{hhmm(r.start_time)}</time>
+                    <div className="yb-rec__md">
+                      <div className="yb-rec__course">
+                        {r.course?.name || '-'}
+                        <span className="yb-rec__where">{whereLabel(r.course)}</span>
+                      </div>
+                      <div className="yb-rec__path">{coursePath(r)}</div>
+                      <div className="yb-rec__tags">
+                        <span><span className={`yb-dot c${r.category}`} aria-hidden="true" />{catLabel(r.category)}</span>
+                        <span>{r.form}</span>
+                        {r.self_rating != null && (
+                          <span>主观：{subjLabel(r.self_rating)}</span>
+                        )}
+                        {r.category === 3 && r.grade_label && (
+                          <span>客观：{r.grade_label}</span>
+                        )}
+                        {r.category === 3 && !r.grade_label && (
+                          <span className="yb-pill pending">客观：待补充</span>
+                        )}
+                      </div>
+                      {r.notes && <div className="yb-rec__notes">{r.notes}</div>}
+                    </div>
+                    <div className="yb-rec__rt">
+                      <div className="yb-rec__dur">
+                        <span className="yb-rec__dur-num">{r.duration_minutes}</span>
+                        <span className="yb-rec__dur-unit">分钟</span>
+                      </div>
+                      {deletingId === r.id ? (
+                        <div className="yb-rec__acts">
+                          <button type="button" className="yb-icon-btn danger" onClick={() => onConfirmDelete(r)} aria-label="确认删除这条记录">
+                            <Check size={16} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                          <button type="button" className="yb-icon-btn" onClick={() => setDeletingId(null)} aria-label="取消删除">
+                            <X size={16} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="yb-rec__acts">
+                          <button type="button" className="yb-icon-btn" onClick={() => onStartEdit(r)} aria-label="编辑这条记录">
+                            <Pencil size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                          <button type="button" className="yb-icon-btn" onClick={() => setDeletingId(r.id)} aria-label="删除这条记录" disabled={busy}>
+                            <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
+      </div>
+
+      {/* ====== 记一笔 / 编辑记录 ====== */}
+      <LogSheet
+        open={sheet.open}
+        onClose={closeSheet}
+        mode={sheet.mode}
+        editRow={sheet.editRow}
+        preset={sheet.preset}
+        courses={courses}
+        loadingCourses={loadingCourses}
+        recent={recent}
+        customForms={customForms}
+        onAddCustomForm={onAddCustomForm}
+        onSave={sheet.mode === 'edit' ? onSaveEdit : onSubmit}
+        busy={busy}
+      />
+
+      {/* ====== 新增 / 编辑成绩 ====== */}
+      <Sheet
+        open={scoreModalOpen}
+        onClose={closeScoreModal}
+        title={scoreModalEditing ? '编辑成绩' : '新增成绩'}
+        footer={(
+          <>
+            <button type="button" className="yb-btn ghost" onClick={closeScoreModal} disabled={scoreSaving}>取消</button>
+            <button type="button" className="yb-btn" onClick={saveScore} disabled={scoreSaving}>
+              {scoreSaving ? '保存中…' : (scoreModalEditing ? '保存修改' : '保存成绩')}
+            </button>
           </>
         )}
-      </div>
-
-      {/* ====== 最近记录 ====== */}
-      <div className="recent-section">
-        <div className="recent-header">
-          <h2 className="recent-title">最近记录</h2>
-          <span className="recent-count">{recent.length} 条</span>
+      >
+        <p className="yb-note" style={{ marginTop: -8 }}>{scoreCourses.find(c => c.id === scoreModalCourseId)?.name || '-'}</p>
+        <div className="yb-field">
+          <label className="yb-label" htmlFor="yb-exam-name">考试名称 · 必填</label>
+          <input id="yb-exam-name" type="text" className="yb-input"
+            value={scoreForm.exam_name}
+            onChange={(e) => setScoreForm({ ...scoreForm, exam_name: e.target.value })}
+            placeholder="如：期末考试、月考、单元测"
+            disabled={scoreSaving} />
         </div>
-        {recent.length === 0 ? (
-          <div className="recent-empty">还没有记录，从上面的表单开始吧</div>
-        ) : (
-          <div className="recent-list">
-            {recent.map(r => (
-              <div 
-                key={r.id} 
-                className={`record-card ${editingSessionId === r.id ? 'record-card--editing' : ''}`}
-              >
-                <div className="record-card__info">
-                  <div className="record-card__course">
-                    {r.course?.name || '-'}
-                    <span className="record-card__subject" style={{ color: r.course?.course_type === 2 ? '#f59e0b' : '#64748b' }}>
-                      {r.course?.course_type === 2 ? '校外' : '校内'}
-                    </span>
-                  </div>
-                  <div className="record-card__path">{r.chapter?.name || '-'} · {r.unit?.name || '-'}</div>
-                  <div className="record-card__tags">
-                    <span className="record-tag record-tag--category">{catLabel(r.category)}</span>
-                    <span className="record-tag record-tag--form">{r.form}</span>
-                    {r.self_rating != null && (
-                      <span className="record-tag record-tag--eval">
-                        主观：{SUBJECTIVE_STEPS.find(s => s.value === r.self_rating)?.label || '-'}
-                      </span>
-                    )}
-                    {r.category === 3 && r.grade_label && (
-                      <span className="record-tag record-tag--eval"
-                        style={r.grade_label === 'N/A' ? { color: '#94a3b8', fontStyle: 'italic' } : undefined}>
-                        客观：{r.grade_label}
-                      </span>
-                    )}
-                    {r.category === 3 && !r.grade_label && (
-                      <span className="record-tag record-tag--eval" style={{ color: '#94a3b8' }}>
-                        客观：待补充
-                      </span>
-                    )}
-                  </div>
-                  {r.notes && <div className="record-card__notes">{r.notes}</div>}
-                </div>
-                <div className="record-card__top-right">
-                  <div className="record-card__time">{fmtRecentDate(r.session_date, r.start_time)}</div>
-                  <div className="record-card__actions">
-                    <button className="record-action-btn" onClick={() => onStartEdit(r)} title="编辑">
-                      <Pencil size={14} strokeWidth={2} />
-                    </button>
-                    {deletingId === r.id ? (
-                      <div className="record-delete-confirm">
-                        <button className="record-action-btn record-action-btn--confirm" onClick={() => onConfirmDelete(r)} title="确认删除">
-                          ✓
-                        </button>
-                        <button className="record-action-btn record-action-btn--cancel" onClick={onCancelDelete} title="取消">
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <button className="record-action-btn record-action-btn--delete" onClick={() => onDeleteClick(r)} title="删除">
-                        <Trash2 size={14} strokeWidth={2} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="record-card__duration">
-                  <span className="record-card__duration-num">{r.duration_minutes}</span>
-                  <span className="record-card__duration-unit">分钟</span>
-                </div>
-              </div>
-            ))}
+        <div className="yb-field">
+          <div className="yb-label">考试日期 · 必填</div>
+          <DatePicker
+            value={scoreForm.exam_date || ''}
+            onChange={(v) => setScoreForm({ ...scoreForm, exam_date: v })}
+            disabled={scoreSaving}
+            className="h-[42px] rounded-xl text-sm font-normal"
+            placeholder="选择日期"
+          />
+        </div>
+        <div className="yb-field">
+          <label className="yb-label" htmlFor="yb-exam-score">分数（0–100，可选）</label>
+          <input id="yb-exam-score" type="number" className="yb-input" min={0} max={100} step={0.1}
+            inputMode="decimal"
+            value={scoreForm.score}
+            onChange={(e) => setScoreForm({ ...scoreForm, score: e.target.value })}
+            placeholder="如：92.5"
+            disabled={scoreSaving} />
+        </div>
+        <div className="yb-field">
+          <div className="yb-label" id="yb-exam-grade">等第 / 评级</div>
+          <div className="yb-chips" role="group" aria-labelledby="yb-exam-grade">
+            {GRADE_PRESET_CHIPS.map(chip => {
+              const selected = scoreForm.grade_label === chip;
+              return (
+                <button key={chip} type="button" className="yb-chip num" aria-pressed={selected}
+                  onClick={() => setScoreForm({ ...scoreForm, grade_label: selected ? '' : chip })}
+                  disabled={scoreSaving}>
+                  {chip}
+                </button>
+              );
+            })}
           </div>
-        )}
-      </div>
-      </div>
-      </>
-      )}
-      </div>
-
-      {/* ====== 待补填客观评价 Modal（createPortal 到 document.body，彻底绕开父级 transform 干扰） ====== */}
-      {createPortal(
-        <AnimatePresence>
-        {pendingModalSession && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={() => { setPendingModalSession(null); setPendingModalGrade(null); }}
-            style={{
-              position: 'fixed', inset: 0,
-              background: 'rgba(15,23,42,0.4)',
-              backdropFilter: 'blur(4px)',
-              zIndex: 1000,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '20px 16px',
-              paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                background: '#fff',
-                borderRadius: 16,
-                boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
-                width: '100%', maxWidth: 420,
-                maxHeight: '85vh',
-                display: 'flex', flexDirection: 'column',
-                overflow: 'hidden',
-              }}
-            >
-            {/* 标题区 */}
-            <div style={{
-              padding: '16px 20px 14px',
-              borderBottom: '1px solid #f1f5f9',
-            }}>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>选择客观评价</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                {pendingModalSession.course?.name || '-'}
-              </div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                {pendingModalSession.form} · {String(pendingModalSession.session_date || '').slice(5)}
-              </div>
-            </div>
-            {/* Grade 网格 */}
-            <div style={{
-              padding: '16px 20px 0',
-              overflowY: 'auto',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 8,
-            }}>
-              {OBJECTIVE_STEPS.map(s => {
-                const selected = pendingModalGrade === s.label;
-                return (
-                  <button
-                    key={s.label}
-                    type="button"
-                    onClick={() => setPendingModalGrade(s.label)}
-                    style={{
-                      padding: '12px 0',
-                      fontSize: 16, fontWeight: 700,
-                      border: selected ? '1.5px solid #4338ca' : '1px solid #e2e8f0',
-                      borderRadius: 10,
-                      background: selected ? 'rgba(99,102,241,0.12)' : '#fff',
-                      color: selected ? '#4338ca' : '#0f172a',
-                      cursor: 'pointer',
-                      transition: 'all 120ms ease',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {s.label}
-                    <div style={{ fontSize: 10, fontWeight: 400, color: '#94a3b8', marginTop: 2 }}>
-                      {GRADE_RANGES[s.label]}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {/* NA 独立按钮 */}
-            <div style={{ padding: '10px 20px 0' }}>
-              <button
-                type="button"
-                onClick={() => setPendingModalGrade('N/A')}
-                style={{
-                  width: '100%',
-                  padding: '12px 0',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  fontStyle: 'italic',
-                  border: pendingModalGrade === 'N/A' ? '1.5px solid #94a3b8' : '1px solid #e2e8f0',
-                  borderRadius: 10,
-                  background: pendingModalGrade === 'N/A' ? '#f1f5f9' : '#f8fafc',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  transition: 'all 120ms ease',
-                  fontFamily: 'inherit',
-                }}
-              >
-                Not Applicable（不适用）
-              </button>
-            </div>
-            {/* 保存按钮 */}
-            <div style={{
-              padding: '12px 20px 20px',
-              borderTop: '1px solid #f1f5f9',
-              flexShrink: 0,
-            }}>
-              <button
-                type="button"
-                onClick={onSavePendingGrade}
-                disabled={!pendingModalGrade || pendingSaving}
-                style={{
-                  width: '100%',
-                  padding: '14px 0',
-                  fontSize: 14, fontWeight: 700,
-                  border: 'none',
-                  borderRadius: 12,
-                  background: pendingModalGrade && !pendingSaving ? '#0f172a' : '#e2e8f0',
-                  color: pendingModalGrade && !pendingSaving ? '#fff' : '#94a3b8',
-                  cursor: pendingModalGrade && !pendingSaving ? 'pointer' : 'not-allowed',
-                  transition: 'all 160ms ease',
-                  fontFamily: 'inherit',
-                }}
-              >
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {pendingSaving && <Spinner color={pendingModalGrade ? '#ffffff' : '#94a3b8'} />}
-                  {pendingSaving ? '保存中…' : '保存客观评价'}
-                </span>
-              </button>
-            </div>
-            </motion.div>
-          </motion.div>
-        )}
-        </AnimatePresence>,
-        document.body
-      )}
-
-      {/* ====== 成绩新增/编辑 Modal ====== */}
-      {createPortal(
-        <AnimatePresence>
-        {scoreModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={closeScoreModal}
-            style={{
-              position: 'fixed', inset: 0,
-              background: 'rgba(15,23,42,0.4)',
-              backdropFilter: 'blur(4px)',
-              zIndex: 1000,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '20px 16px',
-              paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                background: '#fff',
-                borderRadius: 16,
-                boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
-                width: '100%', maxWidth: 420,
-                maxHeight: '85vh',
-                display: 'flex', flexDirection: 'column',
-                overflow: 'hidden',
-              }}
-            >
-              <div style={{
-                padding: '16px 20px 14px',
-                borderBottom: '1px solid #f1f5f9',
-              }}>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>
-                  {scoreModalEditing ? '编辑成绩' : '新增成绩'}
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                  {scoreCourses.find(c => c.id === scoreModalCourseId)?.name || '-'}
-                </div>
-              </div>
-              <div style={{
-                padding: '16px 20px 12px',
-                overflowY: 'auto',
-                display: 'flex', flexDirection: 'column', gap: 12,
-              }}>
-                <div>
-                  <div style={{
-                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
-                  }}>考试名称 <span style={{ color: '#ef4444' }}>*</span></div>
-                  <input
-                    type="text"
-                    value={scoreForm.exam_name}
-                    onChange={(e) => setScoreForm({ ...scoreForm, exam_name: e.target.value })}
-                    placeholder="如：期末考试、月考、单元测"
-                    className="input input-strong"
-                    style={{ fontSize: 13 }}
-                    disabled={scoreSaving}
-                  />
-                </div>
-                <div>
-                  <div style={{
-                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
-                  }}>考试日期 <span style={{ color: '#ef4444' }}>*</span></div>
-                  <DatePicker
-                    value={scoreForm.exam_date || ''}
-                    onChange={(v) => setScoreForm({ ...scoreForm, exam_date: v })}
-                    disabled={scoreSaving}
-                    className="h-12 rounded-xl text-[13px] font-normal"
-                    placeholder="选择日期"
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-                  <div>
-                    <div style={{
-                      fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
-                    }}>分数（0–100，可选）</div>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.1}
-                      value={scoreForm.score}
-                      onChange={(e) => setScoreForm({ ...scoreForm, score: e.target.value })}
-                      placeholder="如：92.5"
-                      className="input input-strong"
-                      style={{ fontSize: 14, padding: '10px 12px' }}
-                      disabled={scoreSaving}
-                    />
-                  </div>
-                  <div>
-                    <div style={{
-                      fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
-                    }}>等第/评级</div>
-                    {/* 预设 chips 网格，响应式 auto-fill minmax，触控目标 ≥ 40px */}
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                      gap: 6,
-                    }}>
-                      {GRADE_PRESET_CHIPS.map(chip => {
-                        const selected = scoreForm.grade_label === chip;
-                        return (
-                          <button
-                            key={chip}
-                            type="button"
-                            onClick={() => {
-                              if (selected) {
-                                setScoreForm({ ...scoreForm, grade_label: '' });
-                              } else {
-                                setScoreForm({ ...scoreForm, grade_label: chip });
-                              }
-                            }}
-                            disabled={scoreSaving}
-                            style={{
-                              minHeight: 40,
-                              padding: '8px 4px',
-                              fontSize: 13,
-                              fontWeight: 700,
-                              border: selected ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
-                              borderRadius: 8,
-                              background: selected ? 'rgba(15,23,42,0.06)' : '#fff',
-                              color: selected ? '#0f172a' : '#475569',
-                              cursor: scoreSaving ? 'not-allowed' : 'pointer',
-                              transition: 'all 120ms ease',
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            {chip}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div style={{
-                    fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6,
-                  }}>备注</div>
-                  <textarea
-                    rows={3}
-                    value={scoreForm.notes}
-                    onChange={(e) => setScoreForm({ ...scoreForm, notes: e.target.value })}
-                    placeholder="可选：如失分点分析、排名信息等"
-                    className="input input-strong"
-                    style={{ fontSize: 13, resize: 'vertical' }}
-                    disabled={scoreSaving}
-                  />
-                </div>
-                <div style={{
-                  fontSize: 11, color: '#94a3b8', marginTop: -4,
-                }}>
-                  * 分数和评级至少填写一项
-                </div>
-              </div>
-              <div style={{
-                padding: '12px 20px 20px',
-                paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
-                borderTop: '1px solid #f1f5f9',
-                flexShrink: 0,
-                display: 'flex', gap: 8,
-              }}>
-                <button
-                  type="button"
-                  onClick={closeScoreModal}
-                  disabled={scoreSaving}
-                  style={{
-                    flex: 1,
-                    padding: '12px 0',
-                    fontSize: 14, fontWeight: 700,
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 12,
-                    background: '#fff',
-                    color: '#475569',
-                    cursor: scoreSaving ? 'not-allowed' : 'pointer',
-                    transition: 'all 160ms ease',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={saveScore}
-                  disabled={scoreSaving}
-                  style={{
-                    flex: 1.3,
-                    padding: '12px 0',
-                    fontSize: 14, fontWeight: 700,
-                    border: 'none',
-                    borderRadius: 12,
-                    background: '#0f172a',
-                    color: '#fff',
-                    cursor: scoreSaving ? 'not-allowed' : 'pointer',
-                    transition: 'all 160ms ease',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {scoreSaving && <Spinner color="#ffffff" />}
-                    {scoreSaving ? '保存中…' : (scoreModalEditing ? '保存修改' : '保存成绩')}
-                  </span>
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        </AnimatePresence>,
-        document.body
-      )}
-
-      {/* ====== Liquid Glass 成功/失败反馈 overlay ====== */}
-      {createPortal(
-        <LiquidGlassFlash
-          show={flashState.show}
-          variant={flashState.variant}
-          size={flashState.size}
-          duration={flashState.duration}
-          onComplete={() => setFlashState(f => ({ ...f, show: false }))}
-        />,
-        document.body
-      )}
-    </>
+        </div>
+        <div className="yb-field">
+          <label className="yb-label" htmlFor="yb-exam-notes">备注（可选）</label>
+          <textarea id="yb-exam-notes" rows={3} className="yb-input"
+            value={scoreForm.notes}
+            onChange={(e) => setScoreForm({ ...scoreForm, notes: e.target.value })}
+            placeholder="如：失分点分析、排名信息等"
+            disabled={scoreSaving} />
+        </div>
+        <p className="yb-note">分数和评级至少填写一项</p>
+      </Sheet>
+    </div>
   );
 }

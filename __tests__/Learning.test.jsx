@@ -31,12 +31,16 @@ function renderLearning() {
   );
 }
 
-// 等待表单就绪（课程加载完成，提交按钮出现）
+// 打开「记一笔」并等待表单就绪（课程加载完成，提交按钮出现）
 async function waitForForm() {
+  fireEvent.click(await screen.findByRole('button', { name: '记一笔' }));
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: '保存记录' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^保存记录/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();
   });
 }
+const SAVE = { name: /^保存记录/ };
+const pickForm = (name) => fireEvent.click(screen.getByRole('button', { name }));
 
 describe('Learning Component', () => {
   beforeEach(() => {
@@ -57,15 +61,14 @@ describe('Learning Component', () => {
     renderLearning();
     await waitForForm();
 
-    // 课程已进入组件：不出现空态，快速记录按钮与课程下拉都包含「数学」
+    // 课程已进入组件：不出现空态，课程 chip 包含「数学」
     expect(screen.queryByText('还没有课程')).not.toBeInTheDocument();
     expect(screen.getAllByText('数学').length).toBeGreaterThan(0);
 
-    // 三级下拉：课程 / 章节 / 单元 + 学习行为形式，共 4 个 select
-    const selects = screen.getAllByRole('combobox');
-    expect(selects.length).toBe(4);
-    // 加载完成后自动选中第一个课程
-    expect(selects[0].value).toBe('course-1');
+    // 课程改为 chip；加载完成后自动选中第一个课程
+    expect(screen.getByRole('button', { name: '数学' })).toHaveAttribute('aria-pressed', 'true');
+    // 学习行为形式改为 chip，默认不预选
+    expect(screen.getByRole('button', { name: '自主预习' })).toHaveAttribute('aria-pressed', 'false');
 
     // 时间区：1 个日期选择器（shadcn 日历弹层触发按钮）+ 2 个时间输入
     expect(
@@ -79,8 +82,8 @@ describe('Learning Component', () => {
     renderLearning();
     await waitForForm();
 
-    // 直接提交：结束时间为空、学习行为形式未选
-    fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+    // 直接提交：未选时长（开始/结束为空）、学习行为形式未选
+    fireEvent.click(screen.getByRole('button', SAVE));
 
     await waitFor(() => {
       expect(screen.getByText('请填写开始和结束时间')).toBeInTheDocument();
@@ -106,8 +109,8 @@ describe('Learning Component', () => {
     const timeInputs = document.querySelectorAll('input[type="time"]');
     fireEvent.change(timeInputs[0], { target: { value: '09:30' } });
     fireEvent.change(timeInputs[1], { target: { value: '10:30' } });
-    fireEvent.change(screen.getAllByRole('combobox')[3], { target: { value: '自主预习' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+    pickForm('自主预习');
+    fireEvent.click(screen.getByRole('button', SAVE));
 
     await waitFor(() => {
       expect(screen.getByText(/该时间段已有学习记录/)).toBeInTheDocument();
@@ -132,8 +135,8 @@ describe('Learning Component', () => {
     const timeInputs = document.querySelectorAll('input[type="time"]');
     fireEvent.change(timeInputs[0], { target: { value: '10:00' } });
     fireEvent.change(timeInputs[1], { target: { value: '11:00' } });
-    fireEvent.change(screen.getAllByRole('combobox')[3], { target: { value: '自主预习' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+    pickForm('自主预习');
+    fireEvent.click(screen.getByRole('button', SAVE));
 
     await waitFor(() => {
       const calls = supabase.__getCallHistory();
@@ -154,8 +157,8 @@ describe('Learning Component', () => {
     const timeInputs = document.querySelectorAll('input[type="time"]');
     fireEvent.change(timeInputs[0], { target: { value: '23:00' } });
     fireEvent.change(timeInputs[1], { target: { value: '01:00' } });
-    fireEvent.change(screen.getAllByRole('combobox')[3], { target: { value: '自主预习' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+    pickForm('自主预习');
+    fireEvent.click(screen.getByRole('button', SAVE));
 
     await waitFor(() => {
       const calls = supabase.__getCallHistory();
@@ -194,10 +197,12 @@ describe('Learning Component', () => {
     await waitFor(() => {
       expect(screen.getByText('自主复习')).toBeInTheDocument();
       expect(screen.getByText('主观：基本掌握')).toBeInTheDocument();
-      const durNum = document.querySelector('.record-card__duration-num');
+      const durNum = document.querySelector('.yb-rec__dur-num');
       expect(durNum).not.toBeNull();
       expect(durNum.textContent).toBe('60');
-      expect(document.querySelector('.record-card__duration-unit').textContent).toBe('分钟');
+      expect(document.querySelector('.yb-rec__dur-unit').textContent).toBe('分钟');
+      // 校内/校外以文字呈现
+      expect(screen.getAllByText('校内').length).toBeGreaterThan(0);
     });
   });
 
@@ -206,8 +211,8 @@ describe('Learning Component', () => {
     renderLearning();
     await waitForForm();
 
-    // 学习行为形式下拉（第 4 个 select）选择「＋ 其他 / 自定义…」
-    fireEvent.change(screen.getAllByRole('combobox')[3], { target: { value: '__ADD_OTHER__' } });
+    // 学习行为形式 chip 行末的「＋ 自定义」
+    fireEvent.click(screen.getByRole('button', { name: '＋ 自定义' }));
 
     await waitFor(() => {
       expect(document.querySelectorAll('input[placeholder*="填写一个新的形式名称"]').length).toBeGreaterThan(0);
@@ -230,19 +235,23 @@ describe('Learning Component', () => {
     renderLearning();
     await waitForForm();
 
-    // 默认类别为「学习」：只显示必填的主观评估，不显示客观评估
-    expect(screen.getByText('主观评估')).toBeInTheDocument();
-    expect(screen.queryByText('客观评估')).not.toBeInTheDocument();
+    // 默认类别为「学习」：只显示必填的主观评价，不显示客观评价
+    expect(screen.getByText('主观评价')).toBeInTheDocument();
+    expect(screen.queryByText('客观评价')).not.toBeInTheDocument();
 
-    // 主观滑轨默认第 4 档「基本掌握」（tooltip 与刻度标签都会出现该文案）
+    // 主观刻度默认第 4 档「基本掌握」
     expect(screen.getAllByText('基本掌握').length).toBeGreaterThan(0);
-    expect(document.querySelectorAll('.glass-rail').length).toBe(1);
+    expect(screen.getByRole('radio', { name: '基本掌握' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('radiogroup', { name: '客观评价等第' })).not.toBeInTheDocument();
 
-    // 切到「练习」类别后出现客观评估区（含第二根滑轨）
-    fireEvent.click(screen.getByRole('button', { name: '练习' }));
+    // 切到「练习」类别后出现客观评价区（13 档等第格，默认 B+）
+    fireEvent.click(screen.getByRole('radio', { name: '练习' }));
     await waitFor(() => {
-      expect(screen.getByText('客观评估')).toBeInTheDocument();
-      expect(document.querySelectorAll('.glass-rail').length).toBe(2);
+      expect(screen.getByText('客观评价')).toBeInTheDocument();
+      const grid = screen.getByRole('radiogroup', { name: '客观评价等第' });
+      expect(grid.querySelectorAll('[role="radio"]').length).toBe(13);
+      expect(screen.getByRole('radio', { name: 'B+' })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByRole('radio', { name: '现在填写' })).toHaveAttribute('aria-checked', 'true');
     });
   });
 });

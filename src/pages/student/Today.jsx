@@ -132,7 +132,6 @@ export default function Today({ today: todayProp } = {}) {
             {streak.current > 0 ? (
               <>
                 <b>{streak.current}</b> 天连续
-                <span>本周还可休息 {streak.restDaysLeftThisWeek} 天</span>
               </>
             ) : (
               <span style={{ marginLeft: 0, color: 'var(--sh-ink-3)' }}>今天记一次，开始计连续天数。</span>

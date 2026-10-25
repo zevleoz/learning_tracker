@@ -212,7 +212,10 @@ export default function Insights({ today: todayProp } = {}) {
             <div className="sh-cal" role="img" aria-label={`从第一条记录起有 ${activeDays} 天记录`}>
               {['一', '二', '三', '四', '五', '六', '日'].map((w) => <b key={w}>{w}</b>)}
               {activity.days.map((d) => (
-                <i key={d.date} className={cellClass(d)} title={cellTitle(d)}>{Number(d.date.slice(8))}</i>
+                <i key={d.date} className={cellClass(d)} title={cellTitle(d)}>
+                  <span>{Number(d.date.slice(8))}</span>
+                  {!d.before && !d.future && d.minutes > 0 && <small>{d.minutes}′</small>}
+                </i>
               ))}
             </div>
           </>

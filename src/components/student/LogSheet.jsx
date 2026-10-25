@@ -11,10 +11,7 @@ import {
   computeDuration, shiftTime, evalStateFromRow, shouldWarnClearGrade,
   orderCoursesByRecent, defaultChapterUnit,
 } from '../../lib/sessionRules.js';
-// 样式：Vite 下照常加载；Jest 未配置 CSS 映射（identity-obj-proxy 未安装），测试环境跳过。
-if (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test') {
-  import('../../styles/student-logging.css');
-}
+import '../../styles/student-logging.css';
 
 const DURATION_CHIPS = [25, 45, 60, 90, 120];
 const COURSE_CHIP_LIMIT = 4;

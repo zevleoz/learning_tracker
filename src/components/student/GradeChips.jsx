@@ -1,9 +1,6 @@
 import { useRef } from 'react';
 import { OBJECTIVE_STEPS, GRADE_RANGES } from '../../lib/sessionRules.js';
-// 样式：Vite 下照常加载；Jest 未配置 CSS 映射（identity-obj-proxy 未安装），测试环境跳过。
-if (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test') {
-  import('../../styles/student-logging.css');
-}
+import '../../styles/student-logging.css';
 
 // 客观评价 13 档等第格（A+ … F），可选附带 N/A。
 // 单选语义：role="radiogroup" + role="radio"，方向键在格子间移动并选中。

@@ -69,6 +69,8 @@ grant execute on function public.register_push_subscription(text, text, text, te
 
 -- ----------------------------------------------------------------
 -- 2) profiles.notification_prefs：提醒偏好（缺省值见 DEFAULT）
+--    email_fallback（推送不可用时，第 3 天没记录发一封邮件）默认开；
+--    last_test_at 由「发送测试通知」写入（每用户 60 秒限流），不用手动设置；
 --    inactive_reminder（几天没记录）默认开；daily_reminder（每日提醒）默认关，
 --    但注册后前 30 天由服务端强制开启（看 profiles.created_at，不看这个值）；invites 默认开。
 --    push_card_dismissed：今天页的「开启提醒」小卡片点了「不用」。
@@ -80,7 +82,8 @@ alter table public.profiles
     "inactive_reminder": true,
     "daily_reminder": false,
     "daily_reminder_time": "21:00",
-    "invites": true
+    "invites": true,
+    "email_fallback": true
   }'::jsonb;
 
 alter table public.profiles
@@ -88,7 +91,8 @@ alter table public.profiles
     "inactive_reminder": true,
     "daily_reminder": false,
     "daily_reminder_time": "21:00",
-    "invites": true
+    "invites": true,
+    "email_fallback": true
   }'::jsonb;
 
 -- ----------------------------------------------------------------
@@ -108,6 +112,11 @@ create table if not exists public.push_deliveries (
 create unique index if not exists push_deliveries_one_per_day
   on public.push_deliveries (user_id, sent_date)
   where kind <> 'invite';
+
+-- 渠道：push（默认，旧行同）/ email。邮件兜底（第 3 天、没有可用推送订阅时发的唯一一封邮件）
+-- 也写一行 kind='inactive'，所以几天没记录的次数统计与每日上限照常生效。幂等。
+alter table public.push_deliveries
+  add column if not exists channel text not null default 'push';
 
 alter table public.push_deliveries enable row level security;
 

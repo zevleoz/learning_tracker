@@ -107,3 +107,36 @@ export async function setAppBadge(n) {
     // 角标只是锦上添花
   }
 }
+
+/** 这台设备当前是否有推送订阅（用于决定是否显示「发送测试通知」）。 */
+export async function hasDeviceSubscription() {
+  try {
+    if (!isPushSupported() || Notification.permission !== 'granted') return false;
+    const registration = await navigator.serviceWorker.ready;
+    return Boolean(await registration.pushManager.getSubscription());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 让服务端给自己的订阅发一条测试通知（用登录 token 鉴权）。
+ * @returns {Promise<{ ok: boolean, sent?: number, message: string }>}
+ */
+export async function sendTestNotification() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return { ok: false, message: '登录已过期，请重新登录' };
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'test' }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.sent > 0) return { ok: true, sent: body.sent, message: '已发送，几秒内会收到' };
+    return { ok: false, sent: 0, message: body.message || body.error || '没能发送，请稍后再试' };
+  } catch {
+    return { ok: false, message: '网络不通，请稍后再试' };
+  }
+}

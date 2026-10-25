@@ -70,17 +70,18 @@
 }
 .ya-label small { font-size: 11.5px; font-weight: 400; color: var(--ya-ink-3); }
 .ya-input-wrap { position: relative; display: flex; align-items: center; }
-.ya-input {
+.ya-page .ya-input {
+  -webkit-appearance: none; appearance: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
   width: 100%; box-sizing: border-box; height: 48px; padding: 0 14px;
   border: 0; border-radius: 14px; background: var(--ya-sunken); color: var(--ya-ink);
   font: inherit; font-size: 16px; /* 16px 防 iOS 聚焦放大 */
   outline: 2px solid transparent; outline-offset: 0;
   transition: outline-color 120ms ease;
 }
-.ya-input::placeholder { color: var(--ya-ink-3); }
-.ya-input:focus-visible { outline-color: var(--ya-crest); }
-.ya-input[aria-invalid="true"] { outline-color: var(--ya-crest-text); }
-.ya-input.has-action { padding-right: 48px; }
+.ya-page .ya-input::placeholder { color: var(--ya-ink-3); }
+.ya-page .ya-input:focus-visible { outline-color: var(--ya-crest); }
+.ya-page .ya-input[aria-invalid="true"] { outline-color: var(--ya-crest-text); }
+.ya-page .ya-input.has-action { padding-right: 48px; }
 .ya-eye {
   position: absolute; right: 2px; top: 2px; width: 44px; height: 44px;
   display: grid; place-items: center; border: 0; background: transparent;

@@ -109,7 +109,7 @@
 
 /* ── 洞察：统计面板（一块面板，用分隔线，不是独立卡片） ── */
 .sh-stats { display: grid; grid-template-columns: repeat(2, 1fr); padding: 6px 0; }
-.sh-stat { padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.sh-stat { padding: 12px 16px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
 .sh-stat b { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sh-stat.streak b { color: var(--sh-brass); }
 .sh-stat:nth-child(even) { border-left: 1px solid var(--sh-line); }
@@ -122,7 +122,7 @@
 
 /* ── 洞察：26 周热力图 ── */
 .sh-heat-scroll { overflow-x: auto; padding-bottom: 2px; }
-.sh-heat { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; grid-auto-columns: minmax(10px, 1fr); gap: 3px; min-width: 300px; }
+.sh-heat { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; max-width: 560px; }
 .sh-heat i { aspect-ratio: 1; border-radius: 3px; background: var(--sh-sunken); }
 .sh-heat i.l1 { background: color-mix(in srgb, var(--sh-crest) 22%, var(--sh-sunken)); }
 .sh-heat i.l2 { background: color-mix(in srgb, var(--sh-crest) 45%, var(--sh-sunken)); }
@@ -139,9 +139,9 @@
 .sh-heat-leg i.rest { background: var(--sh-brass-soft); box-shadow: inset 0 0 0 1.2px var(--sh-brass-fill); margin-left: 6px; }
 
 /* ── 洞察：科目分布 ── */
-.sh-subj { display: grid; grid-template-columns: minmax(64px, 28%) 1fr 52px; gap: 10px; align-items: center; padding: 6px 0; font-size: 13.5px; }
+.sh-subj { display: grid; grid-template-columns: minmax(64px, 34%) 1fr 76px; gap: 10px; align-items: center; padding: 6px 0; font-size: 13.5px; }
 .sh-subj .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sh-subj .tot { text-align: right; color: var(--sh-ink-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.sh-subj .tot { text-align: right; white-space: nowrap; color: var(--sh-ink-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
 .sh-stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--sh-sunken); }
 .sh-stack i { display: block; height: 100%; }
 .sh-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 12.5px; color: var(--sh-ink-3); }

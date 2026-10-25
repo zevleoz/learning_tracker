@@ -226,3 +226,83 @@ describe('/api/notify tick 端到端（mock Supabase）', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 });
+
+describe('/api/notify reinvite（导师令牌）', () => {
+  const TEACHER = '11111111-1111-4111-8111-111111111111';
+  const STUDENT = '22222222-2222-4222-8222-222222222222';
+  const bearer = { authorization: 'Bearer mentor-jwt' };
+
+  function routesFor({ role = 2, pending = [{ id: 'c1' }] } = {}) {
+    return [
+      ['/auth/v1/user', { status: 200, body: { id: TEACHER } }],
+      ['select=role', { status: 200, body: [{ role }] }],
+      ['teacher_student_connections', { status: 200, body: pending }],
+      ['profiles?select=id,notification_prefs', { status: 200, body: [{ id: STUDENT, notification_prefs: {} }] }],
+      ['profiles?select=full_name', { status: 200, body: [{ full_name: '王老师' }] }],
+      ['push_subscriptions?select=', {
+        status: 200,
+        body: [{ user_id: STUDENT, endpoint: 'https://push.example/live', p256dh: 'p', auth: 'a' }],
+      }],
+    ];
+  }
+
+  beforeEach(() => {
+    process.env.SUPABASE_ANON_KEY = 'anon-test';
+  });
+
+  test('有 status=0 的连接：用导师令牌发出邀请推送，且只查这位导师与这位学生', async () => {
+    const calls = mockSupabase(routesFor());
+    mockSend.mockResolvedValue({ statusCode: 201 });
+    const res = makeRes();
+    await handler(post({ type: 'reinvite', student_id: STUDENT }, bearer), res);
+    expect(res.code).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, sent: 1 });
+    expect(JSON.parse(mockSend.mock.calls[0][1]).body).toContain('王老师');
+    const check = calls.find((c) => c.url.includes('teacher_student_connections'));
+    expect(check.url).toContain('status=eq.0');
+    expect(check.url).toContain(`teacher_id=eq.${TEACHER}`);
+    expect(check.url).toContain(`student_id=eq.${STUDENT}`);
+  });
+
+  test('没有 status=0 的连接（例如已接受 / 不是自己的学生）→ 403，不推送', async () => {
+    mockSupabase(routesFor({ pending: [] }));
+    const res = makeRes();
+    await handler(post({ type: 'reinvite', student_id: STUDENT }, bearer), res);
+    expect(res.code).toBe(403);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  test('没有令牌 → 401；学生令牌 → 403；NOTIFY_SECRET 不能代替导师令牌', async () => {
+    mockSupabase(routesFor());
+    const none = makeRes();
+    await handler(post({ type: 'reinvite', student_id: STUDENT }, {}), none);
+    expect(none.code).toBe(401);
+
+    mockSupabase(routesFor({ role: 1 }));
+    const student = makeRes();
+    await handler(post({ type: 'reinvite', student_id: STUDENT }, bearer), student);
+    expect(student.code).toBe(403);
+
+    mockSupabase(routesFor());
+    const secret = makeRes();
+    await handler(post({ type: 'reinvite', student_id: STUDENT }, { 'x-notify-secret': SECRET }), secret);
+    expect(secret.code).toBe(401);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  test('student_id 不是 uuid → 400', async () => {
+    mockSupabase(routesFor());
+    const res = makeRes();
+    await handler(post({ type: 'reinvite', student_id: 'x' }, bearer), res);
+    expect(res.code).toBe(400);
+  });
+
+  test('导师令牌不能触发 tick / invite（原有行为不变）', async () => {
+    mockSupabase(routesFor());
+    for (const type of ['tick', 'invite']) {
+      const res = makeRes();
+      await handler(post({ type, student_id: STUDENT }, bearer), res);
+      expect(res.code).toBe(401);
+    }
+  });
+});

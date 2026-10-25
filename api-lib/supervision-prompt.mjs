@@ -123,12 +123,17 @@ export function parseDraft(raw) {
   }
 }
 
+/** 当前使用的模型名（写入 supervision_drafts.model） */
+export function modelNameOf(env = process.env) {
+  return env.LLM_MODEL || 'doubao-1-5-pro-32k-250115';
+}
+
 /** OpenAI 兼容调用（DashScope / 火山 ARK 均可），返回 { text, evidence } 或抛错 */
 export async function generateDraft(input, env = process.env, { temperature = 0.5 } = {}) {
   const apiKey = env.LLM_API_KEY;
   if (!apiKey) throw new Error('未配置 LLM_API_KEY');
   const baseURL = (env.LLM_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
-  const model = env.LLM_MODEL || 'doubao-1-5-pro-32k-250115';
+  const model = modelNameOf(env);
   let extraBody = {};
   if (env.LLM_EXTRA_BODY) extraBody = JSON.parse(env.LLM_EXTRA_BODY);
 

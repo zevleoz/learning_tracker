@@ -307,12 +307,51 @@ function llmDevProxy(env) {
   };
 }
 
+// 本地开发用 /api/supervision（线上由 Vercel Function api/supervision/index.js 承担）：
+// 与 llmDevProxy 同形态，把 serverless 需要的变量注入 process.env 后直接调用同一个 handler。
+// run / regenerate 需要 SUPABASE_SERVICE_ROLE_KEY 与 NOTIFY_SECRET（.env.local 里有才注入）；
+// preview 需要请求头 x-supervision-dev: 1（本地 NODE_ENV 不是 production）。
+function supervisionDevProxy(env) {
+  return {
+    name: 'supervision-dev-proxy',
+    configureServer(server) {
+      injectServerEnv(env);
+      for (const key of ['SUPABASE_SERVICE_ROLE_KEY', 'NOTIFY_SECRET']) {
+        if (env[key]) process.env[key] = env[key];
+      }
+
+      server.middlewares.use('/api/supervision', async (req, res) => {
+        const chunks = [];
+        for await (const c of req) chunks.push(c);
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        try {
+          req.body = raw ? JSON.parse(raw) : {};
+        } catch {
+          sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' });
+          return;
+        }
+        try {
+          const mod = await import(fileURLToPath(new URL('./api/supervision/index.js', import.meta.url)));
+          res.status = (code) => {
+            res.statusCode = code;
+            return res;
+          };
+          res.json = (data) => sendJson(res, res.statusCode || 200, data);
+          await mod.default(req, res);
+        } catch (err) {
+          sendJson(res, 500, { ok: false, error: `本地执行 supervision 函数失败：${err.message}` });
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const root = process.cwd();
   const surfaceBuilds = await computeSurfaceBuilds(root);
   return {
-    plugins: [react(), y4DevProxy(env), llmDevProxy(env), versionJsonPlugin(surfaceBuilds)],
+    plugins: [react(), y4DevProxy(env), llmDevProxy(env), supervisionDevProxy(env), versionJsonPlugin(surfaceBuilds)],
     define: {
       __SURFACE_BUILDS__: JSON.stringify(surfaceBuilds),
     },

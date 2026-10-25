@@ -1,18 +1,23 @@
 // Web Push 通知的决策与投递逻辑（服务端使用，绝不进入前端 bundle）。
 //
 // 分层：
-//   - 纯函数（时间、偏好、连续记录、到期判定）：selectDue / computeStreakState 等，可直接单测
+//   - 纯函数（时间、偏好、到期判定、文案）：dueKindFor / selectDue 等，可直接单测
 //   - runTick / sendInvite：编排「读数据 → 判定 → 占位 → 推送 → 清理失效订阅」，
 //     数据访问（store）与推送（sendPush）都由调用方注入，测试里用 mock 替换
 //   - createSupabaseStore：用 service role 经 PostgREST 访问 Supabase 的 store 实现
 //
-// 规则（全部按 Asia/Shanghai 时间，UTC+8 无夏令时）：
-//   - 每日提醒：到达学生设定的时间点，且当天没有任何记录
-//   - 待补填摘要：昨天有「待补填」记录，次日 18:00 起提醒（数量含此前所有待补填）
-//   - 连续记录提醒：20:30 起，今天还没记录、连续记录仍然有效、且本周 2 个休息日已用完
-//   - 邀请：type='invite' 立即发送，不受每日上限与静默时段限制
-//   - 每位学生每天最多 1 条非邀请推送（push_deliveries 的部分唯一索引兜底，并发安全）
+// 推送只有三种（全部按 Asia/Shanghai 时间，UTC+8 无夏令时）：
+//   - inactive 几天没记录：最后一条记录日期 = 今天 − 3 天时发一条；仍没记录、到 − 7 天时再发一条；
+//     之后什么都不发，直到学生再记录（新记录让「最后记录日期」前移，循环自然重置）。
+//     发送时刻 = 学生的惯用记录时间（最近 20 条记录开始时刻的中位数，夹在 08:00–21:30；少于 3 条用 19:30）。
+//     已发过几条由 push_deliveries（kind='inactive'，sent_date 晚于最后记录日期）推算，不需要新表。
+//   - daily 每日提醒：学生设定的时间（默认 21:00），当天没有任何记录才发；
+//     注册后的前 30 天强制开启（不看偏好），之后按偏好（默认关）
+//   - invite 导师邀请：立即发送，不受每日上限与静默时段限制
+//   - 非邀请推送每位学生每天最多 1 条（push_deliveries 的部分唯一索引兜底，并发安全）；
+//     同时到期时 inactive 优先于 daily（当天要发 inactive 时 daily 让位）
 //   - 静默时段 22:30–07:00 不发非邀请推送
+//   - 每条推送都带 badge = 学生的「待补填」数量；本身绝不会为待补填单独发推送
 //   - 推送返回 404/410 的订阅视为失效，立即删除
 //   - 没有任何「分钟目标」概念
 
@@ -20,23 +25,30 @@ export const SHANGHAI_OFFSET_MS = 8 * 3600 * 1000;
 
 export const QUIET_START_MIN = 22 * 60 + 30; // 22:30
 export const QUIET_END_MIN = 7 * 60; // 07:00
-export const DIGEST_TIME_MIN = 18 * 60; // 18:00
-export const STREAK_TIME_MIN = 20 * 60 + 30; // 20:30
-export const REST_DAYS_PER_WEEK = 2;
-// 连续记录只回看这么多天（够判定「连续是否有效」，避免全量拉取历史）
-export const STREAK_LOOKBACK_DAYS = 120;
+
+// 几天没记录：第一次 / 第二次提醒对应的「最后记录日期距今天数」
+export const INACTIVE_FIRST_DAYS = 3;
+export const INACTIVE_SECOND_DAYS = 7;
+// 惯用记录时间：取最近 20 条记录；少于 3 条用默认值；结果夹在 [08:00, 21:30]
+export const USUAL_SAMPLE_SIZE = 20;
+export const USUAL_MIN_SAMPLES = 3;
+export const USUAL_DEFAULT_MIN = 19 * 60 + 30; // 19:30
+export const USUAL_CLAMP_MIN = 8 * 60; // 08:00
+export const USUAL_CLAMP_MAX = 21 * 60 + 30; // 21:30
+// 注册后的前 30 天（含注册当天）每日提醒强制开启
+export const FORCED_DAILY_DAYS = 30;
+// 只回看这么多天的记录（足够取最近 20 条与判断是否活跃，避免全量拉取历史）
+export const SESSION_LOOKBACK_DAYS = 60;
+export const DELIVERY_LOOKBACK_DAYS = 30;
 
 export const DEFAULT_PREFS = Object.freeze({
+  inactive_reminder: true,
   daily_reminder: false,
   daily_reminder_time: '21:00',
-  pending_digest: true,
-  streak_reminder: true,
   invites: true,
-  weekly_email: false,
 });
 
-// 非邀请推送的优先级：同一轮多条同时到期时只发第一条（每天仅 1 条）
-export const KIND_PRIORITY = ['streak', 'daily', 'digest'];
+const CATEGORY_LABEL = { 1: '学习', 2: '复习', 3: '练习' };
 
 // ---------------------------------------------------------------------------
 // 时间
@@ -54,11 +66,11 @@ export function addDays(ymd, delta) {
   return ymdFromUtcDate(new Date(Date.UTC(y, m - 1, d + delta)));
 }
 
-/** 'YYYY-MM-DD' 所在周的周一（周一至周日为一周）。 */
-export function weekStart(ymd) {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=周日
-  return addDays(ymd, -((dow + 6) % 7));
+/** 两个 'YYYY-MM-DD' 相差的天数（a − b）。 */
+export function diffDays(a, b) {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((Date.UTC(ay, am - 1, ad) - Date.UTC(by, bm - 1, bd)) / 86400000);
 }
 
 /** @returns {{ date: string, minutes: number }} 上海当前日期与当天分钟数 */
@@ -88,11 +100,11 @@ export function parseTimeOfDay(str) {
 // 偏好
 // ---------------------------------------------------------------------------
 
-/** 合并默认值；字段类型不对时回退默认，保证判定逻辑不会被脏数据带偏。 */
+/** 合并默认值；字段类型不对时回退默认，保证判定逻辑不会被脏数据带偏。旧版的多余字段直接忽略。 */
 export function normalizePrefs(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const out = { ...DEFAULT_PREFS };
-  for (const key of ['daily_reminder', 'pending_digest', 'streak_reminder', 'invites', 'weekly_email']) {
+  for (const key of ['inactive_reminder', 'daily_reminder', 'invites']) {
     if (typeof src[key] === 'boolean') out[key] = src[key];
   }
   if (parseTimeOfDay(src.daily_reminder_time) != null) {
@@ -101,43 +113,86 @@ export function normalizePrefs(raw) {
   return out;
 }
 
+/**
+ * 注册后前 30 天（含注册当天）每日提醒强制开启：返回最后一个强制日（上海日期），缺注册时间返回 null。
+ * @param {string|Date|null|undefined} createdAt profiles.created_at
+ */
+export function forcedDailyUntil(createdAt) {
+  if (!createdAt) return null;
+  const t = new Date(createdAt).getTime();
+  if (Number.isNaN(t)) return null;
+  return addDays(shanghaiClock(new Date(t)).date, FORCED_DAILY_DAYS - 1);
+}
+
+export function isDailyForced(createdAt, today) {
+  const until = forcedDailyUntil(createdAt);
+  return until != null && today <= until;
+}
+
 // ---------------------------------------------------------------------------
-// 连续记录（与 PLAN 中 computeStreak 同一规则的服务端精简版）
+// 记录分析（纯函数）
 // ---------------------------------------------------------------------------
 
 /**
- * 有记录的日子计入连续；每个周一至周日的周内最多 2 个无记录日不打断连续
- * （也不增加连续天数）；今天尚无记录不打断。
- *
- * @param {Iterable<string>} sessionDates 有未删除记录的日期（'YYYY-MM-DD'）
- * @param {string} today 上海今天
- * @returns {{ current: number, restDaysUsedThisWeek: number }}
+ * @typedef {object} SessionLite
+ * @property {string} date            session_date（YYYY-MM-DD）
+ * @property {string} [startTime]     start_time（'HH:MM[:SS]'）
+ * @property {string} [courseId]
+ * @property {number} [category]      1 学习 / 2 复习 / 3 练习
+ * @property {string} [form]
+ * @property {number} [minutes]
  */
-export function computeStreakState(sessionDates, today, { restDaysPerWeek = REST_DAYS_PER_WEEK } = {}) {
-  const dates = new Set(sessionDates);
-  let earliest = null;
-  for (const d of dates) if (earliest == null || d < earliest) earliest = d;
-  if (earliest == null) return { current: 0, restDaysUsedThisWeek: 0 };
 
-  const thisWeek = weekStart(today);
-  const restByWeek = new Map();
-  let current = 0;
-  let restThisWeek = 0;
-  let cursor = dates.has(today) ? today : addDays(today, -1);
-  // 今天有记录：从今天算起；否则从昨天往回走（今天空着不打断）
-  for (let guard = 0; guard < 4000 && cursor >= earliest; guard += 1) {
-    if (dates.has(cursor)) {
-      current += 1;
-    } else {
-      const wk = weekStart(cursor);
-      const used = restByWeek.get(wk) || 0;
-      if (used >= restDaysPerWeek) break;
-      restByWeek.set(wk, used + 1);
-      if (wk === thisWeek) restThisWeek += 1;
-    }
-    cursor = addDays(cursor, -1);
-  }
-  return { current, restDaysUsedThisWeek: restThisWeek };
+function startMinutes(s) {
+  return parseTimeOfDay(String(s.startTime ?? '').slice(0, 5));
+}
+
+function byRecency(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  const x = startMinutes(a) ?? -1;
+  const y = startMinutes(b) ?? -1;
+  return y - x;
+}
+
+/** 最后一条记录（日期最晚，同日取开始时刻最晚）；忽略今天之后的日期。没有则 null。 */
+export function lastSession(sessions, today) {
+  const rows = (sessions || []).filter((s) => s?.date && s.date <= today);
+  if (rows.length === 0) return null;
+  return [...rows].sort(byRecency)[0];
+}
+
+/**
+ * 学生惯用的记录时间（分钟）：最近 20 条记录开始时刻（小时，含分钟的小数）的中位数，
+ * 夹在 08:00–21:30。有开始时刻的记录少于 3 条时用 19:30。
+ */
+export function usualLogMinutes(sessions, today) {
+  const recent = (sessions || [])
+    .filter((s) => s?.date && s.date <= today && startMinutes(s) != null)
+    .sort(byRecency)
+    .slice(0, USUAL_SAMPLE_SIZE);
+  if (recent.length < USUAL_MIN_SAMPLES) return USUAL_DEFAULT_MIN;
+  // 按「开始时刻所在的整点」取中位数（偶数条时取中间两个整点的平均，可落在半点）
+  const hours = recent.map((s) => Math.floor(startMinutes(s) / 60)).sort((a, b) => a - b);
+  const mid = Math.floor(hours.length / 2);
+  const medianHour = hours.length % 2 ? hours[mid] : (hours[mid - 1] + hours[mid]) / 2;
+  return Math.min(USUAL_CLAMP_MAX, Math.max(USUAL_CLAMP_MIN, Math.round(medianHour * 60)));
+}
+
+/**
+ * 今天该不该走「几天没记录」：返回 3（第一次）、7（第二次）或 null。
+ *  - 最后记录日期 = 今天 − 3：还没发过 → 第一次
+ *  - 最后记录日期 = 今天 − 7：之前至多发过一次 → 第二次
+ *  - 其它天（含 4–6 天、8 天以上）一律不发；从没有过记录的学生也不发
+ * 已发次数 = push_deliveries 里 kind='inactive' 且 sent_date 晚于最后记录日期的行数；
+ * 学生再记录后最后记录日期前移，旧的投递记录自然不再计入。
+ */
+export function inactiveStage({ last, inactiveSentDates = [], today }) {
+  if (!last) return null;
+  const gap = diffDays(today, last.date);
+  const sent = inactiveSentDates.filter((d) => d > last.date).length;
+  if (gap === INACTIVE_FIRST_DAYS && sent === 0) return INACTIVE_FIRST_DAYS;
+  if (gap === INACTIVE_SECOND_DAYS && sent <= 1) return INACTIVE_SECOND_DAYS;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,28 +201,45 @@ export function computeStreakState(sessionDates, today, { restDaysPerWeek = REST
 
 export const APP_TITLE = '一表人才';
 
+/** 「几天没记录」点开后直接带着上次的课程 / 类别 / 形式 / 时长打开记一笔。 */
+export function buildInactiveUrl(last) {
+  const q = new URLSearchParams({ log: '1' });
+  if (last?.courseId) q.set('course', String(last.courseId));
+  if ([1, 2, 3].includes(Number(last?.category))) q.set('category', String(Number(last.category)));
+  if (last?.form) q.set('form', String(last.form));
+  if (Number(last?.minutes) > 0) q.set('minutes', String(Math.round(Number(last.minutes))));
+  return `/records?${q.toString()}`;
+}
+
+/**
+ * @param {'inactive'|'daily'|'invite'} kind
+ * @param {{ badge?: number, stage?: 3|7, last?: SessionLite, courseName?: string, teacherName?: string }} ctx
+ *   badge = 学生的「待补填」数量，每条推送都带（图标角标，不为它单独推送）
+ */
 export function buildPayload(kind, ctx = {}) {
+  const badge = Number.isFinite(Number(ctx.badge)) ? Math.max(0, Math.floor(Number(ctx.badge))) : 0;
   switch (kind) {
+    case 'inactive': {
+      const span = ctx.stage === INACTIVE_SECOND_DAYS ? '一周' : '三天';
+      const label = CATEGORY_LABEL[Number(ctx.last?.category)];
+      const what = ctx.courseName ? `${ctx.courseName}${label ? ` · ${label}` : ''}` : '';
+      return {
+        title: APP_TITLE,
+        body: what
+          ? `${span}没记录了。上次是 ${what}，点一下就能补上。`
+          : `${span}没记录了，点一下就能补上。`,
+        url: buildInactiveUrl(ctx.last),
+        tag: 'yb-inactive',
+        badge,
+      };
+    }
     case 'daily':
       return {
         title: APP_TITLE,
         body: '今天还没有学习记录，花点时间记一笔吧。',
-        url: '/learning?log=1',
+        url: '/records?log=1',
         tag: 'yb-daily',
-      };
-    case 'digest':
-      return {
-        title: APP_TITLE,
-        body: `有 ${ctx.pendingCount} 条练习的客观评价待补填。`,
-        url: '/learning',
-        tag: 'yb-digest',
-      };
-    case 'streak':
-      return {
-        title: APP_TITLE,
-        body: `已连续记录 ${ctx.streak} 天，本周休息日已用完，今天记一笔就能保住连续。`,
-        url: '/learning?log=1',
-        tag: 'yb-streak',
+        badge,
       };
     case 'invite':
       return {
@@ -175,6 +247,7 @@ export function buildPayload(kind, ctx = {}) {
         body: ctx.teacherName ? `${ctx.teacherName} 邀请你建立导师连接。` : '你收到一条新的导师邀请。',
         url: '/notifications',
         tag: 'yb-invite',
+        badge,
       };
     default:
       throw new Error(`unknown notification kind: ${kind}`);
@@ -185,13 +258,18 @@ export function buildPayload(kind, ctx = {}) {
 // 到期判定（纯函数）
 // ---------------------------------------------------------------------------
 
+// 非邀请推送的优先级：同一轮多条同时到期时只发第一条（每天仅 1 条）
+export const KIND_PRIORITY = ['inactive', 'daily'];
+
 /**
  * @typedef {object} StudentCtx
  * @property {string} id
  * @property {object} [prefs]               profiles.notification_prefs（可缺省/脏数据）
- * @property {string[]} [sessionDates]      有未删除记录的日期
- * @property {string[]} [pendingDates]      「待补填」记录的 session_date
- *                                          （category=3、grade_label 为空、score 为空、未删除）
+ * @property {string|Date} [createdAt]      profiles.created_at（决定前 30 天强制每日提醒）
+ * @property {SessionLite[]} [sessions]     最近一段时间内未删除的记录
+ * @property {string[]} [inactiveSentDates] 已发过的 inactive 推送的 sent_date
+ * @property {number} [pendingCount]        「待补填」数量（category=3、grade_label 为空、score 为空、未删除）
+ * @property {Record<string,string>} [courseNames]  课程 id → 名称（至少含最后一条记录的课程）
  *
  * 返回某个学生此刻应发的那一种（至多一种）非邀请提醒，没有则 null。
  * 不检查「今天是否已发过」——那由 selectDue 的 sentToday 与 store.claim 负责。
@@ -199,31 +277,25 @@ export function buildPayload(kind, ctx = {}) {
 export function dueKindFor(student, clock) {
   if (isQuietHours(clock.minutes)) return null;
   const prefs = normalizePrefs(student.prefs);
-  const dates = new Set(student.sessionDates || []);
-  const loggedToday = dates.has(clock.date);
+  const sessions = student.sessions || [];
+  const loggedToday = sessions.some((s) => s?.date === clock.date);
+  const badge = student.pendingCount || 0;
   const due = {};
 
-  if (!loggedToday) {
-    if (prefs.daily_reminder) {
-      const at = parseTimeOfDay(prefs.daily_reminder_time);
-      if (at != null && clock.minutes >= at) due.daily = buildPayload('daily');
-    }
-    if (prefs.streak_reminder && clock.minutes >= STREAK_TIME_MIN) {
-      const { current, restDaysUsedThisWeek } = computeStreakState(dates, clock.date);
-      if (current > 0 && restDaysUsedThisWeek >= REST_DAYS_PER_WEEK) {
-        due.streak = buildPayload('streak', { streak: current });
-      }
-    }
+  const last = lastSession(sessions, clock.date);
+  const stage = prefs.inactive_reminder
+    ? inactiveStage({ last, inactiveSentDates: student.inactiveSentDates, today: clock.date })
+    : null;
+  if (stage && clock.minutes >= usualLogMinutes(sessions, clock.date)) {
+    due.inactive = buildPayload('inactive', {
+      badge, stage, last, courseName: student.courseNames?.[last.courseId],
+    });
   }
 
-  if (prefs.pending_digest && clock.minutes >= DIGEST_TIME_MIN) {
-    const pending = student.pendingDates || [];
-    const yesterday = addDays(clock.date, -1);
-    // 次日 18:00 起提醒：昨天有待补填；数量含昨天及更早的所有待补填
-    if (pending.includes(yesterday)) {
-      const count = pending.filter((d) => d <= yesterday).length;
-      due.digest = buildPayload('digest', { pendingCount: count });
-    }
+  // 今天要发「几天没记录」时，每日提醒让位（即使每日提醒的时间更早）
+  if (!stage && !loggedToday && (prefs.daily_reminder || isDailyForced(student.createdAt, clock.date))) {
+    const at = parseTimeOfDay(prefs.daily_reminder_time);
+    if (at != null && clock.minutes >= at) due.daily = buildPayload('daily', { badge });
   }
 
   for (const kind of KIND_PRIORITY) {
@@ -320,27 +392,44 @@ export async function runTick({ store, sendPush, now = new Date() }) {
   if (userIds.length === 0) return summary;
 
   const profiles = await store.loadProfiles(userIds);
-  // 只有至少开启一种非邀请提醒的学生才需要继续读记录
+  // 只有至少会收到一种非邀请提醒的学生才需要继续读记录（前 30 天每日提醒强制开启）
   const active = profiles.filter((p) => {
     const prefs = normalizePrefs(p.notification_prefs);
-    return prefs.daily_reminder || prefs.pending_digest || prefs.streak_reminder;
+    return prefs.inactive_reminder || prefs.daily_reminder || isDailyForced(p.created_at, clock.date);
   });
   summary.considered = active.length;
   if (active.length === 0) return summary;
 
   const ids = active.map((p) => p.id);
-  const since = addDays(clock.date, -STREAK_LOOKBACK_DAYS);
-  const [datesByUser, pendingByUser, sentToday] = await Promise.all([
-    store.loadSessionDates(ids, since),
-    store.loadPendingDates(ids),
-    store.loadSentToday(ids, clock.date),
+  const [sessionsByUser, deliveries, pendingByUser] = await Promise.all([
+    store.loadSessions(ids, addDays(clock.date, -SESSION_LOOKBACK_DAYS)),
+    store.loadDeliveries(ids, addDays(clock.date, -DELIVERY_LOOKBACK_DAYS)),
+    store.loadPendingCounts(ids),
   ]);
+
+  const sentToday = new Set();
+  const inactiveSent = new Map();
+  for (const d of deliveries) {
+    if (d.sent_date === clock.date) sentToday.add(d.user_id);
+    if (d.kind === 'inactive') {
+      if (!inactiveSent.has(d.user_id)) inactiveSent.set(d.user_id, []);
+      inactiveSent.get(d.user_id).push(d.sent_date);
+    }
+  }
+
+  // 推送正文要写上「上次记了什么」：只查最后一条记录的课程名
+  const lastByUser = new Map(active.map((p) => [p.id, lastSession(sessionsByUser.get(p.id) || [], clock.date)]));
+  const courseIds = [...new Set([...lastByUser.values()].map((l) => l?.courseId).filter(Boolean))];
+  const courseNames = courseIds.length ? await store.loadCourseNames(courseIds) : {};
 
   const students = active.map((p) => ({
     id: p.id,
     prefs: p.notification_prefs,
-    sessionDates: datesByUser.get(p.id) || [],
-    pendingDates: pendingByUser.get(p.id) || [],
+    createdAt: p.created_at,
+    sessions: sessionsByUser.get(p.id) || [],
+    inactiveSentDates: inactiveSent.get(p.id) || [],
+    pendingCount: pendingByUser.get(p.id) || 0,
+    courseNames,
   }));
   const due = selectDue({ students, clock, sentToday });
   summary.due = due.length;
@@ -378,10 +467,11 @@ export async function sendInvite({ store, sendPush, studentId, teacherName, now 
   }
   const subscriptions = await store.listSubscriptionsFor(studentId);
   if (subscriptions.length === 0) return { skipped: 'no-subscription', sent: 0, removed: 0, failed: 0 };
+  const badge = (await store.loadPendingCounts([studentId]).catch(() => new Map())).get(studentId) || 0;
 
   const r = await deliver({
     subscriptions,
-    payload: buildPayload('invite', { teacherName }),
+    payload: buildPayload('invite', { teacherName, badge }),
     sendPush,
     store,
   });
@@ -452,48 +542,62 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch }) {
     async loadProfiles(ids) {
       const out = [];
       for (const part of chunk(ids, IN_CHUNK)) {
-        out.push(...(await getJson(`profiles?select=id,notification_prefs&id=${inList(part)}`)));
+        out.push(...(await getJson(`profiles?select=id,notification_prefs,created_at&id=${inList(part)}`)));
       }
       return out;
     },
-    async loadSessionDates(ids, since) {
+    /** 每位学生 since 之后未删除的记录（用于最后一条记录、惯用时间、今天是否已记录）。 @returns {Promise<Map<string, SessionLite[]>>} */
+    async loadSessions(ids, since) {
       const map = new Map();
       for (const part of chunk(ids, IN_CHUNK)) {
         const rows = await getAll(
-          `learning_sessions?select=student_id,session_date&deleted_at=is.null`
-            + `&session_date=gte.${since}&student_id=${inList(part)}&order=session_date.asc`,
-        );
-        for (const r of rows) {
-          if (!map.has(r.student_id)) map.set(r.student_id, new Set());
-          map.get(r.student_id).add(r.session_date);
-        }
-      }
-      return new Map([...map].map(([k, v]) => [k, [...v]]));
-    },
-    async loadPendingDates(ids) {
-      const map = new Map();
-      for (const part of chunk(ids, IN_CHUNK)) {
-        // 待补填：category=3、grade_label 为空、score 为空、未删除
-        const rows = await getAll(
-          `learning_sessions?select=student_id,session_date&category=eq.3`
-            + `&grade_label=is.null&score=is.null&deleted_at=is.null&student_id=${inList(part)}`,
+          `learning_sessions?select=student_id,session_date,start_time,course_id,category,form,duration_minutes`
+            + `&deleted_at=is.null&session_date=gte.${since}&student_id=${inList(part)}`
+            + `&order=session_date.desc,start_time.desc`,
         );
         for (const r of rows) {
           if (!map.has(r.student_id)) map.set(r.student_id, []);
-          map.get(r.student_id).push(r.session_date);
+          map.get(r.student_id).push({
+            date: String(r.session_date).slice(0, 10),
+            startTime: r.start_time,
+            courseId: r.course_id,
+            category: r.category,
+            form: r.form,
+            minutes: r.duration_minutes,
+          });
         }
       }
       return map;
     },
-    async loadSentToday(ids, date) {
-      const set = new Set();
+    /** 待补填数量：category=3、grade_label 为空、score 为空、未删除。 @returns {Promise<Map<string, number>>} */
+    async loadPendingCounts(ids) {
+      const map = new Map();
       for (const part of chunk(ids, IN_CHUNK)) {
         const rows = await getAll(
-          `push_deliveries?select=user_id&sent_date=eq.${date}&kind=neq.invite&user_id=${inList(part)}`,
+          `learning_sessions?select=student_id&category=eq.3`
+            + `&grade_label=is.null&score=is.null&deleted_at=is.null&student_id=${inList(part)}`,
         );
-        for (const r of rows) set.add(r.user_id);
+        for (const r of rows) map.set(r.student_id, (map.get(r.student_id) || 0) + 1);
       }
-      return set;
+      return map;
+    },
+    async loadCourseNames(courseIds) {
+      const out = {};
+      for (const part of chunk(courseIds, IN_CHUNK)) {
+        const rows = await getJson(`courses?select=id,name&id=${inList(part)}`);
+        for (const r of rows) out[r.id] = r.name;
+      }
+      return out;
+    },
+    /** since 之后的非邀请投递记录（今天是否已发过 + inactive 已发次数）。 */
+    async loadDeliveries(ids, since) {
+      const out = [];
+      for (const part of chunk(ids, IN_CHUNK)) {
+        out.push(...(await getAll(
+          `push_deliveries?select=user_id,sent_date,kind&sent_date=gte.${since}&kind=neq.invite&user_id=${inList(part)}`,
+        )));
+      }
+      return out;
     },
     /** @returns {Promise<boolean>} true=占位成功；false=今天已发过（唯一索引冲突） */
     async claimDaily(userId, date, kind) {

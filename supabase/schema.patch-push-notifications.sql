@@ -69,28 +69,39 @@ grant execute on function public.register_push_subscription(text, text, text, te
 
 -- ----------------------------------------------------------------
 -- 2) profiles.notification_prefs：提醒偏好（缺省值见 DEFAULT）
---    daily_reminder 默认关；待补填摘要 / 连续记录提醒 / 邀请默认开；周报邮件默认关
+--    inactive_reminder（几天没记录）默认开；daily_reminder（每日提醒）默认关，
+--    但注册后前 30 天由服务端强制开启（看 profiles.created_at，不看这个值）；invites 默认开。
+--    push_card_dismissed：今天页的「开启提醒」小卡片点了「不用」。
+--    旧版的 pending_digest / streak_reminder / weekly_email 已移除，库里残留的旧键会被忽略。
+--    已有该列的库：只更新默认值（幂等），不改现有行。
 -- ----------------------------------------------------------------
 alter table public.profiles
   add column if not exists notification_prefs jsonb not null default '{
+    "inactive_reminder": true,
     "daily_reminder": false,
     "daily_reminder_time": "21:00",
-    "pending_digest": true,
-    "streak_reminder": true,
-    "invites": true,
-    "weekly_email": false
+    "invites": true
+  }'::jsonb;
+
+alter table public.profiles
+  alter column notification_prefs set default '{
+    "inactive_reminder": true,
+    "daily_reminder": false,
+    "daily_reminder_time": "21:00",
+    "invites": true
   }'::jsonb;
 
 -- ----------------------------------------------------------------
 -- 3) push_deliveries：每天每位学生最多一条「非邀请」推送
 --    部分唯一索引 = 并发安全的每日上限；邀请记录不受限（仅留痕）
+--    几天没记录（kind='inactive'）的已发次数也从这里推算：sent_date 晚于学生最后记录日期的行
 --    仅 service role 访问：启用 RLS 且不建任何策略
 -- ----------------------------------------------------------------
 create table if not exists public.push_deliveries (
   id uuid default gen_random_uuid() primary key,
   user_id uuid not null references public.profiles(id) on delete cascade,
   sent_date date not null,            -- Asia/Shanghai 日期
-  kind text not null,                 -- daily / digest / streak / invite
+  kind text not null,                 -- inactive / daily / invite（历史行可能还有 digest / streak）
   created_at timestamptz not null default now()
 );
 

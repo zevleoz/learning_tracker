@@ -84,7 +84,7 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Web Push：载荷为 /api/notify 发来的 JSON {title, body, url, tag}；
+// Web Push：载荷为 /api/notify 发来的 JSON {title, body, url, tag, badge}；badge = 待补填数量，只更新图标角标，不单独推送；
 // 兼容旧的纯文本载荷。同一 tag 的通知会互相替换，避免堆叠。
 function parsePushPayload(event) {
   const fallback = { title: "一表人才", body: "该打卡啦！", url: "/", tag: "yb-default" };
@@ -97,6 +97,7 @@ function parsePushPayload(event) {
         body: data.body || fallback.body,
         url: data.url || fallback.url,
         tag: data.tag || fallback.tag,
+        badge: data.badge != null && Number.isFinite(Number(data.badge)) ? Math.max(0, Math.floor(Number(data.badge))) : null,
       };
     }
   } catch (e) {
@@ -106,16 +107,21 @@ function parsePushPayload(event) {
 }
 
 self.addEventListener("push", (event) => {
-  const { title, body, url, tag } = parsePushPayload(event);
-  event.waitUntil(
+  const { title, body, url, tag, badge } = parsePushPayload(event);
+  const tasks = [
     self.registration.showNotification(title, {
       body,
       tag,
       icon: "./icons/icon-192.png",
       badge: "./icons/icon-192.png",
       data: { url },
-    })
-  );
+    }),
+  ];
+  // 桌面图标角标（支持的浏览器才有 setAppBadge；失败静默忽略）
+  if (badge !== null && typeof self.navigator !== "undefined" && typeof self.navigator.setAppBadge === "function") {
+    tasks.push((async () => { try { await self.navigator.setAppBadge(badge); } catch (e) { /* 角标只是锦上添花 */ } })());
+  }
+  event.waitUntil(Promise.all(tasks));
 });
 
 self.addEventListener("notificationclick", (event) => {

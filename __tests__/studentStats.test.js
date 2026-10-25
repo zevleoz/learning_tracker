@@ -87,9 +87,7 @@ describe('weekOverWeek', () => {
 
 describe('computeStreak', () => {
   it('空数据', () => {
-    expect(computeStreak([], '2024-01-10')).toMatchObject({
-      current: 0, restDaysUsedThisWeek: 0, restDaysLeftThisWeek: 2, restDates: [],
-    });
+    expect(computeStreak([], '2024-01-10')).toEqual({ current: 0, restDates: [], todayDone: false });
   });
   it('连续每天有记录，且可超过 7 天（跨周）', () => {
     const s = days('2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05',
@@ -99,69 +97,38 @@ describe('computeStreak', () => {
     expect(r.restDates).toEqual([]);
     expect(r.todayDone).toBe(true);
   });
-  it('今天还没记录不断：从昨天起算，也不消耗休息日', () => {
+  it('今天还没记录不断：从昨天起算', () => {
     const r = computeStreak(days('2024-01-08', '2024-01-09'), '2024-01-10');
     expect(r.current).toBe(2);
     expect(r.todayDone).toBe(false);
     expect(r.restDates).toEqual([]);
-    expect(r.restDaysLeftThisWeek).toBe(2);
-    expect(r.atRisk).toBe(false);
   });
-  it('每周最多 2 个休息日不断，休息日不计天数', () => {
-    // 周一 记、周二 休、周三 记、周四 休、周五 记（今天）
+  it('没有休息日额度：任何一个更早的空白日都断开连续', () => {
+    // 周一 记、周二 空、周三 记、周四 空、周五 记（今天）
     const r = computeStreak(days('2024-01-01', '2024-01-03', '2024-01-05'), '2024-01-05');
-    expect(r.current).toBe(3);
-    expect(r.restDates).toEqual(['2024-01-02', '2024-01-04']);
-    expect(r.restDaysUsedThisWeek).toBe(2);
-    expect(r.restDaysLeftThisWeek).toBe(0);
-  });
-  it('同一周第 3 个空白日断开连续', () => {
-    // 周一 记，周二三四 空，周五 记（今天）→ 周五 + 到不了周一
-    const r = computeStreak(days('2024-01-01', '2024-01-05'), '2024-01-05');
     expect(r.current).toBe(1);
-    expect(r.restDates).toEqual([]);
+    expect(r.restDates).toEqual(['2024-01-02', '2024-01-04']);
   });
-  it('休息日额度按自然周分别计算（周日/周一不共用）', () => {
-    // 上周 周四 记，周五周六 休；周日 记；本周 周一周二 休；周三 记（今天）
-    const s = days('2024-01-04', '2024-01-07', '2024-01-10');
-    const r = computeStreak(s, '2024-01-10');
-    expect(r.current).toBe(3);
-    expect(r.restDates).toEqual(['2024-01-05', '2024-01-06', '2024-01-08', '2024-01-09']);
-    expect(r.restDaysUsedThisWeek).toBe(2);
+  it('只空了今天以外的一天也断：昨天空 → 今天没记则为 0', () => {
+    expect(computeStreak(days('2024-01-01', '2024-01-02'), '2024-01-04').current).toBe(0);
+    expect(computeStreak(days('2024-01-01', '2024-01-02', '2024-01-04'), '2024-01-04').current).toBe(1);
+  });
+  it('restDates = 最早记录之后、今天之前所有没有记录的日子（不含今天）', () => {
+    const r = computeStreak(days('2024-01-04', '2024-01-07', '2024-01-10'), '2024-01-12');
+    expect(r.restDates).toEqual(['2024-01-05', '2024-01-06', '2024-01-08', '2024-01-09', '2024-01-11']);
   });
   it('最早记录之前的空白不算休息日', () => {
     const r = computeStreak(days('2024-01-04', '2024-01-05'), '2024-01-05');
     expect(r.current).toBe(2);
     expect(r.restDates).toEqual([]);
-    expect(r.restDaysLeftThisWeek).toBe(2);
   });
-  it('末端被断开处之前的休息日不计入', () => {
-    // 周一 记；周二三四 空（断）；周五 记 → 只有周五
-    expect(computeStreak(days('2024-01-01', '2024-01-05'), '2024-01-05').restDates).toEqual([]);
-  });
-  it('一次错过不会清零连续（本周 7 天窗口问题的回归）', () => {
-    // 过去 3 周每周 5 天有记录（周末休），今天周三
-    const s = [];
-    for (const start of ['2023-12-18', '2023-12-25', '2024-01-01']) {
-      for (let i = 0; i < 5; i++) {
-        const d = new Date(Date.UTC(...start.split('-').map(Number).map((n, k) => (k === 1 ? n - 1 : n))) + i * 86400000);
-        s.push(row(d.toISOString().slice(0, 10)));
-      }
-    }
-    const r = computeStreak(s, '2024-01-05');
-    expect(r.current).toBe(15);
+  it('不再返回额度字段', () => {
+    const r = computeStreak(days('2024-01-01'), '2024-01-04');
+    expect(Object.keys(r).sort()).toEqual(['current', 'restDates', 'todayDone']);
   });
   it('已删除记录不计；未来日期的记录忽略', () => {
     const s = [row('2024-01-09', { deleted_at: 'x' }), row('2024-01-11')];
     expect(computeStreak(s, '2024-01-10').current).toBe(0);
-  });
-  it('休息日已用完且今天还没记 → atRisk', () => {
-    // 周一 记，周二周三 休，今天（周四）空
-    const r = computeStreak(days('2024-01-01'), '2024-01-04');
-    expect(r.current).toBe(1);
-    expect(r.restDaysLeftThisWeek).toBe(0);
-    expect(r.atRisk).toBe(true);
-    expect(computeStreak(days('2024-01-01', '2024-01-04'), '2024-01-04').atRisk).toBe(false);
   });
   it('Date 对象作为 today', () => {
     expect(computeStreak(days('2024-01-02'), new Date(2024, 0, 2, 12)).current).toBe(1);
@@ -253,11 +220,10 @@ describe('headlineInsight', () => {
     expect(r.title).toBe('还没有学习记录');
     expect(r.action.log).toEqual({});
   });
-  it('连续 ≥3 天、休息日用完、今天未记 → 断档风险', () => {
-    // 上周 二三四五 记；本周 周一 记，周二周三 休，周四 记；今天周五空，本周休息日已用完
+  it('不再有「连续快断了 / 休息日用完」规则，也不提休息额度', () => {
     const s = days('2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-08', '2024-01-11');
     const r = headlineInsight(s, '2024-01-12');
-    expect(r.title).toContain('今天还没有记录');
+    expect(JSON.stringify(r)).not.toMatch(/休息|今天还没有记录/);
   });
   it('复习占比远低于前 4 周平均', () => {
     const rows = [];

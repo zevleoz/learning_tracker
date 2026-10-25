@@ -14,6 +14,11 @@ export default {
     '^../../lib/supabase(\\.js)?$': '<rootDir>/src/__mocks__/supabase.js',
     '^../lib/useAuth$': '<rootDir>/src/__mocks__/useAuth.js',
     '^../lib/useAuth.js$': '<rootDir>/src/__mocks__/useAuth.js',
+    // push.js 含 import.meta.env（jest 的 CJS 转换无法解析），统一换成空桩；
+    // 需要断言推送行为的测试用 jest.mock('../src/lib/push.js', factory) 覆盖（映射后同一路径）。
+    // push.js 自己的单测（push.test.js）直接读源码，不受影响。
+    '(^|/)lib/push(\\.js)?$': '<rootDir>/src/__mocks__/push.js',
+    '^./push(\\.js)?$': '<rootDir>/src/__mocks__/push.js',
     // src/lib 内部文件互相引用时写的是 ./supabase / ./useAuth
     '^./supabase$': '<rootDir>/src/__mocks__/supabase.js',
     '^./supabase.js$': '<rootDir>/src/__mocks__/supabase.js',

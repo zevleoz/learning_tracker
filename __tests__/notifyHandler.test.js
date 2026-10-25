@@ -126,6 +126,7 @@ describe('/api/notify 流程', () => {
     const calls = mockSupabase([
       ['profiles?select=id,notification_prefs', { status: 200, body: [{ id: 'stu', notification_prefs: {} }] }],
       ['profiles?select=full_name', { status: 200, body: [{ full_name: '王老师' }] }],
+      ['learning_sessions?select=student_id&category=eq.3', { status: 200, body: [{ student_id: 'stu' }, { student_id: 'stu' }] }],
       ['push_subscriptions?select=', {
         status: 200,
         body: [
@@ -147,6 +148,7 @@ describe('/api/notify 流程', () => {
     expect(mockSetVapid).toHaveBeenCalledWith('mailto:test@example.com', 'pub-test', 'priv-test');
     const payload = JSON.parse(mockSend.mock.calls[0][1]);
     expect(payload.body).toContain('王老师');
+    expect(payload.badge).toBe(2);   // 每条推送都带待补填数量
     const del = calls.find((c) => c.method === 'DELETE' && c.url.includes('push_subscriptions'));
     expect(del.url).toContain(encodeURIComponent('https://push.example/dead'));
     // service role 密钥只出现在服务端到 Supabase 的请求里
@@ -179,6 +181,48 @@ describe('/api/notify 流程', () => {
     jest.useRealTimers();
     expect(res.code).toBe(200);
     expect(res.body).toMatchObject({ ok: true, sent: 0 });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/notify tick 端到端（mock Supabase）', () => {
+  // 上海 2026-10-21 19:00（周三）
+  const NOW = new Date('2026-10-21T11:00:00Z');
+  const sessionsFor = (lastDate) => [lastDate, '2026-10-01', '2026-10-02'].map((d) => ({
+    student_id: 'stu', session_date: d, start_time: '19:00:00', course_id: 'c1', category: 3, form: '自主练习', duration_minutes: 45,
+  }));
+  const routes = (extra = []) => [
+    ['push_subscriptions?select=', { status: 200, body: [{ user_id: 'stu', endpoint: 'https://push.example/1', p256dh: 'p', auth: 'a' }] }],
+    ['profiles?select=id,notification_prefs,created_at', { status: 200, body: [{ id: 'stu', notification_prefs: {}, created_at: '2025-01-01T00:00:00Z' }] }],
+    ['courses?select=id,name', { status: 200, body: [{ id: 'c1', name: 'AP 微积分 BC' }] }],
+    ['learning_sessions?select=student_id&category=eq.3', { status: 200, body: [{ student_id: 'stu' }] }],
+    ...extra,
+  ];
+
+  async function tick(extra) {
+    const calls = mockSupabase(routes(extra));
+    mockSend.mockResolvedValue({ statusCode: 201 });
+    jest.useFakeTimers().setSystemTime(NOW);
+    const res = makeRes();
+    await handler(post({ type: 'tick' }), res);
+    jest.useRealTimers();
+    return { res, calls };
+  }
+
+  test('最后记录在 3 天前：推一条带预填链接与 badge 的提醒，并占位', async () => {
+    const { res, calls } = await tick([['learning_sessions?select=student_id,session_date', { status: 200, body: sessionsFor('2026-10-18') }]]);
+    expect(res.body).toMatchObject({ ok: true, due: 1, sent: 1 });
+    const payload = JSON.parse(mockSend.mock.calls[0][1]);
+    expect(payload).toMatchObject({ tag: 'yb-inactive', badge: 1 });
+    expect(payload.body).toBe('三天没记录了。上次是 AP 微积分 BC · 练习，点一下就能补上。');
+    expect(payload.url).toContain('/records?log=1&course=c1&category=3');
+    const claim = calls.find((c) => c.method === 'POST' && c.url.includes('push_deliveries'));
+    expect(JSON.parse(claim.body)).toEqual({ user_id: 'stu', sent_date: '2026-10-21', kind: 'inactive' });
+  });
+
+  test('最后记录在 5 天前：不推送', async () => {
+    const { res } = await tick([['learning_sessions?select=student_id,session_date', { status: 200, body: sessionsFor('2026-10-16') }]]);
+    expect(res.body).toMatchObject({ ok: true, due: 0, sent: 0 });
     expect(mockSend).not.toHaveBeenCalled();
   });
 });

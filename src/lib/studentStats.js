@@ -123,16 +123,13 @@ export function weekOverWeek(sessions, today = new Date()) {
 
 // ── computeStreak ──
 /**
- * 连续学习天数。规则：
- *  - 有记录的日子计 1 天；
- *  - 每个周一至周日的自然周内，最多 2 天无记录的「休息日」不会断开连续，也不计入天数；
- *  - 今天还没有记录不算断，也不消耗休息日（今天结束前还可以补记）；
- *  - 连续段之前（最早记录之前）的空白、以及连续段末端被断开处之前的休息日都不计。
- * 返回 { current, restDaysUsedThisWeek, restDaysLeftThisWeek, restDates, todayDone, atRisk }：
- *  restDates 是被用掉的休息日（升序）；todayDone 今天是否已有记录；
- *  atRisk = 今天还没记录、有连续在身，且本周休息日已用完（今天再空过就会断）。
+ * 连续学习天数：从今天起（今天还没有记录则从昨天起）往前，每天至少有一条未删除记录；
+ * 任何更早的空白日都会断开。没有休息日额度。
+ * 返回 { current, restDates, todayDone }：
+ *  restDates 是最早记录之后、今天之前所有没有记录的日子（升序），只是个中性标签，用于日历/热力图标成「休息」；
+ *  todayDone 今天是否已有记录。
  */
-export function computeStreak(allSessions, today = new Date(), { restDaysPerWeek = 2 } = {}) {
+export function computeStreak(allSessions, today = new Date()) {
   const t = toDateStr(today);
   const days = new Set();
   for (const s of live(allSessions)) {
@@ -140,45 +137,17 @@ export function computeStreak(allSessions, today = new Date(), { restDaysPerWeek
     if (d <= t) days.add(d);
   }
   const todayDone = days.has(t);
-  const empty = {
-    current: 0, restDaysUsedThisWeek: 0, restDaysLeftThisWeek: restDaysPerWeek,
-    restDates: [], todayDone, atRisk: false,
-  };
-  if (days.size === 0) return empty;
+  if (days.size === 0) return { current: 0, restDates: [], todayDone };
 
   const earliest = [...days].sort()[0];
   let current = 0;
+  for (let d = todayDone ? t : addDays(t, -1); days.has(d); d = addDays(d, -1)) current += 1;
+
   const restDates = [];
-  let pending = [];            // 尚未被更早的记录「接住」的休息日
-  const usedByWeek = {};       // 周一日期 → 已占用的休息日数（含 pending）
-
-  for (let d = t; d >= earliest; d = addDays(d, -1)) {
-    if (days.has(d)) {
-      current += 1;
-      restDates.push(...pending);
-      pending = [];
-    } else if (d === t) {
-      continue;                // 今天空着：不断也不耗休息日
-    } else {
-      const wk = weekRange(d).start;
-      if ((usedByWeek[wk] || 0) >= restDaysPerWeek) break;
-      usedByWeek[wk] = (usedByWeek[wk] || 0) + 1;
-      pending.push(d);
-    }
+  for (let d = earliest; d < t; d = addDays(d, 1)) {
+    if (!days.has(d)) restDates.push(d);
   }
-
-  restDates.sort();
-  const thisWeekStart = weekRange(t).start;
-  const used = restDates.filter((d) => d >= thisWeekStart).length;
-  const left = current > 0 ? Math.max(0, restDaysPerWeek - used) : restDaysPerWeek;
-  return {
-    current,
-    restDaysUsedThisWeek: used,
-    restDaysLeftThisWeek: left,
-    restDates,
-    todayDone,
-    atRisk: !todayDone && current > 0 && left === 0,
-  };
+  return { current, restDates, todayDone };
 }
 
 // ── pendingObjective ──
@@ -283,10 +252,9 @@ function fmtMins(m) {
 
 /**
  * 首页一句话洞察 { title, detail, action }，按优先级取第一条命中的简单规则（无任何目标类规则）：
- *  1. 连续记录有断档风险（连续 ≥ 3 天、今天还没记、本周休息日已用完）
- *  2. 本周复习占比远低于前 4 周平均（低于一半且差 ≥ 10 个百分点）
- *  3. 前 4 周学过、本周（周三起）一条记录都没有的课程
- *  4. 兜底：本周时长与上周同期对比 / 还没有记录
+ *  1. 本周复习占比远低于前 4 周平均（低于一半且差 ≥ 10 个百分点）
+ *  2. 前 4 周学过、本周（周三起）一条记录都没有的课程
+ *  3. 兜底：本周时长与上周同期对比 / 还没有记录
  * action 为 { label, log } 或 null；log 与 `yb:open-log` 事件的 detail 同形（courseId?、category?）。
  */
 export function headlineInsight(sessions, today = new Date()) {
@@ -294,15 +262,6 @@ export function headlineInsight(sessions, today = new Date()) {
   const rows = live(sessions);
   if (rows.length === 0) {
     return { title: '还没有学习记录', detail: '记下第一次学习，这里就会出现你的节奏。', action: { label: '记一次', log: {} } };
-  }
-
-  const streak = computeStreak(rows, t);
-  if (streak.current >= 3 && streak.atRisk) {
-    return {
-      title: `连续 ${streak.current} 天，今天还没有记录`,
-      detail: '本周的休息日已经用完，今天记一条就能接上。',
-      action: { label: '记一次', log: {} },
-    };
   }
 
   const cur = weekRange(t);

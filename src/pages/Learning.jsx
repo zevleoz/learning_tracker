@@ -6,6 +6,7 @@ import { SUBJECTIVE_STEPS } from '../lib/rating.js';
 import { useAuth } from '../lib/useAuth.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import { setAppBadge } from '../lib/push.js';
 import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
 import LogSheet, { Sheet } from '../components/student/LogSheet.jsx';
@@ -185,6 +186,7 @@ export default function LearningPage() {
         .limit(50);
       if (error) { logger.error('加载待补填列表失败:', error); return; }
       setPending(data || []);
+      setAppBadge((data || []).length); // 图标角标 = 待补填数量（不支持的浏览器静默忽略）
     } finally {
       setLoadingPending(false);
     }
@@ -399,9 +401,16 @@ export default function LearningPage() {
 
   useEffect(() => {
     if (searchParams.get('log') !== '1') return;
-    openNew(null);
+    // 提醒推送点开的链接：?log=1&course=<id>&category=<1|2|3>&form=<形式>&minutes=<分钟>，与 yb:open-log 的 detail 同义
+    const category = Number(searchParams.get('category'));
+    openNew({
+      courseId: searchParams.get('course') || '',
+      category: [1, 2, 3].includes(category) ? category : undefined,
+      form: searchParams.get('form') || '',
+      durationMinutes: Number(searchParams.get('minutes')) || 0,
+    });
     const next = new URLSearchParams(searchParams);
-    next.delete('log');
+    ['log', 'course', 'category', 'form', 'minutes'].forEach((k) => next.delete(k));
     setSearchParams(next, { replace: true });
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 

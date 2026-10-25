@@ -5,6 +5,17 @@ import { useStudentData, openLogSheet } from '../src/lib/useStudentData.js';
 import { supabase } from '../src/__mocks__/supabase';
 import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 
+jest.mock('../src/lib/push.js', () => ({
+  __esModule: true,
+  getPermission: jest.fn(() => 'unsupported'),
+  isIOSNeedsInstall: jest.fn(() => false),
+  isPushSupported: jest.fn(() => false),
+  subscribe: jest.fn(async () => ({ ok: true })),
+  unsubscribe: jest.fn(async () => ({ ok: true })),
+  setAppBadge: jest.fn(async () => {}),
+}));
+const push = require('../src/lib/push.js');
+
 // 2026-10-24 周六 15:00（本周 10/19–10/25）
 const TODAY = new Date(2026, 9, 24, 15, 0);
 const PHYS = { id: 'c-phys', name: 'AP 物理 C', course_type: 2 };
@@ -61,7 +72,15 @@ function renderToday(path = '/today') {
   );
 }
 
-beforeEach(seed);
+beforeEach(() => {
+  seed();
+  jest.clearAllMocks();
+  window.localStorage.clear();
+  push.getPermission.mockReturnValue('unsupported');
+  push.isPushSupported.mockReturnValue(false);
+  push.isIOSNeedsInstall.mockReturnValue(false);
+  push.subscribe.mockResolvedValue({ ok: true });
+});
 
 describe('useStudentData', () => {
   it('取回近 2 年未删除记录（倒序）、邀请数、校内课程', async () => {
@@ -140,8 +159,8 @@ describe('今天', () => {
     for (const t of ['2:00', '0:40', '0:45']) expect(screen.getByText(t)).toBeInTheDocument();
     // 上周同期（至 10/17）= 50 分
     expect(screen.getByText('比上周同期多 155 分')).toBeInTheDocument();
-    expect(screen.queryByText(/还可休息/)).toBeNull();   // 不提示剩余休息天数，避免打扰
-    expect(screen.getByText('6')).toBeInTheDocument();
+    expect(screen.queryByText(/还可休息/)).toBeNull();   // 不再有休息日额度文案
+    expect(screen.getByText('5')).toBeInTheDocument();   // 20–24 日；19 日没有记录
     // 没有任何目标 / 还差
     expect(screen.queryByText(/目标|还差/)).toBeNull();
   });
@@ -190,6 +209,107 @@ describe('今天', () => {
     expect(screen.getByText(/没有待办/)).toBeInTheDocument();
     expect(screen.getByText(/今天记一次，开始计连续天数/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '本周共 0:00' })).toBeInTheDocument();
+  });
+
+  it('加载后把待补填数量设为图标角标', async () => {
+    renderToday();
+    await screen.findByText('下午好，一舟');
+    expect(push.setAppBadge).toHaveBeenCalledWith(1);
+  });
+
+  describe('开启提醒小卡片', () => {
+    const CARD_TEXT = '需要时提醒你？只在三天没记录时提醒一次。';
+    const supported = () => {
+      push.getPermission.mockReturnValue('default');
+      push.isPushSupported.mockReturnValue(true);
+    };
+    const profilesRow = (prefs) => supabase.__setTableData('profiles', [{ id: 'u1', notification_prefs: prefs }]);
+    const updates = () => supabase.__getCallHistory().filter((c) => c.method === 'update' && c.table === 'profiles');
+
+    it('第 3 条记录之后、权限为 default 时出现；点「开启」才请求授权，授权后收起', async () => {
+      supported();
+      profilesRow({});
+      renderToday();
+      expect(await screen.findByText(CARD_TEXT)).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: '开启提醒' })).toBeInTheDocument();
+      expect(push.subscribe).not.toHaveBeenCalled();
+      push.subscribe.mockImplementation(async () => { push.getPermission.mockReturnValue('granted'); return { ok: true }; });
+      fireEvent.click(screen.getByRole('button', { name: '开启' }));
+      await waitFor(() => expect(push.subscribe).toHaveBeenCalledWith('u1'));
+      await waitFor(() => expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument());
+    });
+
+    it('记录不足 3 条不出现', async () => {
+      supported();
+      supabase.__setTableData('learning_sessions', [row({}), row({ session_date: '2026-10-23' })]);
+      renderToday();
+      await screen.findByText('下午好，一舟');
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+    });
+
+    it.each(['granted', 'denied'])('权限已是 %s 时不出现', async (perm) => {
+      supported();
+      push.getPermission.mockReturnValue(perm);
+      renderToday();
+      await screen.findByText('下午好，一舟');
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+    });
+
+    it('浏览器不支持推送时不出现', async () => {
+      renderToday();
+      await screen.findByText('下午好，一舟');
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+    });
+
+    it('点「不用」：立刻收起，写入 notification_prefs，并且不会请求授权；之后不再出现', async () => {
+      supported();
+      profilesRow({ inactive_reminder: true });
+      const { unmount } = renderToday();
+      fireEvent.click(await screen.findByRole('button', { name: '不用' }));
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+      await waitFor(() => expect(updates()).toHaveLength(1));
+      expect(updates()[0].args.notification_prefs).toMatchObject({ push_card_dismissed: true, inactive_reminder: true });
+      expect(push.subscribe).not.toHaveBeenCalled();
+      unmount();
+      profilesRow({ push_card_dismissed: true });
+      renderToday();
+      await screen.findByText('下午好，一舟');
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+    });
+
+    it('notification_prefs 列不存在时，「不用」退到 localStorage', async () => {
+      supported();
+      const real = supabase.from.bind(supabase);
+      const spy = jest.spyOn(supabase, 'from').mockImplementation((t) => {
+        if (t !== 'profiles') return real(t);
+        const b = {
+          select: () => b,
+          eq: () => b,
+          update: () => b,
+          maybeSingle: async () => ({ data: { notification_prefs: {} }, error: null }),
+          then: (resolve) => resolve({ data: null, error: { code: '42703', message: 'column profiles.notification_prefs does not exist' } }),
+        };
+        return b;
+      });
+      const { unmount } = renderToday();
+      fireEvent.click(await screen.findByRole('button', { name: '不用' }));
+      await waitFor(() => expect(window.localStorage.getItem('yb:push-card-dismissed')).toBe('1'));
+      unmount();
+      renderToday();
+      await screen.findByText('下午好，一舟');
+      expect(screen.queryByText(CARD_TEXT)).not.toBeInTheDocument();
+      spy.mockRestore();
+    });
+
+    it('iOS 没添加到主屏幕：不弹授权，卡片改为链接到 我的 › 提醒 看添加步骤', async () => {
+      push.isIOSNeedsInstall.mockReturnValue(true);
+      renderToday();
+      const link = await screen.findByRole('link', { name: '查看步骤' });
+      expect(link).toHaveAttribute('href', '/me/reminders');
+      expect(screen.queryByRole('button', { name: '开启' })).not.toBeInTheDocument();
+      expect(push.subscribe).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: '不用' })).toBeInTheDocument();
+    });
   });
 
   it('加载失败：显示错误并可重试', async () => {

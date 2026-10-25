@@ -105,7 +105,7 @@ describe('洞察', () => {
     // 本周 40+45+10+60+20+30 = 205 分 → 3:25；周六是第 6 天 → 日均 34′
     expect(stats).toHaveTextContent('3:25');
     expect(stats).toHaveTextContent('34′');
-    expect(stats).toHaveTextContent('6 天');            // 20–24 日 + 18 日（19 日为休息日）
+    expect(stats).toHaveTextContent('5 天');            // 20–24 日；19 日没有记录，连续到此为止
     expect(within(stats).getByRole('link', { name: '1' })).toHaveAttribute('href', '/records?tab=pending');
     expect(stats.querySelectorAll('.sh-stat')).toHaveLength(4);
   });
@@ -118,8 +118,9 @@ describe('洞察', () => {
     expect(cells).toHaveLength(3 * 7);                                   // 10/5 那周 → 本周
     expect(document.querySelectorAll('.sh-cal i.before')).toHaveLength(5); // 10/5–10/9 早于第一条记录
     const rest = document.querySelectorAll('.sh-cal i.rest');
-    expect(rest).toHaveLength(1);
-    expect(rest[0].getAttribute('title')).toBe('10月19日 休息');
+    // 第一条记录（10/10）之后、今天之前每个没有记录的日子都标为休息：10/13–10/17 与 10/19
+    expect(rest).toHaveLength(6);
+    expect(rest[5].getAttribute('title')).toBe('10月19日 休息');
     expect(document.querySelector('.sh-cal i.today')).toHaveTextContent('24');
     expect(document.querySelectorAll('.sh-cal i.future')).toHaveLength(1);  // 只有周日 10/25
   });

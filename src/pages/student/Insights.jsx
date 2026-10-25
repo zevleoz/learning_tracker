@@ -9,7 +9,8 @@ import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
 import { useStudentData, openLogSheet, fmtHM, fmtDuration } from '../../lib/useStudentData.js';
 import '../../styles/student-home.css';
 
-const HEAT_WEEKS = 26;
+const HEAT_WEEKS_MAX = 26;   // 热力图最长 26 周（约一个学期）
+const CALENDAR_WEEKS = 6;    // 记录不满 6 周时用日历，避免一大片空格子
 const VERDICT_CLASS = { 一致: 'ok', 偏乐观: 'warn', 偏保守: 'flat' };
 
 function addDays(str, n) {
@@ -28,20 +29,64 @@ function dayLabel(str) {
   return `${m}月${d}日`;
 }
 
-/** 26 周 × 7 天，列 = 周（周一在上）。level 0–4 按区间内最大值分档；休息日单独标出。 */
-function buildHeat(sessions, todayStr, restDates) {
-  const start = addDays(weekRange(todayStr).start, -(HEAT_WEEKS - 1) * 7);
-  const end = weekRange(todayStr).end;
-  const days = dailyMinutes(sessions, start, end);
+function weeksBetween(mondayA, mondayB) {
+  const [y1, m1, d1] = mondayA.split('-').map(Number);
+  const [y2, m2, d2] = mondayB.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / (7 * 86400000));
+}
+
+/**
+ * 学习日历 / 热力图，随学生的记录时长「长大」：
+ *   - 没有记录：mode 'empty'
+ *   - 第一条记录所在周到本周不满 CALENDAR_WEEKS 周：mode 'calendar'（按周成行、带日期）
+ *   - 否则：mode 'heat'，从第一条记录所在周开始，最长 HEAT_WEEKS_MAX 周
+ * 第一条记录之前的日子标为 before（不着色、不算空白），未来的日子标为 future。
+ * level 0–4 按区间内最大值分档；休息日单独标出。
+ */
+function buildActivity(sessions, todayStr, restDates) {
+  const dates = sessions
+    .filter((s) => !s.deleted_at)
+    .map((s) => s.session_date || s.date)
+    .filter(Boolean)
+    .sort();
+  if (!dates.length) return { mode: 'empty', weeks: 0, days: [] };
+  const first = dates[0];
+  const thisWeek = weekRange(todayStr);
+  const totalWeeks = Math.max(1, weeksBetween(weekRange(first).start, thisWeek.start) + 1);
+  const mode = totalWeeks <= CALENDAR_WEEKS ? 'calendar' : 'heat';
+  const weeks = Math.min(totalWeeks, HEAT_WEEKS_MAX);
+  const start = addDays(thisWeek.start, -(weeks - 1) * 7);
+  const days = dailyMinutes(sessions, start, thisWeek.end);
   const max = Math.max(0, ...days.map((d) => d.minutes));
   const rest = new Set(restDates);
-  return days.map((d) => {
-    let level = 0;
-    if (d.minutes > 0 && max > 0) level = Math.min(4, Math.max(1, Math.ceil((d.minutes / max) * 4)));
-    return {
-      ...d, level, future: d.date > todayStr, rest: d.minutes === 0 && rest.has(d.date),
-    };
-  });
+  return {
+    mode,
+    weeks,
+    days: days.map((d) => {
+      let level = 0;
+      if (d.minutes > 0 && max > 0) level = Math.min(4, Math.max(1, Math.ceil((d.minutes / max) * 4)));
+      return {
+        ...d,
+        level,
+        before: d.date < first,
+        future: d.date > todayStr,
+        today: d.date === todayStr,
+        rest: d.minutes === 0 && rest.has(d.date),
+      };
+    }),
+  };
+}
+
+function cellClass(d) {
+  return [
+    d.before ? 'before' : '',
+    d.future ? 'future' : '',
+    d.today ? 'today' : '',
+    d.rest ? 'rest' : d.level ? `l${d.level}` : '',
+  ].filter(Boolean).join(' ');
+}
+function cellTitle(d) {
+  return `${dayLabel(d.date)} ${d.rest ? '休息' : d.minutes > 0 ? `${d.minutes} 分钟` : '无记录'}`;
 }
 
 function Sparkline({ points }) {
@@ -107,7 +152,7 @@ export default function Insights({ today: todayProp } = {}) {
       avg: Math.round(cat.total / daysIn),
       pending: pendingObjective(sessions).length,
       headline: headlineInsight(sessions, todayStr),
-      heat: buildHeat(sessions, todayStr, streak.restDates),
+      activity: buildActivity(sessions, todayStr, streak.restDates),
       subjects: subjectBreakdown(sessions, week),
       calib: calibration(sessions, { weeks: 4, today: todayStr }),
       courseExams,
@@ -117,9 +162,8 @@ export default function Insights({ today: todayProp } = {}) {
 
   if (loading || error) return <PageState loading={loading} error={error} onRetry={reload} />;
 
-  const { cat, streak, daysIn, avg, pending, headline, heat, subjects, calib, courseExams } = view;
-  const heatDays = heat.filter((d) => !d.future);
-  const activeDays = heatDays.filter((d) => d.minutes > 0).length;
+  const { cat, streak, daysIn, avg, pending, headline, activity, subjects, calib, courseExams } = view;
+  const activeDays = activity.days.filter((d) => !d.future && d.minutes > 0).length;
   const maxSubject = Math.max(1, ...subjects.map((s) => s.total));
 
   return (
@@ -155,23 +199,40 @@ export default function Insights({ today: todayProp } = {}) {
         </section>
       </div>
 
-      <section className="sh-card" aria-label="26 周">
-        <h2 className="sh-h2">26 周 <small>每格一天，颜色越深记录越多</small></h2>
-        <div className="sh-heat-scroll">
-          <div className="sh-heat" role="img" aria-label={`近 26 周有 ${activeDays} 天记录`}>
-            {heat.map((d) => (
-              <i
-                key={d.date}
-                className={[d.future ? 'future' : '', d.rest ? 'rest' : d.level ? `l${d.level}` : ''].filter(Boolean).join(' ')}
-                title={`${dayLabel(d.date)} ${d.rest ? '休息' : d.minutes > 0 ? `${d.minutes} 分钟` : '无记录'}`}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="sh-heat-leg">
+      <section className="sh-card" aria-label="学习日历">
+        {activity.mode === 'empty' && (
+          <>
+            <h2 className="sh-h2">学习日历</h2>
+            <p className="sh-empty">记下第一条后，这里会出现你的学习日历。</p>
+          </>
+        )}
+        {activity.mode === 'calendar' && (
+          <>
+            <h2 className="sh-h2">学习日历 <small>从你的第一条记录开始，已记录 {activeDays} 天</small></h2>
+            <div className="sh-cal" role="img" aria-label={`从第一条记录起有 ${activeDays} 天记录`}>
+              {['一', '二', '三', '四', '五', '六', '日'].map((w) => <b key={w}>{w}</b>)}
+              {activity.days.map((d) => (
+                <i key={d.date} className={cellClass(d)} title={cellTitle(d)}>{Number(d.date.slice(8))}</i>
+              ))}
+            </div>
+          </>
+        )}
+        {activity.mode === 'heat' && (
+          <>
+            <h2 className="sh-h2">{activity.weeks} 周 <small>每格一天，颜色越深记录越多</small></h2>
+            <div className="sh-heat-scroll">
+              <div className="sh-heat" role="img" aria-label={`近 ${activity.weeks} 周有 ${activeDays} 天记录`}>
+                {activity.days.map((d) => (
+                  <i key={d.date} className={cellClass(d)} title={cellTitle(d)} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        {activity.mode !== 'empty' && <div className="sh-heat-leg">
           少<i /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" />多
           <i className="rest" />休息日
-        </div>
+        </div>}
       </section>
 
       <div className="sh-grid two">

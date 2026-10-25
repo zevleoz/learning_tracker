@@ -110,15 +110,44 @@ describe('洞察', () => {
     expect(stats.querySelectorAll('.sh-stat')).toHaveLength(4);
   });
 
-  it('26 周热力图：26×7 格、标出休息日、不画未来', async () => {
+  it('记录不满 6 周：显示从第一条记录开始的学习日历，而不是 26 周空格', async () => {
     renderInsights();
     await screen.findByRole('region', { name: '统计' });
-    const cells = document.querySelectorAll('.sh-heat i');
-    expect(cells).toHaveLength(26 * 7);
-    const rest = document.querySelectorAll('.sh-heat i.rest');
+    expect(document.querySelector('.sh-heat')).toBeNull();
+    const cells = document.querySelectorAll('.sh-cal i');
+    expect(cells).toHaveLength(3 * 7);                                   // 10/5 那周 → 本周
+    expect(document.querySelectorAll('.sh-cal i.before')).toHaveLength(5); // 10/5–10/9 早于第一条记录
+    const rest = document.querySelectorAll('.sh-cal i.rest');
     expect(rest).toHaveLength(1);
     expect(rest[0].getAttribute('title')).toBe('10月19日 休息');
-    expect(document.querySelectorAll('.sh-heat i.future')).toHaveLength(1);   // 只有周日 10/25
+    expect(document.querySelector('.sh-cal i.today')).toHaveTextContent('24');
+    expect(document.querySelectorAll('.sh-cal i.future')).toHaveLength(1);  // 只有周日 10/25
+  });
+
+  it('记录满 6 周：热力图从第一条记录所在周开始', async () => {
+    seed();
+    const rows = supabase.__getTableData ? supabase.__getTableData('learning_sessions') : null;
+    supabase.__setTableData('learning_sessions', [
+      ...(rows || []),
+      row({ session_date: '2026-08-10', duration_minutes: 50 }),        // 周一，距本周 10 周
+    ].filter(Boolean));
+    renderInsights();
+    await screen.findByRole('region', { name: '统计' });
+    expect(document.querySelector('.sh-cal')).toBeNull();
+    expect(document.querySelectorAll('.sh-heat i')).toHaveLength(11 * 7);
+    expect(screen.getByRole('heading', { name: /^11 周/ })).toBeInTheDocument();
+  });
+
+  it('记录很长：热力图最多 26 周', async () => {
+    seed();
+    const rows = supabase.__getTableData ? supabase.__getTableData('learning_sessions') : null;
+    supabase.__setTableData('learning_sessions', [
+      ...(rows || []),
+      row({ session_date: '2026-01-05', duration_minutes: 50 }),
+    ].filter(Boolean));
+    renderInsights();
+    await screen.findByRole('region', { name: '统计' });
+    expect(document.querySelectorAll('.sh-heat i')).toHaveLength(26 * 7);
     expect(document.querySelectorAll('.sh-heat i.l4').length).toBeGreaterThan(0);
   });
 
@@ -162,6 +191,7 @@ describe('洞察', () => {
     expect(screen.getByText(/补上练习的客观评价后/)).toBeInTheDocument();
     expect(screen.getByText(/还没有考试成绩/)).toBeInTheDocument();
     expect(document.querySelector('.sh-heat i.rest')).toBeNull();
+    expect(screen.getByText('记下第一条后，这里会出现你的学习日历。')).toBeInTheDocument();
   });
 
   it('加载失败：显示错误并可重试', async () => {

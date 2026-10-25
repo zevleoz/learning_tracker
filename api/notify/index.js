@@ -8,7 +8,9 @@
 //   3) 学生自己点「发送测试通知」：POST /api/notify  body {"type":"test"}，
 //      用登录学生的 Supabase access token（Authorization: Bearer <jwt>）鉴权，向 Supabase Auth 校验；
 //      只发给该用户自己的订阅，不占每日额度，每用户 60 秒一次。用户 JWT 永远无法触发 tick / invite。
-//   4) 邮件里的一键退订：GET /api/notify?type=unsubscribe&token=…（token 由 NOTIFY_SECRET 签名）
+//   4) 邮件退订（token 由 NOTIFY_SECRET 签名）：
+//      GET  /api/notify?type=unsubscribe&token=… 只展示确认页（不改数据，防止邮件安全扫描器预取误退订）
+//      POST /api/notify?type=unsubscribe&token=… 真正退订（确认页按钮，或邮箱客户端 RFC 8058 一键退订）
 //
 // 服务端密钥只来自环境变量：SUPABASE_SERVICE_ROLE_KEY / VAPID_PRIVATE_KEY / NOTIFY_SECRET，
 // 绝不进入前端 bundle。判定逻辑在 api-lib/notify.mjs（纯函数，已有单测）。
@@ -95,25 +97,28 @@ export async function verifyUserJwt(req, supabaseUrl) {
 async function handleUnsubscribe(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const send = (code, ok) => {
+  const token = req.query?.token;
+  const send = (code, state) => {
     res.status(code);
     res.setHeader?.('Content-Type', 'text/html; charset=utf-8');
-    res.send ? res.send(unsubscribePage(ok)) : res.json({ ok });
+    res.send ? res.send(unsubscribePage(state, { token })) : res.json({ ok: state === 'done' || state === 'confirm', state });
   };
-  const userId = verifyUnsubscribeToken(req.query?.token, process.env.NOTIFY_SECRET);
-  if (!userId) return send(400, false);
-  if (!supabaseUrl || !serviceKey) return send(503, false);
+  const userId = verifyUnsubscribeToken(token, process.env.NOTIFY_SECRET);
+  if (!userId) return send(400, 'invalid');
+  // GET 只展示确认页，不写库：邮件安全扫描器会预取链接，不能因此把学生退订
+  if (req.method === 'GET') return send(200, 'confirm');
+  if (!supabaseUrl || !serviceKey) return send(503, 'error');
   try {
     await unsubscribeEmail({ store: createSupabaseStore({ url: supabaseUrl, serviceKey }), userId });
-    return send(200, true);
+    return send(200, 'done');
   } catch (err) {
     console.error('[notify] 退订失败', err?.message);
-    return send(500, false);
+    return send(500, 'error');
   }
 }
 
 export default async function handler(req, res) {
-  if (req.method === 'GET' && String(req.query?.type || '').toLowerCase() === 'unsubscribe') {
+  if ((req.method === 'GET' || req.method === 'POST') && String(req.query?.type || '').toLowerCase() === 'unsubscribe') {
     await handleUnsubscribe(req, res);
     return;
   }

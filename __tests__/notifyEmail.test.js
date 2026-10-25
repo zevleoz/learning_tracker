@@ -83,6 +83,7 @@ describe('邮件内容', () => {
     const m = /<(https:\/\/app\.example\.com\/api\/notify\?type=unsubscribe&token=([^>]+))>/.exec(msg.headers['List-Unsubscribe']);
     expect(m).not.toBeNull();
     expect(verifyUnsubscribeToken(decodeURIComponent(m[2]), SECRET)).toBe('u1');
+    expect(msg.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
     expect(msg.text).toContain('https://app.example.com/records?log=1');
     expect(msg.html).toContain('<a ');
   });

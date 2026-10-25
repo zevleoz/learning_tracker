@@ -118,13 +118,30 @@ export function createMailer(env = process.env, { createTransport = nodemailer.c
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
-        headers: { 'List-Unsubscribe': `<${unsubUrl}>` },
+        // RFC 8058：邮箱客户端的「退订」按钮直接发 POST；链接本身只打开确认页，避免安全扫描器预取误退订
+        headers: { 'List-Unsubscribe': `<${unsubUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
       });
     },
   };
 }
 
-export function unsubscribePage(ok) {
-  const msg = ok ? '已退订：不会再用邮件提醒你了。' : '这个退订链接无效或已损坏。';
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>一表人才</title></head><body style="margin:0;padding:48px 20px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;text-align:center;color:#1d1f24;"><h1 style="font-size:18px;margin:0 0 10px;">一表人才</h1><p style="font-size:15px;margin:0;">${msg}</p></body></html>`;
+const UNSUB_MESSAGES = {
+  confirm: '确认后，三天没记录时不会再发邮件提醒你。随时可以在「我的 › 提醒」里重新打开。',
+  done: '已退订：不会再用邮件提醒你了。',
+  invalid: '这个退订链接无效或已损坏。',
+  error: '暂时没能退订，请稍后再试。',
+};
+
+/**
+ * 退订页面。state：confirm（GET 打开链接时，只展示确认按钮，不改数据）/ done / invalid / error。
+ * confirm 状态需要 token，用于表单 POST 回同一地址。
+ * 兼容旧调用：传布尔值 true/false 视为 done/invalid。
+ */
+export function unsubscribePage(state, { token } = {}) {
+  const key = state === true ? 'done' : state === false ? 'invalid' : state;
+  const msg = UNSUB_MESSAGES[key] || UNSUB_MESSAGES.invalid;
+  const form = key === 'confirm' && token
+    ? `<form method="post" action="/api/notify?type=unsubscribe&amp;token=${encodeURIComponent(token)}" style="margin:24px 0 0;"><button type="submit" style="font:inherit;font-size:15px;font-weight:600;padding:12px 28px;border:0;border-radius:999px;background:${CREST_RED};color:#fff;cursor:pointer;">确认退订</button></form>`
+    : '';
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>一表人才</title></head><body style="margin:0;padding:48px 20px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;text-align:center;color:#1d1f24;"><h1 style="font-size:18px;margin:0 0 10px;">一表人才</h1><p style="font-size:15px;margin:0 auto;max-width:28em;line-height:1.6;">${msg}</p>${form}</body></html>`;
 }

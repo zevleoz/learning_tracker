@@ -126,11 +126,23 @@ describe('POST type=test', () => {
   });
 });
 
-describe('GET 退订', () => {
-  test('合法 token → email_fallback=false，返回确认页', async () => {
+describe('退订', () => {
+  test('GET 合法 token → 只展示确认页，不碰数据库（防邮件扫描器预取）', async () => {
     const calls = mockFetch({ prefs: { daily_reminder: true } });
     const res = makeRes();
-    await handler({ method: 'GET', headers: {}, query: { type: 'unsubscribe', token: signUnsubscribeToken('u1', SECRET) } }, res);
+    const token = signUnsubscribeToken('u1', SECRET);
+    await handler({ method: 'GET', headers: {}, query: { type: 'unsubscribe', token } }, res);
+    expect(res.code).toBe(200);
+    expect(res.text).toContain('确认退订');
+    expect(res.text).toContain(`token=${encodeURIComponent(token)}`);
+    expect(res.text).not.toContain('已退订');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('POST 合法 token（确认按钮 / RFC 8058 一键退订）→ email_fallback=false', async () => {
+    const calls = mockFetch({ prefs: { daily_reminder: true } });
+    const res = makeRes();
+    await handler({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click', query: { type: 'unsubscribe', token: signUnsubscribeToken('u1', SECRET) } }, res);
     expect(res.code).toBe(200);
     expect(res.text).toContain('已退订');
     const patch = calls.find((c) => c.method === 'PATCH');
@@ -139,11 +151,13 @@ describe('GET 退订', () => {
 
   test('无效 / 篡改 token → 400，不碰数据库', async () => {
     const calls = mockFetch();
-    for (const token of [undefined, 'junk', `${signUnsubscribeToken('u1', SECRET)}x`, signUnsubscribeToken('u1', 'other')]) {
-      const res = makeRes();
-      await handler({ method: 'GET', headers: {}, query: { type: 'unsubscribe', token } }, res);
-      expect(res.code).toBe(400);
-      expect(res.text).toContain('无效');
+    for (const method of ['GET', 'POST']) {
+      for (const token of [undefined, 'junk', `${signUnsubscribeToken('u1', SECRET)}x`, signUnsubscribeToken('u1', 'other')]) {
+        const res = makeRes();
+        await handler({ method, headers: {}, query: { type: 'unsubscribe', token } }, res);
+        expect(res.code).toBe(400);
+        expect(res.text).toContain('无效');
+      }
     }
     expect(calls).toHaveLength(0);
   });

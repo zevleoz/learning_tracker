@@ -6,11 +6,8 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import E4Layout from './components/E4Layout.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
-import Syllabus from './pages/Syllabus.jsx';
-import Learning from './pages/Learning.jsx';
-import Review from './pages/Review.jsx';
+import { renderStudentRoutes } from './pages/student/routes.jsx';
 import Mentor from './pages/Mentor.jsx';
-import Notifications from './pages/Notifications.jsx';
 import { useAuth } from './lib/useAuth.js';
 import E4StudentListPage from './pages/e4/E4StudentListPage.jsx';
 import E4TodosPage from './pages/e4/E4TodosPage.jsx';
@@ -60,10 +57,8 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/" element={<RootRedirect />} />
-            <Route path="/syllabus" element={<Syllabus />} />
-            <Route path="/learning" element={<Learning />} />
-            <Route path="/review" element={<Review />} />
-            <Route path="/notifications" element={<Notifications />} />
+            {/* 学生端路由见 src/pages/student/routes.jsx（WS6 的 /today、/insights 也在那里接入，见该文件的 TODO(WS6)） */}
+            {renderStudentRoutes()}
             {import.meta.env.DEV && DebugTools && (
               <Route
                 path="/debug-tools"

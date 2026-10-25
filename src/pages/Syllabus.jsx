@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import '../styles/student-me.css';
 
 // 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
 function friendlyError(err, fallback = '操作失败，请稍后再试') {
@@ -18,7 +19,40 @@ function friendlyError(err, fallback = '操作失败，请稍后再试') {
   return fallback;
 }
 
-export default function Syllabus() {
+/** 分钟 → H:MM（无记录显示 —） */
+export function formatHM(minutes) {
+  const m = Math.round(Number(minutes) || 0);
+  if (m <= 0) return '—';
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 按单元汇总记录：{ byUnit: { [unitId]: { minutes, count } }, byCourse: { [courseId]: minutes } }
+ * 单元「有记录」只看有没有记录，不设时长门槛（不引入任何目标线）。
+ */
+export function summarizeUsage(rows) {
+  const byUnit = {};
+  const byCourse = {};
+  for (const r of rows || []) {
+    const mins = Number(r.duration_minutes) || 0;
+    if (r.course_id) byCourse[r.course_id] = (byCourse[r.course_id] || 0) + mins;
+    if (r.unit_id) {
+      const u = byUnit[r.unit_id] || { minutes: 0, count: 0 };
+      u.minutes += mins;
+      u.count += 1;
+      byUnit[r.unit_id] = u;
+    }
+  }
+  return { byUnit, byCourse };
+}
+
+/**
+ * defaultEditing：true（默认，保持原有行为：编辑控件始终可见）；
+ * /me/courses 传 false：先读后改，点「编辑」才出现增删改。
+ */
+export default function Syllabus({ defaultEditing = true }) {
+  const [editing, setEditing] = useState(defaultEditing);
+  const [usage, setUsage] = useState({ byUnit: {}, byCourse: {} });
   const [courses, setCourses] = useState([]);
   const [schoolName, setSchoolName] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -80,6 +114,18 @@ export default function Syllabus() {
         if (!cancelled) {
           setCourses(sorted);
           setLoadError(null);
+        }
+
+        // 覆盖度所需的记录汇总；失败不影响课程树本身
+        try {
+          const { data: rows, error: usageErr } = await supabase
+            .from('learning_sessions')
+            .select('course_id, unit_id, duration_minutes')
+            .eq('student_id', user.id)
+            .is('deleted_at', null);
+          if (!usageErr && !cancelled) setUsage(summarizeUsage(rows));
+        } catch (usageEx) {
+          logger.warn('Syllabus usage load failed:', usageEx);
         }
       } catch (err) {
         logger.error('Syllabus load failed:', err);
@@ -324,9 +370,48 @@ export default function Syllabus() {
   const myCourses = courses.filter((c) => c._isOwn);
   const sharedCourses = courses.filter((c) => !c._isOwn);
 
+  const header = (
+    <header className="mec-head">
+      <div>
+        <div className="mec-eyebrow">我的</div>
+        <h1>我的课程</h1>
+        <p>
+          {schoolName ? `${schoolName} · 与同学共享课程` : '课程 → 章节 → 单元，看看哪些单元已经有记录'}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="mec-edit"
+        aria-pressed={editing}
+        onClick={() => setEditing((v) => !v)}
+      >{editing ? '完成' : '编辑'}</button>
+    </header>
+  );
+
+  // 阅读态：覆盖度视图（不含任何增删改控件）
+  if (!editing) {
+    return (
+      <div className="mec-page animate-fade-in">
+        {header}
+        {loading ? (
+          <p className="mec-note" role="status">加载中…</p>
+        ) : loadError ? (
+          <div className="mec-empty">
+            <b>加载失败</b>
+            <p>{loadError}</p>
+            <button type="button" className="mec-edit" onClick={() => window.location.reload()}>刷新重试</button>
+          </div>
+        ) : (
+          <CoverageView courses={[...myCourses, ...sharedCourses]} usage={usage} onEdit={() => setEditing(true)} />
+        )}
+      </div>
+    );
+  }
+
   if (isDesktop) {
     return (
       <>
+        <div className="mec-page mec-page-edit">{header}</div>
         <DesktopTree
           myCourses={myCourses}
           sharedCourses={sharedCourses}
@@ -356,26 +441,17 @@ export default function Syllabus() {
   }
 
   return (
-    <div className="animate-fade-in">
-      <div className="page-title">
-        <h1>课程大纲</h1>
-        <p>
-          {schoolName
-            ? <>所在学校：<strong style={{ color: 'var(--brand)' }}>{schoolName}</strong> · 与同学共享课程</>
-            : '在这里管理你的课程 → 章节 → 单元'}
-        </p>
-      </div>
+    <div className="animate-fade-in mec-page-edit">
+      {header}
 
       <AddCourseCard onSubmit={createCourse} />
 
       {loading ? (
         <div className="empty-state">
-          <div className="empty-state-icon">⏳</div>
           <h3>加载中…</h3>
         </div>
       ) : loadError ? (
         <div className="empty-state">
-          <div className="empty-state-icon">⚠</div>
           <h3>加载失败</h3>
           <p>{loadError}</p>
           <button
@@ -424,7 +500,6 @@ export default function Syllabus() {
 
           {courses.length === 0 && (
             <div className="empty-state">
-              <div className="empty-state-icon"></div>
               <h3>还没有任何课程</h3>
               <p>点击上方 "添加新课程" 创建第一个课程吧！</p>
             </div>
@@ -440,6 +515,82 @@ export default function Syllabus() {
         onConfirm={confirmState.onConfirm}
         onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
       />
+    </div>
+  );
+}
+
+/* ============ 覆盖度视图（阅读态） ============ */
+function CoverageView({ courses, usage, onEdit }) {
+  if (courses.length === 0) {
+    return (
+      <div className="mec-empty">
+        <b>还没有课程</b>
+        <p>先添加一门你正在学的课程，记录时就能选到它。</p>
+        <button type="button" className="mec-edit" onClick={onEdit}>添加课程</button>
+      </div>
+    );
+  }
+  return (
+    <div className="mec-list">
+      {courses.map((c, i) => {
+        const chapters = c.chapters || [];
+        const units = chapters.flatMap((ch) => ch.units || []);
+        const covered = units.filter((u) => usage.byUnit[u.id]).length;
+        const pct = units.length ? Math.round((covered / units.length) * 100) : 0;
+        const total = usage.byCourse[c.id] || 0;
+        return (
+          <details key={c.id} className="mec-course" open={i === 0}>
+            <summary>
+              <span className="mec-course-t">
+                <b>{c.name}</b>
+                <span className="mec-meta">
+                  {c.course_type === 2 ? '校外' : '校内'}{!c._isOwn ? ' · 同校共享' : ''} · {chapters.length} 个章节 · {units.length} 个单元
+                </span>
+              </span>
+              <span className="mec-cov num">
+                {units.length > 0 ? `${covered}/${units.length}` : '—'}
+              </span>
+            </summary>
+            <div className="mec-body">
+              {units.length > 0 && (
+                <>
+                  <div className="mec-sum">
+                    <span><b className="num">{covered}</b> / {units.length} 个单元有记录</span>
+                    <span className="num">累计 {formatHM(total)}</span>
+                  </div>
+                  <div className="mec-bar" role="img" aria-label={`${covered} / ${units.length} 个单元有记录`}>
+                    <i style={{ width: `${pct}%` }} />
+                  </div>
+                </>
+              )}
+              {chapters.length === 0 && <p className="mec-note">还没有章节。点右上角「编辑」添加。</p>}
+              {chapters.map((ch) => {
+                const cu = ch.units || [];
+                const done = cu.filter((u) => usage.byUnit[u.id]).length;
+                return (
+                  <div key={ch.id} className="mec-ch">
+                    <div className="mec-ch-h">
+                      <span>{ch.name}</span>
+                      {cu.length > 0 && <span className="num">{done}/{cu.length}</span>}
+                    </div>
+                    {cu.map((u) => {
+                      const used = usage.byUnit[u.id];
+                      return (
+                        <div key={u.id} className="mec-un">
+                          <i className={used ? 'mec-dot on' : 'mec-dot'} aria-hidden="true" />
+                          <span className="mec-un-n">{u.name}</span>
+                          <span className="mec-un-s">{used ? '有记录' : '无记录'}</span>
+                          <span className="num mec-un-t">{used ? formatHM(used.minutes) : '—'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
     </div>
   );
 }
@@ -1050,14 +1201,6 @@ function DesktopTree({
   return (
     <div className="desktop-course-page">
       <div className="animate-fade-in">
-        <div className="page-title">
-          <h1>课程大纲</h1>
-          <p>
-            {schoolName
-              ? <>所在学校：<strong style={{ color: 'var(--brand)' }}>{schoolName}</strong> · 与同学共享课程</>
-              : '在这里管理你的课程 → 章节 → 单元'}
-          </p>
-        </div>
 
         <div className="syll-layout">
           {/* 左栏：搜索 / 新增 / 课程列表 */}
@@ -1186,12 +1329,10 @@ function DesktopTree({
           <div className="syll-detail">
             {loading ? (
               <div className="empty-state">
-                <div className="empty-state-icon">⏳</div>
                 <h3>加载中…</h3>
               </div>
             ) : allCourses.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-state-icon"></div>
                 <h3>还没有任何课程</h3>
                 <p>点击左侧 "添加新课程" 创建第一个课程吧！</p>
               </div>
@@ -1212,7 +1353,6 @@ function DesktopTree({
               />
             ) : (
               <div className="empty-state">
-                <div className="empty-state-icon">☰</div>
                 <h3>请选择左侧课程</h3>
               </div>
             )}
@@ -1318,7 +1458,7 @@ function DesktopCourseCard({
             {canEdit && (
               <span style={{
                 fontSize: '12px',
-                color: '#94a3b8',
+                color: 'var(--yb-ink-3, #5F6570)',
                 opacity: hovered ? 1 : 0.5,
                 transition: 'opacity 150ms ease',
               }}>点击编辑</span>
@@ -1594,7 +1734,7 @@ function DesktopChapterBlock({
                 padding: '6px',
                 borderRadius: '8px',
                 fontSize: '12px',
-                color: '#94a3b8',
+                color: 'var(--yb-ink-3, #5F6570)',
                 transition: 'all 150ms ease',
               }}
               onMouseEnter={(e) => {
@@ -1603,7 +1743,7 @@ function DesktopChapterBlock({
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#94a3b8';
+                e.currentTarget.style.color = 'var(--yb-ink-3, #5F6570)';
               }}
             >
               <Pencil size={12} strokeWidth={2.2} />
@@ -1618,7 +1758,7 @@ function DesktopChapterBlock({
                 padding: '6px',
                 borderRadius: '8px',
                 fontSize: '12px',
-                color: '#ef4444',
+                color: '#b91c1c',
                 transition: 'all 150ms ease',
               }}
               onMouseEnter={(e) => {
@@ -1627,7 +1767,7 @@ function DesktopChapterBlock({
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#ef4444';
+                e.currentTarget.style.color = '#b91c1c';
               }}
             >
               <Trash2 size={12} strokeWidth={2.2} />
@@ -1776,7 +1916,7 @@ function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete
               padding: '4px',
               borderRadius: '6px',
               fontSize: '11px',
-              color: '#94a3b8',
+              color: 'var(--yb-ink-3, #5F6570)',
               transition: 'all 150ms ease',
             }}
             onMouseEnter={(e) => {
@@ -1785,7 +1925,7 @@ function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#94a3b8';
+              e.currentTarget.style.color = 'var(--yb-ink-3, #5F6570)';
             }}
           >
             <Pencil size={11} strokeWidth={2.2} />
@@ -1800,7 +1940,7 @@ function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete
               padding: '4px',
               borderRadius: '6px',
               fontSize: '11px',
-              color: '#ef4444',
+              color: '#b91c1c',
               transition: 'all 150ms ease',
             }}
             onMouseEnter={(e) => {
@@ -1809,7 +1949,7 @@ function DesktopUnitRow({ unit, chapterId, courseId, canEdit, onUpdate, onDelete
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#ef4444';
+              e.currentTarget.style.color = '#b91c1c';
             }}
           >
             <Trash2 size={11} strokeWidth={2.2} />

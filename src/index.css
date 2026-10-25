@@ -240,7 +240,6 @@ body::after {
   100% { transform: translate3d(1.5%, -1.2%, 0) scale(1.02); }
 }
 
-
 /* ---------- 设计令牌（CSS 变量） ---------- */
 :root {
   /* 画布底 */
@@ -365,26 +364,6 @@ body::after {
 }
 
 /* 更强玻璃：模态 / sheet */
-.glass-sheet {
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: var(--blur-sheet);
-  backdrop-filter: var(--blur-sheet);
-  border: 1px solid var(--edge-bright);
-  border-radius: 24px;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.65),
-    inset -1px -1px 0 rgba(15, 23, 42, 0.05),
-    0 2px 6px rgba(15, 23, 42, 0.04),
-    0 18px 40px rgba(15, 23, 42, 0.08);
-  position: relative;
-  overflow: hidden;
-}
-.glass-sheet::after {
-  content: "";
-  position: absolute; top: 0; left: 0; right: 0; height: 40%;
-  background: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0));
-  pointer-events: none;
-}
 
 /* ================================================================
    容器 & 页面标题
@@ -441,12 +420,7 @@ body::after {
 }
 
 /* ====== 记录页：今日概览 ====== */
-.summary-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 24px;
-}
+
 .summary-card {
   background: var(--glass);
   -webkit-backdrop-filter: var(--blur-card);
@@ -481,60 +455,7 @@ body::after {
    - 输入框: 48px 高, 12px 圆角
    - 提交按钮: 52px 高, 16px 圆角
    ================================================================ */
-.record-sheet {
-  margin-bottom: 24px;
-  padding: 20px 16px 24px; /* 顶部 20px, 左右 16px, 底部 24px（与提交按钮上方 24px 对称） */
-}
-.record-form { display: flex; flex-direction: column; }
 
-.quick-actions {
-  margin-bottom: 16px;
-}
-.quick-actions-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.quick-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-.quick-action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 12px 14px;
-  background: rgba(255,255,255,0.4);
-  border: 1px solid rgba(255,255,255,0.4);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.quick-action-btn:active {
-  transform: scale(0.96);
-  background: rgba(99,102,241,0.1);
-  border-color: rgba(99,102,241,0.2);
-}
-.quick-action-course {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-.quick-action-form {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-.quick-action-more {
-  background: rgba(148,163,184,0.06);
-}
-.quick-action-more .quick-action-course {
-  color: #64748b;
-}
 .quick-behavior-actions {
   display: flex;
   align-items: center;
@@ -562,40 +483,9 @@ body::after {
   color: #4338ca;
 }
 
-/* —— 功能区块（区块间 24px 由 rec-block 控制）—— */
-.rec-block {
-  margin-bottom: 24px;
-}
-.rec-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #6b7280; /* text-gray-500 */
-  margin-bottom: 8px; /* 标签↔输入: 8px */
-}
-
 /* —— 三列 / 两列: 组内 12px —— */
-.three-col {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
+
 /* 移动端也保持三列（用于课程/章节/小节、日期/时间等） */
-.three-col-stay {
-  grid-template-columns: repeat(3, 1fr) !important;
-  gap: 8px !important;
-}
-.three-col-stay label { font-size: 13px; }
-.three-col-stay select,
-.three-col-stay input {
-  font-size: 14px !important;
-  padding: 10px 8px !important;
-  min-height: 44px;
-}
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
 
 /* —— 输入框 Liquid Glass (统一 48px 高, 12px 圆角) —— */
 .field { display: flex; flex-direction: column; }
@@ -605,145 +495,16 @@ body::after {
   color: #6b7280; /* text-gray-500 */
   margin-bottom: 8px;
 }
-.field-optional {
-  font-size: 11px;
-  color: #5F6570;
-  font-weight: 400;
-}
-.field-error {
-  font-size: 11px;
-  color: #dc2626;
-  margin-top: 4px;
-}
+
 .input-error {
   border-color: rgba(220, 38, 38, 0.4) !important;
   background: rgba(239, 68, 68, 0.06) !important;
 }
 
-.input-strong {
-  width: 100%;
-  box-sizing: border-box;
-  height: 48px;
-  padding: 0 14px;
-  font-size: 14px;
-  line-height: 1;
-  border-radius: 12px;
-  color: var(--text-strong);
-  font-family: inherit;
-  background: rgba(255,255,255,0.40);
-  -webkit-backdrop-filter: saturate(140%) blur(24px);
-  backdrop-filter: saturate(140%) blur(24px);
-  border: 1px solid var(--edge-soft);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.55),
-    inset -1px -1px 0 rgba(15,23,42,0.05),
-    0 1px 2px rgba(15,23,42,0.03);
-  transition: all 160ms ease;
-}
-textarea.input-strong {
-  height: auto;
-  min-height: 96px;
-  padding: 14px;
-  line-height: 1.55;
-  resize: vertical;
-}
-.input-strong:focus {
-  outline: none;
-  background: rgba(255,255,255,0.78);
-  border-color: rgba(193, 39, 45, 0.35);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.7),
-    inset -1px -1px 0 rgba(15,23,42,0.05),
-    0 0 0 4px rgba(193, 39, 45, 0.10);
-}
-input[type="date"].input-strong,
-input[type="time"].input-strong {
-  font-variant-numeric: tabular-nums;
-}
-
 /* —— 下拉箭头（覆盖背景后不冲突） —— */
-select.input-strong {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 34px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #5b6170 50%),
-    linear-gradient(135deg, #5b6170 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
-  background-size: 6px 6px, 6px 6px;
-  background-repeat: no-repeat;
-  background-color: rgba(255,255,255,0.40);
-}
 
 /* —— hint —— */
-.rec-hint {
-  font-size: 12px;
-  color: var(--text-soft);
-  margin-top: 8px;
-}
-.rec-hint-dim { color: var(--text-muted); }
 
-.duration-shortcuts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-.duration-shortcuts-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.duration-shortcut-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  border: 1px solid var(--edge-soft);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.4);
-  color: var(--text-soft);
-  cursor: pointer;
-  transition: all 120ms ease;
-}
-.duration-shortcut-btn:hover:not(:disabled) {
-  border-color: rgba(99,102,241,0.4);
-  background: rgba(99,102,241,0.08);
-  color: #4338ca;
-}
-.duration-shortcut-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.eval-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.eval-tab {
-  flex: 1;
-  height: 40px;
-  padding: 0 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 10px;
-  border: 1px solid var(--edge-soft);
-  background: rgba(255,255,255,0.4);
-  color: var(--text-soft);
-  cursor: pointer;
-  transition: all 120ms ease;
-}
-.eval-tab:hover:not(:disabled) {
-  border-color: rgba(99,102,241,0.4);
-}
-.eval-tab.active {
-  background: rgba(99,102,241,0.1);
-  border-color: rgba(99,102,241,0.4);
-  color: #4338ca;
-}
-.eval-tab:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
 .eval-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -774,37 +535,6 @@ select.input-strong {
   cursor: not-allowed;
 }
 
-.edit-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: rgba(99,102,241,0.08);
-  border-bottom: 1px solid rgba(99,102,241,0.15);
-  border-radius: 16px 16px 0 0;
-  margin: -16px -16px 12px;
-}
-.edit-indicator-icon {
-  font-size: 14px;
-}
-.edit-indicator-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: #4338ca;
-}
-.edit-indicator-close {
-  margin-left: auto;
-  background: none;
-  border: none;
-  font-size: 14px;
-  color: #5F6570;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.edit-indicator-close:hover {
-  background: rgba(148,163,184,0.15);
-}
 .loading-state {
   display: flex;
   flex-direction: column;
@@ -825,532 +555,18 @@ select.input-strong {
   to { transform: rotate(360deg); }
 }
 
-/* ================================================================
-   Segmented Tab（记录/待补填 等）
-   ================================================================ */
-.seg-tabs {
-  display: inline-flex;
-  background: rgba(15,23,42,0.05);
-  border-radius: 12px;
-  padding: 3px;
-  margin-bottom: 16px;
-}
-.seg-tab {
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  border-radius: 9px;
-  cursor: pointer;
-  background: transparent;
-  color: #5F6570;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 160ms ease;
-}
-.seg-tab:hover { color: var(--text-soft); }
-.seg-tab.active {
-  background: #fff;
-  color: var(--text-strong);
-  box-shadow: 0 1px 3px rgba(15,23,42,0.08);
-}
-.seg-tab-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: #94a3b8;
-  color: #ffffff;
-  line-height: 1.5;
-}
-
-/* —— 分段按钮（3 行为类别 / 2 评估方式）· Liquid Glass —— */
-.btn-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-  gap: 12px;
-}
-.seg-btn {
-  height: 48px;
-  padding: 0 14px;
-  font-size: 14px;
-  border-radius: 12px;
-  border: 1px solid var(--edge-soft);
-  background: rgba(255,255,255,0.40);
-  color: var(--text-soft);
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 500;
-  -webkit-backdrop-filter: saturate(140%) blur(24px);
-  backdrop-filter: saturate(140%) blur(24px);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.55),
-    inset -1px -1px 0 rgba(15,23,42,0.05),
-    0 1px 2px rgba(15,23,42,0.03);
-  transition: transform 100ms cubic-bezier(0.32, 0.72, 0.0, 1),
-              background 160ms ease,
-              color 160ms ease,
-              opacity 100ms ease;
-}
-.seg-btn:hover {
-  background: rgba(255,255,255,0.60);
-  color: var(--text-strong);
-}
-.seg-btn:active { transform: scale(0.96); opacity: 0.92; }
-.seg-btn.active {
-  background: rgba(193, 39, 45, 0.18);
-  border-color: rgba(193, 39, 45, 0.35);
-  color: var(--brand);
-  -webkit-backdrop-filter: saturate(140%) blur(16px);
-  backdrop-filter: saturate(140%) blur(16px);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.45),
-    inset -1px -1px 0 rgba(15,23,42,0.05),
-    0 1px 2px rgba(193,39,45,0.12);
-  font-weight: 600;
-}
-
-/* —— 自定义 学习行为形式 —— */
-.custom-add-row {
-  display: flex;
-  gap: 12px;
-  align-items: stretch;
-}
-.custom-add-row .input-strong { flex: 1; }
-.custom-add-row .btn {
-  height: 48px;
-  padding: 0 16px;
-  font-size: 13px;
-  white-space: nowrap;
-  border-radius: 12px;
-}
-
-/* ================================================================
-   渐变吸附式滑轨（主观 5 档 / 客观 13 档）
-   - 背景: rose-400 → emerald-400 渐变
-   - thumb: 白色玻璃圆球 + 阴影 + 亮色边
-   - 吸附: 5 个/13 个 step 点
-   - 选中标签 tooltip: 滑动时高亮
-   ================================================================ */
-.glass-rail {
-  position: relative;
-  padding: 16px 4px 8px;
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
-.glass-rail-track {
-  position: relative;
-  height: 48px;
-  border-radius: 999px;
-  padding: 0 20px; /* 给 thumb 留出不被裁切的安全区 */
-  background: linear-gradient(
-    90deg,
-    rgba(251, 113, 133, 0.90) 0%,   /* rose-400 */
-    rgba(251, 191, 36, 0.75) 50%,   /* amber-400 */
-    rgba(52, 211, 153, 0.90) 100%   /* emerald-400 */
-  );
-  box-shadow:
-    0 2px 6px rgba(15,23,42,0.04),
-    0 8px 20px rgba(15,23,42,0.06);
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  overflow: visible;
-}
-/* 轨道上的吸附点（圆斑）：与 thumb 同范围（padding: 0 20px 内） */
-.glass-rail-steps {
-  position: absolute;
-  left: 20px; right: 20px; top: 0; bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-}
-.glass-rail-steps span {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.70);
-  box-shadow: 0 1px 2px rgba(15,23,42,0.15);
-}
-
-/* thumb（SVG 绘制圆形）—— 移动端 WebKit 上避免与 backdrop-filter 组合产生圆角泄漏残影
-   - 实际的白色圆点由内部 <svg><circle/></svg> 绘制，SVG 的路径绘制不受 CSS 合成层影响
-   - 这里此 div 只负责定位、translateZ 强制独立层、以及拖动时的尺寸动画 */
-.glass-rail-thumb {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%) translateZ(0);
-  -webkit-transform: translate(-50%, -50%) translateZ(0);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  -webkit-box-shadow: none;
-  filter: none;
-  -webkit-filter: none;
-  opacity: 1;
-  /* — 关键：用 mask-image 作为 fallback，同时 isolation 隔离祖先 backdrop-filter 的合成 — */
-  -webkit-mask-image: -webkit-radial-gradient(circle, white 0%, white 98%, transparent 100%);
-  mask-image: radial-gradient(circle, white 0%, white 98%, transparent 100%);
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  pointer-events: none;
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-              width 180ms ease, height 180ms ease;
-}
-.glass-rail-thumb svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.glass-rail.dragging .glass-rail-thumb,
-.glass-rail input[type=range]:active ~ .glass-rail-thumb-wrap .glass-rail-thumb {
-  width: 34px;
-  height: 34px;
-}
-
-/* 隐藏原生 range（键盘无障碍用，pointer 已由 track 接管） */
-.glass-rail input[type=range] {
-  position: absolute;
-  left: 20px; right: 20px; top: 0; bottom: 0;
-  width: auto;
-  height: 100%;
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  cursor: pointer;
-  border: 0;
-  pointer-events: none;
-}
-.glass-rail input[type=range]::-webkit-slider-runnable-track {
-  background: transparent;
-  height: 100%;
-}
-.glass-rail input[type=range]::-moz-range-track {
-  background: transparent;
-  height: 100%;
-}
-.glass-rail input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none !important;
-  appearance: none !important;
-  width: 34px; height: 34px;
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  -webkit-box-shadow: none !important;
-  filter: none !important;
-  -webkit-filter: none !important;
-  cursor: pointer;
-  margin-top: 0;
-}
-.glass-rail input[type=range]::-moz-range-thumb {
-  width: 34px; height: 34px;
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  filter: none !important;
-  cursor: pointer;
-}
-
-/* thumb 绝对位置辅助层：与 step 点同范围（left 20px → right 20px）
-   — 关键：isolation: isolate 把 thumb 从祖先的 backdrop-filter 合成中隔离出来，
-     彻底解决 Safari/iOS 上"白色 thumb 后面出现方形阴影"的问题 */
-.glass-rail-thumb-wrap {
-  position: absolute;
-  left: 20px; right: 20px; top: 0; bottom: 0;
-  pointer-events: none;
-  isolation: isolate;
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
-
-/* tooltip（当前标签） */
-.glass-rail-tooltip {
-  margin-top: 12px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-strong);
-  transition: color 160ms ease;
-  min-height: 20px;
-}
-
-/* 刻度标签（滑轨下）：统一灰色小字，不再高亮 */
-.glass-rail-labels {
-  margin-top: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 0 10px;
-}
-.glass-rail-labels .tick {
-  font-size: 11px;
-  color: #9ca3af; /* gray-400 */
-  text-align: center;
-  flex: 1;
-  line-height: 1.4;
-  white-space: nowrap;
-  opacity: 0.8;
-}
-
 /* —— 提交按钮 Liquid Glass · 52px 高 · 16px 圆角 —— */
-.btn-submit {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  height: 52px;
-  padding: 0 18px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--brand);
-  border-radius: 16px;
-  border: 1px solid rgba(193, 39, 45, 0.35);
-  background: rgba(193, 39, 45, 0.18);
-  -webkit-backdrop-filter: saturate(140%) blur(20px);
-  backdrop-filter: saturate(140%) blur(20px);
-  box-shadow:
-    inset 1px 1px 0 rgba(255,255,255,0.55),
-    inset -1px -1px 0 rgba(15,23,42,0.05),
-    0 1px 2px rgba(15,23,42,0.04),
-    0 6px 14px rgba(193,39,45,0.12);
-  cursor: pointer;
-  margin: 24px 0 0;
-  font-family: inherit;
-  transition: transform 100ms cubic-bezier(0.32, 0.72, 0.0, 1),
-              background 160ms ease,
-              opacity 100ms ease;
-}
-.btn-submit:hover:not(:disabled) {
-  background: rgba(193, 39, 45, 0.26);
-  color: var(--brand);
-}
-.btn-submit:active:not(:disabled) { transform: scale(0.96); opacity: 0.92; }
-.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* ====== 最近记录（新版） ====== */
-.recent-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-strong);
-  padding: 0 2px;
-  margin: 8px 0 10px;
-}
-.recent-section {
-  margin-top: 20px;
-}
-.recent-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.recent-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-strong);
-  margin: 0;
-}
-.recent-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 4px 10px;
-  background: rgba(255,255,255,0.5);
-  border-radius: 999px;
-  border: 1px solid var(--edge-soft);
-}
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.record-card {
-  background: rgba(255,255,255,0.75);
-  -webkit-backdrop-filter: var(--blur-card);
-  backdrop-filter: var(--blur-card);
-  border: 1px solid rgba(148,163,184,0.25);
-  border-radius: 16px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  position: relative;
-  transition: all 150ms ease;
-}
-.record-card:hover {
-  border-color: rgba(99,102,241,0.3);
-  box-shadow: 0 4px 12px rgba(15,23,42,0.06);
-}
-.record-card--editing {
-  border: 2px solid #6366f1;
-  box-shadow: 0 4px 16px rgba(99,102,241,0.15);
-}
-.record-card__info {
-  flex: 1;
-  min-width: 0;
-  padding-right: 100px;
-}
-.record-card__top-right {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.record-card__time {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.record-card__actions {
-  display: flex;
-  gap: 4px;
-}
-.record-delete-confirm {
-  display: flex;
-  gap: 4px;
-}
-.record-action-btn--confirm {
-  background: rgba(34,197,94,0.15) !important;
-  color: #166534;
-}
-.record-action-btn--confirm:hover {
-  background: rgba(34,197,94,0.25) !important;
-}
-.record-action-btn--cancel {
-  background: rgba(148,163,184,0.2) !important;
-  color: #475569;
-}
-.record-card__duration {
-  position: absolute;
-  bottom: 12px;
-  right: 14px;
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-}
-.record-card__duration-num {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-strong);
-  font-variant-numeric: tabular-nums;
-}
-.record-card__duration-unit {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.record-action-btn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: rgba(148,163,184,0.1);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 120ms ease;
-}
-.record-action-btn:hover {
-  background: rgba(99,102,241,0.15);
-}
-.record-action-btn--delete:hover {
-  background: rgba(239,68,68,0.15);
-}
-.record-card__course {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-strong);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 3px;
-}
-.record-card__subject {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(148,163,184,0.1);
-}
-.record-card__path {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-.record-card__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.record-tag {
-  font-size: 11px;
-  padding: 3px 9px;
-  border-radius: 6px;
-  font-weight: 500;
-}
-.record-tag--category {
-  background: rgba(99,102,241,0.1);
-  color: #4338ca;
-}
-.record-tag--form {
-  background: rgba(148,163,184,0.15);
-  color: #475569;
-}
-.record-tag--eval {
-  background: rgba(34,197,94,0.1);
-  color: #166534;
-}
-.record-card__notes {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.5;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(148,163,184,0.15);
-}
-.recent-empty {
-  text-align: center;
-  padding: 24px;
-  color: var(--text-muted);
-  font-size: 13px;
-  background: rgba(255,255,255,0.5);
-  border-radius: 16px;
-  border: 1px dashed rgba(148,163,184,0.3);
-}
 
 /* 胶囊（灰色玻璃） */
-.pill-soft {
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.55);
-  border: 1px solid var(--edge-soft);
-  color: var(--text-soft);
-  line-height: 1.4;
-}
 
 /* ====== 响应式：移动端 ====== */
 @media (max-width: 620px) {
-  .three-col { grid-template-columns: 1fr; }
-  .two-col { grid-template-columns: 1fr; }
-  .btn-row { grid-template-columns: repeat(3, 1fr); }
+  
+  
+  
   .summary-num { font-size: 20px; }
-  .record-card__info { padding-right: 80px; }
-  .record-card__top-right { flex-direction: column; align-items: flex-end; gap: 4px; }
+  
+  
 }
 
 .course-card {
@@ -1852,6 +1068,21 @@ body:has(.yb-student) {
 .yb-tab.on { background: var(--yb-crest-soft); color: var(--yb-crest-text); font-weight: 700; }
 .yb-tab-icon { position: relative; display: inline-flex; flex: none; }
 .yb-tab-icon svg { width: 20px; height: 20px; }
+/* 桌面快捷键提示：仅 ≥920px 侧栏显示（图标轨 / 手机底栏隐藏） */
+.yb-kbd {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--yb-sunken);
+  color: var(--yb-ink-3);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.yb-add .yb-kbd { background: rgba(255, 255, 255, .22); color: var(--yb-crest-ink); }
+@media (max-width: 919px) { .yb-kbd { display: none; } }
 .yb-badge {
   position: absolute;
   top: -6px;
@@ -2164,16 +1395,9 @@ body:has(.yb-student) {
 @media (min-width: 768px) {
   .main { max-width: 1440px; }
 
-  /* 记录页桌面优化 */
-  .record-sheet { padding: 24px 28px 28px; }
-  .recent-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .quick-actions-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  
+  
+  
 
   /* 课程页桌面优化：跟随 .main 的 1440px 容器，不再二次限宽/加 padding */
   .desktop-course-page {
@@ -2187,12 +1411,7 @@ body:has(.yb-student) {
    ================================================================ */
 
 /* 选择按钮组（学习打卡场景） */
-.choice-group {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-top: 6px;
-}
+
 .choice-btn {
   padding: 10px 12px;
   font-size: 13px;
@@ -7219,7 +6438,6 @@ body:has(.yb-student) {
   .m-filter-chip { padding: 6px 12px; font-size: 11px; }
 }
 
-
 /* =====================================================================
    E4 学习力导师平台（additive，不改动一表人才既有样式）
    ===================================================================== */
@@ -11259,156 +10477,6 @@ body:has(.yb-student) {
   .main { padding: 24px 24px 64px; }
 }
 
-@media (min-width: 1024px) {
-  .learn-cols {
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
-    gap: 24px;
-    align-items: start;
-  }
-  /* 右栏「最近记录」跟随滚动吸附（学生端已无顶栏，仅留一点呼吸） */
-  .learn-cols .recent-section {
-    margin-top: 0;
-    position: sticky;
-    top: 24px;
-  }
-  /* 双栏右列较窄，最近记录回到单列，避免卡片过挤 */
-  .learn-cols .recent-list { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* ---------- 2. 横向滚动 / 溢出修正 ----------
-   grid 轨道 min-width 默认为 auto，长内容会撑破列宽；
-   统一改为 minmax(0, 1fr) 并给文本容器加换行兜底。 */
-.summary-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.choice-group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-
-@media (min-width: 768px) {
-  .recent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .quick-actions-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-.learn-wrap,
-.learn-cols > *,
-.record-form,
-.scores-section,
-.record-card {
-  min-width: 0;
-  max-width: 100%;
-}
-.record-card__info,
-.record-card__course,
-.record-card__path,
-.record-card__notes {
-  overflow-wrap: anywhere;
-}
-/* 分段 tab 容器在窄桌面下允许换行，不横向溢出 */
-.seg-tabs { max-width: 100%; flex-wrap: wrap; }
-.glass-sheet, .record-sheet { max-width: 100%; }
-
-/* ---------- 2b. 桌面密度提升（2026-09 第二轮：1440px 容器配套） ---------- */
-
-/* 成绩 tab：课程卡基础为纵向堆叠（移动端不变），桌面改多列网格 */
-.scores-grid { display: flex; flex-direction: column; gap: 12px; }
-@media (min-width: 1024px) {
-  .scores-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    align-items: start;
-  }
-}
-@media (min-width: 1440px) {
-  .scores-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-/* 桌面下 tab 切换条吸附在视口顶部，长页面随时可切 */
-@media (min-width: 768px) {
-  .learn-wrap .seg-tabs {
-    position: sticky;
-    top: 12px;
-    z-index: 40;
-    background: rgba(245,245,247,0.82);
-    -webkit-backdrop-filter: saturate(140%) blur(16px);
-    backdrop-filter: saturate(140%) blur(16px);
-    box-shadow: 0 4px 16px rgba(15,23,42,0.06);
-  }
-}
-
-@media (min-width: 1280px) {
-  /* 宽屏下表单更宽、右栏最近记录不挤 */
-  .learn-cols { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-  /* 待补填 tab 的最近记录列表升为 3 列（记录 tab 右栏由 .learn-cols 规则保持单列） */
-  .pending-section .recent-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-/* ---------- 2c. 通知页桌面布局 ---------- */
-/* .main 已提供移动端底部浮动导航的 120px 留白，页内不再重复 padding */
-.notif-list { display: flex; flex-direction: column; gap: 8px; }
-@media (min-width: 1024px) {
-  .notif-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    align-items: start;
-  }
-}
-
-/* ---------- 2d. 记录表单「一屏完成」（桌面 ≥1024px） ---------- */
-@media (min-width: 1024px) {
-  /* 页头与 tab 压缩，把垂直空间让给表单 */
-  .learn-wrap .page-title {
-    padding-bottom: 12px;
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-  }
-  .learn-wrap .seg-tabs { margin-bottom: 12px; }
-  /* 「填写开始和结束后自动计算用时」占位提示在桌面省略（用时算出来才显示） */
-  .learn-wrap .rec-hint-dim { display: none; }
-
-  /* 快速记录：label + 单行横向紧凑 pill 条（溢出横向滚动），不再占两行网格 */
-  .quick-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-  .quick-actions-label { margin-bottom: 0; flex-shrink: 0; }
-  .quick-actions .quick-actions-grid {
-    display: flex;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    padding-bottom: 2px;
-  }
-  .quick-actions .quick-action-btn {
-    flex: 0 0 auto;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 6px;
-    padding: 7px 12px;
-    border-radius: 999px;
-  }
-
-  /* 表单内块两两并排（单个子块时自动通栏） */
-  .rec-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 0 16px;
-    align-items: start;
-  }
-
-  /* 垂直节奏整体收紧 */
-  .record-sheet { padding: 18px 24px 18px; margin-bottom: 16px; }
-  .rec-block { margin-bottom: 16px; }
-  .rec-label { margin-bottom: 6px; }
-  .rec-hint { margin-top: 6px; }
-  .duration-shortcuts { margin-top: 6px; gap: 6px; }
-  .btn-submit { height: 46px; border-radius: 14px; }
-}
-
 /* ---------- 3. 模态框视口居中确认 ----------
    Learning 页待补填 / 成绩 modal 已内联 fixed inset 0 + flex 居中 +
    maxHeight: 85vh + 内部 overflowY auto，确认无需补丁；
@@ -11419,35 +10487,12 @@ body:has(.yb-student) {
 }
 
 /* ---------- 4. 统一 hover / focus-visible 反馈 ---------- */
-.quick-action-btn:hover {
-  background: rgba(255,255,255,0.7);
-  border-color: rgba(15,23,42,0.12);
-}
-.seg-tab:not(.active):hover { background: rgba(255,255,255,0.55); }
-
-/* 记录卡片操作按钮：统一为中性浅灰 hover（删除保留浅红语义） */
-.record-action-btn:hover { background: #f1f5f9; }
-.record-action-btn--delete:hover { background: #fee2e2; }
-
-/* 成绩行内联样式按钮的 hover（需 !important 覆盖内联背景） */
-.scores-section button[title="编辑"]:hover,
-.scores-section button[title="删除"]:hover,
-.scores-section button[title="取消"]:hover {
-  background: #f1f5f9 !important;
-  color: #0f172a !important;
-}
 
 /* 键盘聚焦可见性：2px 墨色 outline + 2px 偏移 */
 .btn:focus-visible,
-.btn-submit:focus-visible,
 .btn-add:focus-visible,
-.seg-tab:focus-visible,
-.seg-btn:focus-visible,
 .choice-btn:focus-visible,
-.quick-action-btn:focus-visible,
-.quick-behavior-btn:focus-visible,
-.record-action-btn:focus-visible,
-.scores-section button:focus-visible {
+.quick-behavior-btn:focus-visible {
   outline: 2px solid #0f172a;
   outline-offset: 2px;
 }
@@ -11579,7 +10624,6 @@ body:has(.yb-student) {
   /* 右栏：自适应宽度，grid 子项兜底防止长内容撑破 */
   .syll-detail { min-width: 0; }
 }
-
 
 /* ================================================================
    E4 深色工具风（Kimi Code 风格）——最终覆写层
@@ -12619,7 +11663,6 @@ body:not(.e4-light):has(.e4-dashboard) {
 .e4-dashboard ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); background-clip: content-box; border: 2px solid transparent; }
 .e4-dashboard ::-webkit-scrollbar-track { background: transparent; }
 
-
 /* ================= E4 深色覆写 · 补丁 4：裸表单控件 + stepper ================= */
 /* 全局玻璃输入规则（src/index.css:1619）会命中未带 .e4-field 的裸 select/textarea，
    无 type 的裸 input 则落到 UA 白底。统一收进深色令牌。checkbox/radio 不动，
@@ -12730,7 +11773,6 @@ body:not(.e4-light):has(.e4-dashboard) {
 .e4-dashboard .e4-modal-step.done { color: var(--e4-ink-2); }
 .e4-dashboard .e4-modal-step.done i { background: rgba(127, 160, 197, 0.16); color: var(--e4-accent-strong); }
 .e4-dashboard .e4-modal-step-line { background: var(--e4-line-2); }
-
 
 /* ================================================================
    E4 浅色主题（body.e4-light）——暖灰分层，不用纯白
@@ -13095,7 +12137,6 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
   }
   body.e4-print-modal-open .e4-print-modal .e4-print-doc { margin: 0 !important; }
 }
-
 
 /* ---- shadcn DatePicker：最终文档就地编辑的日期触发器 ---- */
 .e4-dashboard .e4-doc-date-trigger {

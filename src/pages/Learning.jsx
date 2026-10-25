@@ -34,9 +34,9 @@ const RECENT_SELECT = `
 const RECENT_LIMIT = 30;
 
 const TABS = [
-  { key: 'record', label: '记录' },
+  { key: 'record', label: '全部' },
   { key: 'pending', label: '待补填' },
-  { key: 'scores', label: '成绩' },
+  { key: 'scores', label: '考试' },
 ];
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -388,8 +388,13 @@ export default function LearningPage() {
 
   useEffect(() => {
     const onOpen = (e) => openNew(e.detail);
+    const onClose = () => closeSheet();
     window.addEventListener('yb:open-log', onOpen);
-    return () => window.removeEventListener('yb:open-log', onOpen);
+    window.addEventListener('yb:close-log', onClose);
+    return () => {
+      window.removeEventListener('yb:open-log', onOpen);
+      window.removeEventListener('yb:close-log', onClose);
+    };
   }, []);
 
   useEffect(() => {

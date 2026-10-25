@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { supabase } from '../lib/supabase.js';
-import ProfileEditor from './ProfileEditor.jsx';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_red.png';
 
 /* ------- 单色线图标 (20x20, stroke=currentColor) ------- */
-function IconCourse() {
+function IconHome() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2V5.5z" />
-      <path d="M8 8h8M8 12h8M8 16h5" />
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6 10.5V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.5" />
     </svg>
   );
 }
@@ -33,21 +32,21 @@ function IconChart() {
     </svg>
   );
 }
+function IconUser() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5" />
+    </svg>
+  );
+}
 function IconTeacher() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
       <circle cx="12" cy="8" r="3" />
       <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" />
-    </svg>
-  );
-}
-function IconBell() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-      <path d="M10 21a2 2 0 0 0 4 0" />
     </svg>
   );
 }
@@ -60,12 +59,31 @@ function IconPlus() {
   );
 }
 
-// 导航项
-const NAV_ITEMS = [
-  { to: '/syllabus', label: '课程', Icon: IconCourse },
-  { to: '/learning', label: '记录', Icon: IconPencil },
-  { to: '/review',   label: '回顾', Icon: IconChart },
+// 导航项（手机底栏 / 图标轨 / 桌面侧栏同一份）。key 是键盘快捷键 1–4。
+// 注意：/today 与 /insights 路由在 WS6 合并后才接入 App.jsx（见 App.jsx 的 TODO(WS6)）。
+export const NAV_ITEMS = [
+  { to: '/today',    label: '今天', Icon: IconHome,   key: '1' },
+  { to: '/records',  label: '记录', Icon: IconPencil, key: '2', alsoActive: ['/learning'] },
+  { to: '/insights', label: '洞察', Icon: IconChart,  key: '3' },
+  { to: '/me',       label: '我的', Icon: IconUser,   key: '4', badge: true, prefix: true },
 ];
+
+// 键盘在输入控件里时，快捷键一律让位
+export function isTypingTarget(el) {
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+}
+
+function isOnRecords(pathname) {
+  return pathname === '/records' || pathname === '/learning';
+}
+
+function isItemActive(item, pathname) {
+  if (pathname === item.to) return true;
+  if (item.prefix && pathname.startsWith(item.to + '/')) return true;
+  return Boolean(item.alsoActive?.includes(pathname));
+}
 
 // 往下滚超过这个距离后，tab bar 才开始收起（避免顶部回弹时抖动）
 const SHRINK_AFTER = 48;
@@ -78,7 +96,6 @@ export default function Layout() {
   const location = useLocation();
   const [shrunk, setShrunk] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
   const isTeacher = Number(profile?.role) >= 2;
 
@@ -125,18 +142,9 @@ export default function Layout() {
     };
   }, [profile?.id]);
 
-  // 实际导航项：
-  //   老师端：导师 + 课程 + 记录 + 回顾 + 通知
-  //   学生端：课程 + 记录 + 回顾 + 通知
+  // 实际导航项：学生 今天 · 记录 · 洞察 · 我的；老师端在最前多一个「导师」
   const finalNavItems = useMemo(
-    () =>
-      isTeacher
-        ? [
-            { to: '/mentor', label: '导师', Icon: IconTeacher },
-            ...NAV_ITEMS,
-            { to: '/notifications', label: '通知', Icon: IconBell },
-          ]
-        : [...NAV_ITEMS, { to: '/notifications', label: '通知', Icon: IconBell }],
+    () => (isTeacher ? [{ to: '/mentor', label: '导师', Icon: IconTeacher }, ...NAV_ITEMS] : NAV_ITEMS),
     [isTeacher]
   );
 
@@ -173,17 +181,44 @@ export default function Layout() {
     nav('/login', { replace: true });
   }
 
-  // ＋：在 /learning 直接通知记录页打开 LogSheet，其它页先跳转再由 ?log=1 打开
+  // ＋：在记录页直接通知 LogSheet 打开，其它页先跳转再由 ?log=1 打开
+  const pathname = location.pathname;
   const openLog = useCallback(() => {
-    if (location.pathname === '/learning') {
+    if (isOnRecords(pathname)) {
       window.dispatchEvent(new CustomEvent('yb:open-log'));
     } else {
-      nav('/learning?log=1');
+      nav('/records?log=1');
     }
-  }, [location.pathname, nav]);
+  }, [pathname, nav]);
+
+  // 桌面快捷键：N 记一笔 · 1–4 切页 · Esc 关闭面板。输入框内、带修饰键、已有弹层时不响应
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.defaultPrevented || e.isComposing) return;
+      if (e.key === 'Escape') {
+        window.dispatchEvent(new CustomEvent('yb:close-log'));
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        openLog();
+        return;
+      }
+      const item = NAV_ITEMS.find((it) => it.key === e.key);
+      if (item) {
+        e.preventDefault();
+        nav(item.to);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [openLog, nav]);
 
   // 导师台 (/mentor) 自带整页布局，不套学生外壳。
-  if (location.pathname === '/mentor') {
+  if (pathname === '/mentor') {
     return <Outlet />;
   }
 
@@ -198,8 +233,8 @@ export default function Layout() {
           <button
             type="button"
             className="yb-topbar-user"
-            onClick={() => setProfileEditorOpen(true)}
-            aria-label="编辑资料或退出登录"
+            onClick={() => nav('/me')}
+            aria-label="打开我的"
           >
             {profile.full_name}
           </button>
@@ -222,34 +257,41 @@ export default function Layout() {
         <button type="button" className="yb-add" onClick={openLog} aria-label="记一笔">
           <IconPlus />
           <span className="yb-add-label">记一笔</span>
+          <kbd className="yb-kbd" aria-hidden="true">N</kbd>
         </button>
 
         <div className="yb-tabs">
-          {finalNavItems.map(({ to, label, Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end
-              className={({ isActive }) => 'yb-tab' + (isActive ? ' on' : '')}
-              aria-label={to === '/notifications' && notificationCount > 0 ? `${label}，${notificationCount} 条未处理` : undefined}
-            >
-              <span className="yb-tab-icon">
-                <Icon />
-                {to === '/notifications' && notificationCount > 0 && (
-                  <span className="yb-badge">{notificationCount > 99 ? '99+' : notificationCount}</span>
-                )}
-              </span>
-              <span className="yb-tab-label">{label}</span>
-            </NavLink>
-          ))}
+          {finalNavItems.map((item) => {
+            const { to, label, Icon } = item;
+            const active = isItemActive(item, pathname);
+            const count = item.badge ? notificationCount : 0;
+            return (
+              <Link
+                key={to}
+                to={to}
+                className={'yb-tab' + (active ? ' on' : '')}
+                aria-current={active ? 'page' : undefined}
+                aria-label={count > 0 ? `${label}，${count} 条待处理邀请` : undefined}
+              >
+                <span className="yb-tab-icon">
+                  <Icon />
+                  {count > 0 && (
+                    <span className="yb-badge">{count > 99 ? '99+' : count}</span>
+                  )}
+                </span>
+                <span className="yb-tab-label">{label}</span>
+                {item.key && <kbd className="yb-kbd" aria-hidden="true">{item.key}</kbd>}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="yb-me">
           <button
             type="button"
             className="yb-me-btn"
-            onClick={() => setProfileEditorOpen(true)}
-            aria-label="编辑资料"
+            onClick={() => nav('/me')}
+            aria-label="打开我的"
           >
             <span className="yb-avatar" aria-hidden="true">{initial}</span>
             <span className="yb-me-name">{profile?.full_name || '我的资料'}</span>
@@ -258,12 +300,6 @@ export default function Layout() {
         </div>
       </nav>
 
-      {profileEditorOpen && (
-        <ProfileEditor
-          mode="modal"
-          onClose={() => setProfileEditorOpen(false)}
-        />
-      )}
     </div>
   );
 }

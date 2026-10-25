@@ -243,7 +243,7 @@ describe('待补填 · 行内补填', () => {
     const tab = await screen.findByRole('tab', { name: /待补填/ });
     fireEvent.click(tab);
     expect(tab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: /记录/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: /全部/ })).toHaveAttribute('aria-selected', 'false');
 
     await waitFor(() => expect(screen.getAllByRole('radiogroup', { name: /补填客观评价/ })).toHaveLength(2));
     const [first, second] = screen.getAllByRole('radiogroup', { name: /补填客观评价/ });

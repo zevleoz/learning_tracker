@@ -1,18 +1,23 @@
 import {
   addDays,
+  buildInactiveUrl,
   buildPayload,
-  computeStreakState,
   createSupabaseStore,
   deliver,
+  diffDays,
   dueKindFor,
+  forcedDailyUntil,
+  inactiveStage,
+  isDailyForced,
   isQuietHours,
+  lastSession,
   normalizePrefs,
   parseTimeOfDay,
   runTick,
   selectDue,
   sendInvite,
   shanghaiClock,
-  weekStart,
+  usualLogMinutes,
 } from '../api-lib/notify.mjs';
 
 // 2026-10-21 是周三。上海 = UTC+8，所以 UTC 的 HH:MM 要减 8 小时。
@@ -21,7 +26,8 @@ const at = (ymd, hhmm) => {
   return new Date(Date.parse(`${ymd}T00:00:00Z`) + ((h - 8) * 60 + m) * 60000);
 };
 const TODAY = '2026-10-21';
-const clockAt = (hhmm) => shanghaiClock(at(TODAY, hhmm));
+const clockAt = (hhmm, ymd = TODAY) => shanghaiClock(at(ymd, hhmm));
+const ago = (n) => addDays(TODAY, -n);
 
 describe('时间工具', () => {
   test('shanghaiClock 按 UTC+8 换算日期与分钟（跨日）', () => {
@@ -29,11 +35,10 @@ describe('时间工具', () => {
     expect(shanghaiClock(new Date('2026-10-21T15:59:00Z'))).toEqual({ date: '2026-10-21', minutes: 23 * 60 + 59 });
   });
 
-  test('weekStart / addDays：周一至周日', () => {
-    expect(weekStart('2026-10-21')).toBe('2026-10-19');
-    expect(weekStart('2026-10-25')).toBe('2026-10-19'); // 周日
-    expect(weekStart('2026-10-26')).toBe('2026-10-26'); // 周一
+  test('addDays / diffDays', () => {
     expect(addDays('2026-10-01', -1)).toBe('2026-09-30');
+    expect(diffDays('2026-10-21', '2026-10-18')).toBe(3);
+    expect(diffDays('2026-03-01', '2026-02-28')).toBe(1);
   });
 
   test('parseTimeOfDay', () => {
@@ -59,203 +64,320 @@ describe('静默时段 22:30–07:00', () => {
   });
 
   test('静默时段内 selectDue 不返回任何提醒', () => {
-    const students = [{ id: 'a', prefs: { daily_reminder: true, daily_reminder_time: '07:00' }, sessionDates: [] }];
+    const students = [{ id: 'a', prefs: { daily_reminder: true, daily_reminder_time: '07:00' }, sessions: [] }];
     expect(selectDue({ students, clock: clockAt('23:00') })).toEqual([]);
     expect(selectDue({ students, clock: clockAt('03:00') })).toEqual([]);
+  });
+
+  test('每日提醒时间设在静默时段里：永远不会发出', () => {
+    const s = { id: 'a', prefs: { daily_reminder: true, daily_reminder_time: '23:00' }, sessions: [] };
+    for (const t of ['22:29', '22:30', '23:30', '02:00']) expect(dueKindFor(s, clockAt(t))).toBeNull();
   });
 });
 
 describe('normalizePrefs', () => {
-  test('缺省值：每日提醒关、21:00、其余按计划', () => {
+  test('缺省值：几天没记录开、每日提醒关（21:00）、邀请开；旧字段不再存在', () => {
     expect(normalizePrefs(null)).toEqual({
+      inactive_reminder: true,
       daily_reminder: false,
       daily_reminder_time: '21:00',
-      pending_digest: true,
-      streak_reminder: true,
       invites: true,
-      weekly_email: false,
     });
   });
-  test('脏数据回退默认', () => {
-    const p = normalizePrefs({ daily_reminder: 'yes', daily_reminder_time: '99:99', pending_digest: false });
+  test('脏数据回退默认；旧版的字段被忽略', () => {
+    const p = normalizePrefs({
+      daily_reminder: 'yes', daily_reminder_time: '99:99', inactive_reminder: false,
+      pending_digest: true, streak_reminder: true, weekly_email: true,
+    });
     expect(p.daily_reminder).toBe(false);
     expect(p.daily_reminder_time).toBe('21:00');
-    expect(p.pending_digest).toBe(false);
+    expect(p.inactive_reminder).toBe(false);
+    expect(p).not.toHaveProperty('pending_digest');
+    expect(p).not.toHaveProperty('streak_reminder');
+    expect(p).not.toHaveProperty('weekly_email');
   });
 });
 
-describe('computeStreakState', () => {
-  test('无记录', () => {
-    expect(computeStreakState([], TODAY)).toEqual({ current: 0, restDaysUsedThisWeek: 0 });
+// ---------------------------------------------------------------------------
+// 记录分析
+// ---------------------------------------------------------------------------
+
+const sess = (date, startTime = '19:00:00', over = {}) => ({
+  date, startTime, courseId: 'c1', category: 3, form: '自主练习', minutes: 45, ...over,
+});
+
+describe('usualLogMinutes：最近 20 条开始时刻的中位数', () => {
+  const many = (n, start, date = (i) => ago(i + 1)) => Array.from({ length: n }, (_, i) => sess(date(i), start));
+
+  test('少于 3 条（有开始时刻的）→ 19:30', () => {
+    expect(usualLogMinutes([], TODAY)).toBe(19 * 60 + 30);
+    expect(usualLogMinutes(many(2, '10:00:00'), TODAY)).toBe(19 * 60 + 30);
+    expect(usualLogMinutes([...many(2, '10:00:00'), sess(ago(9), null)], TODAY)).toBe(19 * 60 + 30);
   });
 
-  test('今天空着不打断：周一二有记录，周三(今天)空', () => {
-    expect(computeStreakState(['2026-10-19', '2026-10-20'], TODAY)).toEqual({
-      current: 2,
-      restDaysUsedThisWeek: 0,
-    });
+  test('取开始时刻所在整点的中位数', () => {
+    const rows = [sess(ago(1), '17:40:00'), sess(ago(2), '18:10:00'), sess(ago(3), '20:55:00'), sess(ago(4), '18:59:00'), sess(ago(5), '22:00:00')];
+    // 小时 17 18 20 18 22 → 排序 17 18 18 20 22 → 中位数 18
+    expect(usualLogMinutes(rows, TODAY)).toBe(18 * 60);
   });
 
-  test('本周休息日用完：周一记录，周二休，周三(今天)空 → 不算今天，休息日=1', () => {
-    // 周一有记录、周二无 → 周二是第 1 个休息日
-    expect(computeStreakState(['2026-10-19'], TODAY)).toEqual({ current: 1, restDaysUsedThisWeek: 1 });
+  test('偶数条取中间两个整点的平均，可落在半点', () => {
+    const rows = [sess(ago(1), '16:00:00'), sess(ago(2), '16:30:00'), sess(ago(3), '17:00:00'), sess(ago(4), '17:20:00')];
+    expect(usualLogMinutes(rows, TODAY)).toBe(16 * 60 + 30);
   });
 
-  test('本周 2 个休息日已用完（周五今天空）', () => {
-    // 周一记录，周二休，周三休，周四记录，周五(今天)空
-    expect(computeStreakState(['2026-10-19', '2026-10-22'], '2026-10-23')).toEqual({
-      current: 2,
-      restDaysUsedThisWeek: 2,
-    });
+  test('夹在 08:00–21:30', () => {
+    expect(usualLogMinutes(many(5, '05:30:00'), TODAY)).toBe(8 * 60);
+    expect(usualLogMinutes(many(5, '23:10:00'), TODAY)).toBe(21 * 60 + 30);
+    expect(usualLogMinutes(many(5, '21:15:00'), TODAY)).toBe(21 * 60); // 21 点整点，未超上限
   });
 
-  test('第 3 个空日打断连续', () => {
-    // 周一有记录；周二、周三、周四空；今天周五空 → 周四/周三用掉 2 个，周二打断
-    const r = computeStreakState(['2026-10-19'], '2026-10-23');
-    expect(r.current).toBe(0);
-  });
-
-  test('跨周：休息日额度按周重置', () => {
-    // 上周：二三记录，四休，五记录，六休，日记录（2 个空日）；本周：周一记录，周二休，周三(今天)空
-    const dates = ['2026-10-13', '2026-10-14', '2026-10-16', '2026-10-18', '2026-10-19'];
-    expect(computeStreakState(dates, TODAY)).toEqual({ current: 5, restDaysUsedThisWeek: 1 });
-    // 上周第 3 个空日（周三 10-14 之前再空一天）会打断
-    expect(computeStreakState(['2026-10-13', '2026-10-18', '2026-10-19'], TODAY).current).toBe(2);
-  });
-
-  test('今天有记录则从今天算起', () => {
-    expect(computeStreakState(['2026-10-21'], TODAY).current).toBe(1);
+  test('只看最近 20 条：更早的不影响', () => {
+    const recent = many(20, '20:00:00');
+    const old = Array.from({ length: 30 }, (_, i) => sess(ago(40 + i), '09:00:00'));
+    expect(usualLogMinutes([...old, ...recent], TODAY)).toBe(20 * 60);
   });
 });
+
+describe('lastSession', () => {
+  test('日期最晚、同日开始时刻最晚；忽略今天之后的记录', () => {
+    const rows = [
+      sess(ago(5), '08:00:00', { courseId: 'old' }),
+      sess(ago(3), '09:00:00', { courseId: 'early' }),
+      sess(ago(3), '20:00:00', { courseId: 'late' }),
+      sess(addDays(TODAY, 2), '10:00:00', { courseId: 'future' }),
+    ];
+    expect(lastSession(rows, TODAY).courseId).toBe('late');
+    expect(lastSession([], TODAY)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 几天没记录：第 3 天一条、第 7 天一条，其余日子不发，新记录让循环重置
+// ---------------------------------------------------------------------------
 
 const student = (over = {}) => ({
   id: 'u1',
-  prefs: { daily_reminder: true, daily_reminder_time: '21:00' },
-  sessionDates: [],
-  pendingDates: [],
+  prefs: {},
+  createdAt: '2025-01-01T00:00:00Z',
+  sessions: [],
+  inactiveSentDates: [],
+  pendingCount: 0,
+  courseNames: { c1: 'AP 微积分 BC' },
   ...over,
 });
+// 最后一条记录在 n 天前；之前还有几条凑够「惯用时间」样本（19:00）
+const lastLoggedAgo = (n, extra = {}) => student({
+  sessions: [sess(ago(n), '19:00:00'), sess(ago(n + 1), '19:00:00'), sess(ago(n + 2), '19:00:00')],
+  ...extra,
+});
 
-describe('到期判定：每日提醒', () => {
-  test('到点且当天没记录 → 到期', () => {
-    const hit = dueKindFor(student(), clockAt('21:00'));
+describe('几天没记录 · 第 3 天与第 7 天', () => {
+  test('inactiveStage：只在第 3 天（未发过）与第 7 天（至多发过一次）', () => {
+    const run = (n, sent = []) => inactiveStage({ last: sess(ago(n)), inactiveSentDates: sent, today: TODAY });
+    for (const n of [0, 1, 2]) expect(run(n)).toBeNull();
+    expect(run(3)).toBe(3);
+    for (const n of [4, 5, 6]) expect(run(n, [ago(n - 3)])).toBeNull();
+    expect(run(7, [ago(4)])).toBe(7);
+    expect(run(7)).toBe(7); // 第一条因故没发出去，第 7 天仍发这一条
+    for (const n of [8, 9, 14, 60]) expect(run(n, [ago(n - 3), ago(n - 7)])).toBeNull();
+    expect(inactiveStage({ last: null, inactiveSentDates: [], today: TODAY })).toBeNull();
+  });
+
+  test('第 3 天：到了惯用时间就发，文案点名上次记的课程与类别，链接带预填参数', () => {
+    const s = lastLoggedAgo(3);
+    expect(dueKindFor(s, clockAt('18:59'))).toBeNull();
+    const hit = dueKindFor(s, clockAt('19:00'));
+    expect(hit.kind).toBe('inactive');
+    expect(hit.payload.body).toBe('三天没记录了。上次是 AP 微积分 BC · 练习，点一下就能补上。');
+    expect(hit.payload.tag).toBe('yb-inactive');
+    const url = new URL(hit.payload.url, 'https://x.test');
+    expect(url.pathname).toBe('/records');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      log: '1', course: 'c1', category: '3', form: '自主练习', minutes: '45',
+    });
+  });
+
+  test('第 7 天（第一条已发）：「一周没记录了」', () => {
+    const s = lastLoggedAgo(7, { inactiveSentDates: [ago(4)] });
+    const hit = dueKindFor(s, clockAt('19:00'));
+    expect(hit.kind).toBe('inactive');
+    expect(hit.payload.body).toBe('一周没记录了。上次是 AP 微积分 BC · 练习，点一下就能补上。');
+  });
+
+  test.each([1, 2, 4, 5, 6, 8, 9, 10, 30])('最后记录在 %i 天前（已按规则发过）→ 不发', (n) => {
+    const sent = [];
+    if (n > 3) sent.push(ago(n - 3));
+    if (n > 7) sent.push(ago(n - 7));
+    expect(dueKindFor(lastLoggedAgo(n, { inactiveSentDates: sent }), clockAt('21:00'))).toBeNull();
+  });
+
+  test('两条都发过之后到再次记录之前，什么都不发', () => {
+    const s = lastLoggedAgo(12, { inactiveSentDates: [ago(9), ago(5)] });
+    expect(dueKindFor(s, clockAt('21:00'))).toBeNull();
+  });
+
+  test('从来没有记录的学生不发', () => {
+    expect(dueKindFor(student(), clockAt('21:00'))).toBeNull();
+  });
+
+  test('新记录重置循环：之前的投递早于新的最后记录日期，不再计入', () => {
+    // 10 天前发过 3 天 / 7 天提醒；学生在 3 天前又记了一条 → 现在又是新一轮的第 3 天
+    const sent = [ago(17), ago(13)];
+    const s = student({
+      sessions: [sess(ago(3)), sess(ago(20)), sess(ago(21)), sess(ago(22))],
+      inactiveSentDates: sent,
+    });
+    expect(dueKindFor(s, clockAt('19:30')).kind).toBe('inactive');
+    // 同一天记了新记录 → 最后记录日期 = 今天，不提醒
+    expect(dueKindFor({ ...s, sessions: [...s.sessions, sess(TODAY)] }, clockAt('21:00'))).toBeNull();
+  });
+
+  test('关闭「几天没记录」偏好 → 不发', () => {
+    expect(dueKindFor(lastLoggedAgo(3, { prefs: { inactive_reminder: false } }), clockAt('21:00'))).toBeNull();
+  });
+
+  test('没有课程名时文案仍通顺', () => {
+    const s = lastLoggedAgo(3, { courseNames: {} });
+    expect(dueKindFor(s, clockAt('19:00')).payload.body).toBe('三天没记录了，点一下就能补上。');
+  });
+
+  test('发送时刻 = 惯用记录时间：早起型 08:00、晚归型夹到 21:30、样本不足 19:30', () => {
+    const morning = student({ sessions: [sess(ago(3), '06:10:00'), sess(ago(4), '06:30:00'), sess(ago(5), '07:00:00')] });
+    expect(dueKindFor(morning, clockAt('07:59'))).toBeNull();
+    expect(dueKindFor(morning, clockAt('08:00')).kind).toBe('inactive');
+
+    const night = student({ sessions: [sess(ago(3), '23:00:00'), sess(ago(4), '23:20:00'), sess(ago(5), '22:40:00')] });
+    expect(dueKindFor(night, clockAt('21:29'))).toBeNull();
+    expect(dueKindFor(night, clockAt('21:30')).kind).toBe('inactive');
+
+    const few = student({ sessions: [sess(ago(3), '10:00:00'), sess(ago(4), '10:00:00')] });
+    expect(dueKindFor(few, clockAt('19:29'))).toBeNull();
+    expect(dueKindFor(few, clockAt('19:30')).kind).toBe('inactive');
+  });
+});
+
+describe('buildInactiveUrl', () => {
+  test('带课程、类别、形式、时长；缺的参数不出现；形式做 URL 编码', () => {
+    expect(buildInactiveUrl(sess(ago(3), '19:00:00', { form: '学校 作业&测验' }))).toBe(
+      '/records?log=1&course=c1&category=3&form=%E5%AD%A6%E6%A0%A1+%E4%BD%9C%E4%B8%9A%26%E6%B5%8B%E9%AA%8C&minutes=45',
+    );
+    expect(buildInactiveUrl({ courseId: 'c9' })).toBe('/records?log=1&course=c9');
+    expect(buildInactiveUrl(null)).toBe('/records?log=1');
+    expect(buildInactiveUrl({ category: 7, minutes: 0 })).toBe('/records?log=1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 每日提醒：默认关，注册后前 30 天强制
+// ---------------------------------------------------------------------------
+
+describe('每日提醒', () => {
+  const daily = (over = {}) => student({ prefs: { daily_reminder: true }, ...over });
+
+  test('到点且当天没记录 → 到期，链接 /records?log=1', () => {
+    const hit = dueKindFor(daily(), clockAt('21:00'));
     expect(hit.kind).toBe('daily');
-    expect(hit.payload.url).toBe('/learning?log=1');
+    expect(hit.payload.url).toBe('/records?log=1');
   });
 
-  test('未到点 → 不提醒', () => {
-    expect(dueKindFor(student(), clockAt('20:59'))).toBeNull();
-  });
-
-  test('当天已有记录 → 不提醒', () => {
-    expect(dueKindFor(student({ sessionDates: [TODAY] }), clockAt('21:15'))).toBeNull();
-  });
-
-  test('默认偏好（每日提醒关）不提醒', () => {
-    expect(dueKindFor(student({ prefs: {} }), clockAt('21:15'))).toBeNull();
+  test('未到点 / 当天已有记录 → 不提醒', () => {
+    expect(dueKindFor(daily(), clockAt('20:59'))).toBeNull();
+    expect(dueKindFor(daily({ sessions: [sess(TODAY)] }), clockAt('21:15'))).toBeNull();
   });
 
   test('学生自选时间 08:00', () => {
-    const s = student({ prefs: { daily_reminder: true, daily_reminder_time: '08:00' } });
+    const s = daily({ prefs: { daily_reminder: true, daily_reminder_time: '08:00' } });
     expect(dueKindFor(s, clockAt('07:59'))).toBeNull();
     expect(dueKindFor(s, clockAt('08:00')).kind).toBe('daily');
   });
-});
 
-describe('到期判定：待补填摘要（次日 18:00）', () => {
-  const base = { prefs: { pending_digest: true }, pendingDates: ['2026-10-20'] };
-
-  test('昨天有待补填，18:00 起 → 到期，数量含更早的', () => {
-    const s = student({ ...base, pendingDates: ['2026-10-20', '2026-10-18', TODAY] });
-    const hit = dueKindFor(s, clockAt('18:00'));
-    expect(hit.kind).toBe('digest');
-    expect(hit.payload.body).toContain('2 条'); // 今天的不算
+  test('一个月之后默认关：不提醒', () => {
+    expect(dueKindFor(student({ createdAt: '2025-01-01T00:00:00Z' }), clockAt('21:15'))).toBeNull();
   });
 
-  test('17:59 未到', () => {
-    expect(dueKindFor(student(base), clockAt('17:59'))).toBeNull();
+  test('注册后第一个月强制开启：偏好关也提醒，默认 21:00', () => {
+    const s = student({ createdAt: `${ago(10)}T08:00:00+08:00`, prefs: { daily_reminder: false } });
+    expect(dueKindFor(s, clockAt('20:59'))).toBeNull();
+    expect(dueKindFor(s, clockAt('21:00')).kind).toBe('daily');
+    // 强制期内同样尊重学生选的时间、以及「当天已记录就不提醒」
+    expect(dueKindFor({ ...s, prefs: { daily_reminder_time: '12:00' } }, clockAt('12:00')).kind).toBe('daily');
+    expect(dueKindFor({ ...s, sessions: [sess(TODAY)] }, clockAt('21:30'))).toBeNull();
   });
 
-  test('只有今天的待补填 → 还不提醒', () => {
-    expect(dueKindFor(student({ ...base, pendingDates: [TODAY] }), clockAt('19:00'))).toBeNull();
-  });
-
-  test('关闭摘要偏好 → 不提醒', () => {
-    expect(dueKindFor(student({ ...base, prefs: { pending_digest: false } }), clockAt('19:00'))).toBeNull();
-  });
-
-  test('今天已有记录也照样发摘要', () => {
-    const s = student({ ...base, sessionDates: [TODAY] });
-    expect(dueKindFor(s, clockAt('18:30')).kind).toBe('digest');
+  test('强制期边界：注册当天起 30 天（含注册当天，上海日期）', () => {
+    expect(forcedDailyUntil('2026-09-22T00:30:00+08:00')).toBe('2026-10-21');
+    expect(isDailyForced('2026-09-22T00:30:00+08:00', TODAY)).toBe(true);
+    expect(isDailyForced('2026-09-21T23:30:00+08:00', TODAY)).toBe(false);
+    // UTC 时间 2026-09-21 16:30 = 上海 09-22 00:30
+    expect(forcedDailyUntil('2026-09-21T16:30:00Z')).toBe('2026-10-21');
+    expect(isDailyForced(null, TODAY)).toBe(false);
+    expect(isDailyForced('garbage', TODAY)).toBe(false);
   });
 });
 
-describe('到期判定：连续记录提醒（20:30、休息日用完）', () => {
-  // 周五 2026-10-23：本周一记录，周二/周三休，周四记录，周五(今天)空 → 休息日用完
-  const TODAY_FRI = '2026-10-23';
-  const sessionDates = ['2026-10-19', '2026-10-22', '2026-10-17'];
-  const fri = (hhmm) => shanghaiClock(at(TODAY_FRI, hhmm));
-  const s = student({ prefs: { streak_reminder: true }, sessionDates });
+// ---------------------------------------------------------------------------
+// 优先级 / 每天至多一条 / badge
+// ---------------------------------------------------------------------------
 
-  test('20:30 起、休息日用完、今天空 → 到期', () => {
-    const hit = dueKindFor(s, fri('20:30'));
-    expect(hit.kind).toBe('streak');
-    expect(hit.payload.body).toContain('连续记录');
-  });
+describe('优先级与每天至多一条', () => {
+  const both = (over = {}) => lastLoggedAgo(3, { prefs: { daily_reminder: true, daily_reminder_time: '19:00' }, ...over });
 
-  test('20:29 未到', () => {
-    expect(dueKindFor(s, fri('20:29'))).toBeNull();
-  });
-
-  test('休息日还没用完 → 不提醒', () => {
-    const fewer = student({ prefs: { streak_reminder: true }, sessionDates: ['2026-10-19', '2026-10-20', '2026-10-22'] });
-    // 周一二记录，周三休，周四记录 → 只用了 1 个休息日
-    expect(dueKindFor(fewer, fri('20:45'))).toBeNull();
-  });
-
-  test('今天已记录 → 不提醒', () => {
-    expect(dueKindFor({ ...s, sessionDates: [...sessionDates, TODAY_FRI] }, fri('20:45'))).toBeNull();
-  });
-
-  test('关闭偏好 → 不提醒', () => {
-    expect(dueKindFor({ ...s, prefs: { streak_reminder: false } }, fri('20:45'))).toBeNull();
-  });
-
-  test('没有连续记录可保 → 不提醒', () => {
-    expect(dueKindFor(student({ prefs: { streak_reminder: true }, sessionDates: [] }), fri('21:00'))).toBeNull();
-  });
-
-  test('提醒文案不含任何分钟目标', () => {
-    const text = JSON.stringify([
-      buildPayload('daily'),
-      buildPayload('digest', { pendingCount: 3 }),
-      buildPayload('streak', { streak: 5 }),
-      buildPayload('invite', { teacherName: '王老师' }),
-    ]);
-    expect(text).not.toMatch(/目标|还差|分钟/);
-  });
-});
-
-describe('每天至多一条非邀请推送', () => {
-  test('同时到期时只返回一条（streak 优先于 daily 优先于 digest）', () => {
-    const s = student({
-      prefs: { daily_reminder: true, daily_reminder_time: '18:00', pending_digest: true, streak_reminder: true },
-      sessionDates: ['2026-10-19', '2026-10-22', '2026-10-17'],
-      pendingDates: ['2026-10-22'],
-    });
-    const clock = shanghaiClock(at('2026-10-23', '21:00'));
-    const due = selectDue({ students: [s], clock });
+  test('inactive 与 daily 同时到期：只返回 inactive', () => {
+    const due = selectDue({ students: [both()], clock: clockAt('21:00') });
     expect(due).toHaveLength(1);
-    expect(due[0].kind).toBe('streak');
+    expect(due[0].kind).toBe('inactive');
   });
 
-  test('今天已发过的学生被跳过', () => {
+  test('当天要发 inactive 时，更早到点的每日提醒让位', () => {
+    const s = both({ prefs: { daily_reminder: true, daily_reminder_time: '08:00' } });
+    expect(dueKindFor(s, clockAt('08:00'))).toBeNull();     // 还没到 inactive 的时间，daily 不抢先
+    expect(dueKindFor(s, clockAt('19:00')).kind).toBe('inactive');
+  });
+
+  test('没有 inactive 的日子，daily 照常发', () => {
+    const s = lastLoggedAgo(5, { inactiveSentDates: [ago(2)], prefs: { daily_reminder: true } });
+    expect(dueKindFor(s, clockAt('21:00')).kind).toBe('daily');
+  });
+
+  test('今天已发过非邀请推送的学生被跳过', () => {
     const due = selectDue({
-      students: [student({ id: 'a' }), student({ id: 'b' })],
+      students: [student({ id: 'a', prefs: { daily_reminder: true } }), student({ id: 'b', prefs: { daily_reminder: true } })],
       clock: clockAt('21:30'),
       sentToday: new Set(['a']),
     });
     expect(due.map((d) => d.userId)).toEqual(['b']);
+  });
+});
+
+describe('推送载荷', () => {
+  test('每条推送都带 badge = 待补填数量，缺省为 0', () => {
+    const s = lastLoggedAgo(3, { pendingCount: 4 });
+    expect(dueKindFor(s, clockAt('19:00')).payload.badge).toBe(4);
+    const d = student({ prefs: { daily_reminder: true }, pendingCount: 2 });
+    expect(dueKindFor(d, clockAt('21:00')).payload.badge).toBe(2);
+    expect(buildPayload('daily').badge).toBe(0);
+    expect(buildPayload('invite', { teacherName: '王老师', badge: 3 }).badge).toBe(3);
+    expect(buildPayload('daily', { badge: -5 }).badge).toBe(0);
+  });
+
+  test('待补填本身不会触发任何推送', () => {
+    const s = student({ pendingCount: 9, sessions: [sess(ago(1))], prefs: {} });
+    expect(dueKindFor(s, clockAt('21:00'))).toBeNull();
+  });
+
+  test('文案不含分钟目标，也不提休息日额度', () => {
+    const text = JSON.stringify([
+      buildPayload('daily'),
+      buildPayload('inactive', { stage: 3, last: sess(ago(3)), courseName: 'AP 微积分 BC' }),
+      buildPayload('inactive', { stage: 7, last: sess(ago(7)), courseName: 'AP 微积分 BC' }),
+      buildPayload('invite', { teacherName: '王老师' }),
+    ]);
+    expect(text).not.toMatch(/目标|还差|休息/);
+  });
+
+  test('已移除的推送类型不再存在', () => {
+    for (const kind of ['digest', 'streak']) expect(() => buildPayload(kind)).toThrow();
   });
 });
 
@@ -271,9 +393,10 @@ function makeStore(over = {}) {
     listSubscriptions: async () => over.subs || [],
     listSubscriptionsFor: async (id) => (over.subs || []).filter((s) => s.user_id === id),
     loadProfiles: async (ids) => (over.profiles || []).filter((p) => ids.includes(p.id)),
-    loadSessionDates: async () => new Map(Object.entries(over.dates || {})),
-    loadPendingDates: async () => new Map(Object.entries(over.pending || {})),
-    loadSentToday: async () => new Set(over.sentToday || []),
+    loadSessions: async () => new Map(Object.entries(over.sessions || {})),
+    loadPendingCounts: async () => new Map(Object.entries(over.pending || {})),
+    loadCourseNames: async () => over.courses || {},
+    loadDeliveries: async () => over.deliveries || [],
     claimDaily: async (uid, date, kind) => {
       calls.claim.push([uid, date, kind]);
       if (claimed.has(uid)) return false;
@@ -289,14 +412,14 @@ function makeStore(over = {}) {
 }
 
 const sub = (uid, n = 1) => ({ user_id: uid, endpoint: `https://push.example/${uid}/${n}`, p256dh: 'p', auth: 'a' });
-const dailyProfile = (id) => ({ id, notification_prefs: { daily_reminder: true, daily_reminder_time: '21:00' } });
+const dailyProfile = (id) => ({ id, created_at: '2025-01-01T00:00:00Z', notification_prefs: { inactive_reminder: false, daily_reminder: true, daily_reminder_time: '21:00' } });
 
 describe('runTick', () => {
   beforeEach(() => jest.spyOn(console, 'warn').mockImplementation(() => {}));
   afterEach(() => jest.restoreAllMocks());
 
   test('到期学生收到推送，并写入占位与 last_used_at', async () => {
-    const store = makeStore({ subs: [sub('a'), sub('a', 2), sub('b')], profiles: [dailyProfile('a'), dailyProfile('b')], dates: { b: [TODAY] } });
+    const store = makeStore({ subs: [sub('a'), sub('a', 2), sub('b')], profiles: [dailyProfile('a'), dailyProfile('b')], sessions: { b: [sess(TODAY)] }, pending: { a: 3 } });
     const sendPush = jest.fn().mockResolvedValue({ statusCode: 201 });
     const res = await runTick({ store, sendPush, now: at(TODAY, '21:15') });
 
@@ -305,7 +428,7 @@ describe('runTick', () => {
     expect(sendPush).toHaveBeenCalledTimes(2);
     const [subscription, body] = sendPush.mock.calls[0];
     expect(subscription).toEqual({ endpoint: 'https://push.example/a/1', keys: { p256dh: 'p', auth: 'a' } });
-    expect(JSON.parse(body)).toMatchObject({ title: '一表人才', tag: 'yb-daily', url: '/learning?log=1' });
+    expect(JSON.parse(body)).toMatchObject({ title: '一表人才', tag: 'yb-daily', url: '/records?log=1', badge: 3 });
     expect(store.calls.touched).toHaveLength(2);
   });
 
@@ -320,7 +443,7 @@ describe('runTick', () => {
   });
 
   test('每日上限：库里已有当天占位（并发/重复轮询）→ 不再发送', async () => {
-    const preSent = makeStore({ subs: [sub('a')], profiles: [dailyProfile('a')], sentToday: ['a'] });
+    const preSent = makeStore({ subs: [sub('a')], profiles: [dailyProfile('a')], deliveries: [{ user_id: 'a', sent_date: TODAY, kind: 'daily' }] });
     const send1 = jest.fn();
     await runTick({ store: preSent, sendPush: send1, now: at(TODAY, '21:15') });
     expect(send1).not.toHaveBeenCalled();
@@ -372,27 +495,93 @@ describe('runTick', () => {
     expect(store.calls.release).toEqual([]);
   });
 
-  test('没有任何提醒开启的学生不会触发读记录', async () => {
+  test('没有任何提醒开启（且已过 30 天）的学生不会触发读记录', async () => {
     const store = makeStore({
       subs: [sub('a')],
-      profiles: [{ id: 'a', notification_prefs: { daily_reminder: false, pending_digest: false, streak_reminder: false } }],
+      profiles: [{ id: 'a', created_at: '2025-01-01T00:00:00Z', notification_prefs: { inactive_reminder: false, daily_reminder: false } }],
     });
-    const spy = jest.spyOn(store, 'loadSessionDates');
+    const spy = jest.spyOn(store, 'loadSessions');
     const res = await runTick({ store, sendPush: jest.fn(), now: at(TODAY, '21:15') });
     expect(res.considered).toBe(0);
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('待补填摘要：次日 18:00 发送', async () => {
+  test('注册第一个月：偏好全关也会被纳入（每日提醒强制）', async () => {
     const store = makeStore({
       subs: [sub('a')],
-      profiles: [{ id: 'a', notification_prefs: {} }],
-      pending: { a: ['2026-10-20'] },
+      profiles: [{ id: 'a', created_at: at(ago(5), '09:00').toISOString(), notification_prefs: { inactive_reminder: false, daily_reminder: false } }],
     });
     const sendPush = jest.fn().mockResolvedValue({});
-    await runTick({ store, sendPush, now: at(TODAY, '18:00') });
-    expect(store.calls.claim).toEqual([['a', TODAY, 'digest']]);
-    expect(JSON.parse(sendPush.mock.calls[0][1]).body).toContain('1 条');
+    await runTick({ store, sendPush, now: at(TODAY, '21:00') });
+    expect(store.calls.claim).toEqual([['a', TODAY, 'daily']]);
+  });
+
+  describe('几天没记录', () => {
+    const inactiveProfile = { id: 'a', created_at: '2025-01-01T00:00:00Z', notification_prefs: {} };
+    const rows = (n) => [sess(ago(n)), sess(ago(n + 1)), sess(ago(n + 2))];
+    const base = (over = {}) => makeStore({
+      subs: [sub('a')], profiles: [inactiveProfile], courses: { c1: 'AP 微积分 BC' }, pending: { a: 2 }, ...over,
+    });
+
+    test('第 3 天：到惯用时间发一条，正文与链接带上次记录，badge = 待补填数', async () => {
+      const store = base({ sessions: { a: rows(3) } });
+      const sendPush = jest.fn().mockResolvedValue({});
+      const early = await runTick({ store, sendPush, now: at(TODAY, '18:45') });
+      expect(early.sent).toBe(0);
+      await runTick({ store, sendPush, now: at(TODAY, '19:00') });
+      expect(store.calls.claim).toEqual([['a', TODAY, 'inactive']]);
+      const payload = JSON.parse(sendPush.mock.calls[0][1]);
+      expect(payload.body).toBe('三天没记录了。上次是 AP 微积分 BC · 练习，点一下就能补上。');
+      expect(payload.url).toBe(`/records?log=1&course=c1&category=3&form=${encodeURIComponent('自主练习').replace(/%20/g, '+')}&minutes=45`);
+      expect(payload.badge).toBe(2);
+    });
+
+    test('第 7 天再发一条；第 4–6 天与第 8 天起不发', async () => {
+      const sentRows = [{ user_id: 'a', sent_date: ago(4), kind: 'inactive' }];
+      const day7 = base({ sessions: { a: rows(7) }, deliveries: sentRows });
+      const send7 = jest.fn().mockResolvedValue({});
+      await runTick({ store: day7, sendPush: send7, now: at(TODAY, '19:00') });
+      expect(JSON.parse(send7.mock.calls[0][1]).body).toContain('一周没记录了');
+
+      for (const n of [4, 5, 6, 8, 9, 20]) {
+        const store = base({ sessions: { a: rows(n) }, deliveries: [{ user_id: 'a', sent_date: ago(n - 3), kind: 'inactive' }, ...(n > 7 ? [{ user_id: 'a', sent_date: ago(n - 7), kind: 'inactive' }] : [])] });
+        const send = jest.fn().mockResolvedValue({});
+        await runTick({ store, sendPush: send, now: at(TODAY, '21:00') });
+        expect(send).not.toHaveBeenCalled();
+      }
+    });
+
+    test('新记录之后重新开始：旧投递早于最后记录日期不计', async () => {
+      const store = base({
+        sessions: { a: rows(3) },
+        deliveries: [{ user_id: 'a', sent_date: ago(12), kind: 'inactive' }, { user_id: 'a', sent_date: ago(8), kind: 'inactive' }],
+      });
+      const sendPush = jest.fn().mockResolvedValue({});
+      await runTick({ store, sendPush, now: at(TODAY, '19:00') });
+      expect(sendPush).toHaveBeenCalledTimes(1);
+    });
+
+    test('同一天 inactive 与 daily 都到期：只发 inactive，且当天不再发第二条', async () => {
+      const store = makeStore({
+        subs: [sub('a')],
+        profiles: [{ ...inactiveProfile, notification_prefs: { daily_reminder: true, daily_reminder_time: '19:00' } }],
+        sessions: { a: rows(3) },
+      });
+      const sendPush = jest.fn().mockResolvedValue({});
+      await runTick({ store, sendPush, now: at(TODAY, '19:00') });
+      await runTick({ store, sendPush, now: at(TODAY, '21:00') });
+      expect(sendPush).toHaveBeenCalledTimes(1);
+      expect(store.calls.claim[0][2]).toBe('inactive');
+    });
+
+    test('静默时段不发（即使惯用时间被夹到 21:30 之后也不会进入 22:30）', async () => {
+      const store = base({ sessions: { a: [sess(ago(3), '23:30:00'), sess(ago(4), '23:40:00'), sess(ago(5), '23:50:00')] } });
+      const sendPush = jest.fn().mockResolvedValue({});
+      await runTick({ store, sendPush, now: at(TODAY, '22:30') });
+      expect(sendPush).not.toHaveBeenCalled();
+      await runTick({ store, sendPush, now: at(TODAY, '21:30') });
+      expect(sendPush).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -401,7 +590,8 @@ describe('邀请推送', () => {
     const store = makeStore({
       subs: [sub('a')],
       profiles: [dailyProfile('a')],
-      sentToday: ['a'], // 今天已发过非邀请推送
+      deliveries: [{ user_id: 'a', sent_date: TODAY, kind: 'inactive' }], // 今天已发过非邀请推送
+      pending: { a: 5 },
       alreadyClaimed: ['a'],
     });
     const sendPush = jest.fn().mockResolvedValue({});
@@ -410,6 +600,7 @@ describe('邀请推送', () => {
     expect(store.calls.claim).toEqual([]); // 不占用每日名额
     expect(JSON.parse(sendPush.mock.calls[0][1])).toMatchObject({ tag: 'yb-invite', url: '/notifications' });
     expect(JSON.parse(sendPush.mock.calls[0][1]).body).toContain('王老师');
+    expect(JSON.parse(sendPush.mock.calls[0][1]).badge).toBe(5);
   });
 
   test('学生关闭邀请通知 → 跳过', async () => {
@@ -478,15 +669,30 @@ describe('createSupabaseStore（mock fetch）', () => {
     expect(f.calls[0].url).toContain('push_subscriptions?endpoint=eq.https%3A%2F%2Fpush.example%2Fa%3Fx%3D1');
   });
 
-  test('loadPendingDates 使用 PLAN 的待补填规则', async () => {
-    const f = fakeFetch(() => json(200, [{ student_id: 'u', session_date: '2026-10-20' }]));
+  test('loadPendingCounts 使用 PLAN 的待补填规则，返回每人数量', async () => {
+    const f = fakeFetch(() => json(200, [{ student_id: 'u' }, { student_id: 'u' }, { student_id: 'v' }]));
     const store = createSupabaseStore({ url: 'https://p.supabase.co', serviceKey: 'svc', fetchImpl: f });
-    const map = await store.loadPendingDates(['u']);
-    expect(map.get('u')).toEqual(['2026-10-20']);
+    const map = await store.loadPendingCounts(['u', 'v']);
+    expect(map.get('u')).toBe(2);
+    expect(map.get('v')).toBe(1);
     const url = f.calls[0].url;
     for (const part of ['category=eq.3', 'grade_label=is.null', 'score=is.null', 'deleted_at=is.null']) {
       expect(url).toContain(part);
     }
+  });
+
+  test('loadSessions 只取未删除记录并转成精简结构；loadDeliveries 排除邀请', async () => {
+    const f = fakeFetch((url) => (url.includes('learning_sessions')
+      ? json(200, [{ student_id: 'u', session_date: '2026-10-18', start_time: '19:00:00', course_id: 'c1', category: 3, form: '自主练习', duration_minutes: 45 }])
+      : json(200, [{ user_id: 'u', sent_date: '2026-10-20', kind: 'inactive' }])));
+    const store = createSupabaseStore({ url: 'https://p.supabase.co', serviceKey: 'svc', fetchImpl: f });
+    const map = await store.loadSessions(['u'], '2026-08-22');
+    expect(map.get('u')).toEqual([sess('2026-10-18')]);
+    expect(f.calls[0].url).toContain('deleted_at=is.null');
+    expect(f.calls[0].url).toContain('session_date=gte.2026-08-22');
+    const rows = await store.loadDeliveries(['u'], '2026-09-21');
+    expect(rows).toHaveLength(1);
+    expect(f.calls[1].url).toContain('kind=neq.invite');
   });
 
   test('listSubscriptions 自动翻页', async () => {

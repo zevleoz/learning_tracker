@@ -6,6 +6,8 @@ import { supabase } from './supabase.js';
 import { useAuth } from './useAuth.js';
 import { logger } from './logger.js';
 import { toLocalDateStr } from './date.js';
+import { pendingObjective } from './studentStats.js';
+import { setAppBadge } from './push.js';
 
 const HISTORY_DAYS = 730;     // 连续天数要看得足够远：至少 2 年
 const WINDOW_DAYS = 91;       // 分成一个季度一段并行取，避免撞到单次 1000 行上限
@@ -94,6 +96,7 @@ export function useStudentData({ today } = {}) {
             .eq('student_id', userId).eq('status', 0), [], '导师邀请'),
         ]);
         if (!alive) return;
+        setAppBadge(pendingObjective(sessions).length); // 图标角标 = 待补填数量
         setState({
           loading: false, error: null, sessions, exams, examCourses, pendingInvites: invites.length,
         });

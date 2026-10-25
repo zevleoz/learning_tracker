@@ -114,3 +114,5 @@
 .mec-un-t { min-width: 44px; text-align: right; font-size: 13px; color: var(--yb-ink-2, #434852); }
 .mec-dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--yb-ink-3, #5F6570); background: transparent; }
 .mec-dot.on { background: var(--yb-good, #2C7549); box-shadow: none; }
+.mep-lock-note { display: block; margin-top: 4px; font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mep-switch.locked:disabled { opacity: .65; }

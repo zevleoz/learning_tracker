@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase.js';
+import {
+  DEFAULT_PREFS, normalizePrefs, loadPrefs, savePrefs, isDailyForced, forcedDailyUntil, fmtMonthDay,
+} from '../../lib/notifyPrefs.js';
 import { useAuth } from '../../lib/useAuth.js';
 import { toast } from '../../lib/toast.js';
 import { logger } from '../../lib/logger.js';
@@ -127,42 +130,17 @@ export default function Me() {
 
 /* ================================================================
    提醒设置（/me/reminders）
-   - 授权只在打开第一个开关时请求，页面加载时不请求。
+   - 授权只在学生点开关 / 「允许通知」时请求，页面加载时不请求。
    - 偏好存 profiles.notification_prefs；列还不存在（补丁未执行）时降级为只读提示。
+   - 注册后的前 30 天每日提醒强制开启（显示为已开启并锁定），之后才可关闭。
    ================================================================ */
-export const DEFAULT_PREFS = {
-  daily_reminder: false,
-  daily_reminder_time: '21:00',
-  pending_digest: true,
-  streak_reminder: true,
-  invites: true,
-  weekly_email: false,
-};
+export { DEFAULT_PREFS, normalizePrefs };
 
 export const REMINDER_ROWS = [
+  { key: 'inactive_reminder', title: '几天没记录时提醒我', desc: () => '3 天没记录时提醒一次，7 天时再提醒一次', push: true },
   { key: 'daily_reminder', title: '每日提醒', desc: (p) => `${p.daily_reminder_time} · 只在当天还没记录时`, push: true, time: true },
-  { key: 'pending_digest', title: '待补填', desc: () => '次日 18:00 · 汇总成一条', push: true },
-  { key: 'streak_reminder', title: '连续记录快断了', desc: () => '20:30 · 休息日用完时', push: true },
   { key: 'invites', title: '导师邀请', desc: () => '立即', push: true },
-  { key: 'weekly_email', title: '每周小结', desc: () => '周日 19:00 · 邮件', push: false },
 ];
-
-export function normalizePrefs(raw) {
-  const out = { ...DEFAULT_PREFS };
-  if (raw && typeof raw === 'object') {
-    for (const k of Object.keys(DEFAULT_PREFS)) {
-      if (typeof raw[k] === typeof DEFAULT_PREFS[k]) out[k] = raw[k];
-    }
-  }
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(out.daily_reminder_time)) out.daily_reminder_time = DEFAULT_PREFS.daily_reminder_time;
-  return out;
-}
-
-// 列不存在：Postgres 42703，PostgREST 会报 "column ... does not exist"
-function isMissingColumn(err) {
-  if (!err) return false;
-  return err.code === '42703' || err.code === 'PGRST204' || /notification_prefs|does not exist/i.test(err.message || '');
-}
 
 const DENIED_COPY = {
   denied: '通知权限被拒绝了。请在浏览器或系统设置里允许一表人才发送通知，再回来开启。',
@@ -175,6 +153,7 @@ const DENIED_COPY = {
 export function Reminders() {
   const [uid, setUid] = useState(null);
   const [prefs, setPrefs] = useState(DEFAULT_PREFS);
+  const [createdAt, setCreatedAt] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [available, setAvailable] = useState(true);     // notification_prefs 列是否存在
   const [permission, setPermission] = useState(() => getPermission());
@@ -190,17 +169,14 @@ export function Reminders() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user || cancelled) return;
         setUid(user.id);
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('notification_prefs')
-          .eq('id', user.id)
-          .maybeSingle();
+        const res = await loadPrefs(user.id);
         if (cancelled) return;
-        if (error) {
-          if (isMissingColumn(error)) setAvailable(false);
-          else logger.error('load notification_prefs failed:', error);
+        if (res.error) {
+          if (!res.available) setAvailable(false);
+          else logger.error('load notification_prefs failed:', res.error);
         } else {
-          setPrefs(normalizePrefs(data?.notification_prefs));
+          setPrefs(res.prefs);
+          setCreatedAt(res.createdAt);
         }
       } catch (err) {
         logger.error('Reminders load failed:', err);
@@ -212,38 +188,38 @@ export function Reminders() {
   }, []);
 
   const granted = permission === 'granted';
-  // 推送类开关：没有授权时一律显示为关（服务端没有订阅就发不出去）；周报邮件不依赖授权
-  const isOn = (row) => (row.push ? granted && prefs[row.key] : prefs[row.key]);
+  const forced = isDailyForced(createdAt);
+  const forcedUntil = forcedDailyUntil(createdAt);
+  const isLocked = (row) => row.key === 'daily_reminder' && forced;
+  // 推送类开关：没有授权时一律显示为关（服务端没有订阅就发不出去）；强制期内的每日提醒始终显示为开并锁定
+  const isOn = (row) => isLocked(row) || (granted && prefs[row.key]);
   const blocked = needsInstall || permission === 'denied' || (!supported && !needsInstall);
 
   async function persist(next) {
-    const { error } = await supabase
-      .from('profiles')
-      .update({ notification_prefs: next })
-      .eq('id', uid);
-    if (error) {
-      if (isMissingColumn(error)) setAvailable(false);
-      else logger.error('save notification_prefs failed:', error);
+    const res = await savePrefs(uid, next);
+    if (!res.ok) {
+      if (res.missingColumn) setAvailable(false);
+      else logger.error('save notification_prefs failed');
       return false;
     }
     return true;
   }
 
+  async function requestPermission() {
+    const res = await subscribe(uid);
+    setPermission(getPermission());
+    if (!res.ok) setProblem(DENIED_COPY[res.reason] || '没能开启提醒，请稍后再试。');
+    return res.ok;
+  }
+
   async function toggle(row) {
-    if (!uid || busyKey || !available) return;
+    if (!uid || busyKey || !available || isLocked(row)) return;
     const turningOn = !isOn(row);
     setBusyKey(row.key);
     setProblem('');
     try {
       // 第一次打开推送类开关时才请求授权并订阅
-      if (turningOn && row.push && !granted) {
-        const res = await subscribe(uid);
-        setPermission(getPermission());
-        if (!res.ok) {
-          setProblem(DENIED_COPY[res.reason] || '没能开启提醒，请稍后再试。');
-          return;
-        }
-      }
+      if (turningOn && row.push && !granted && !(await requestPermission())) return;
       const next = { ...prefs, [row.key]: turningOn };
       const ok = await persist(next);
       if (!ok) {
@@ -251,12 +227,23 @@ export function Reminders() {
         return;
       }
       setPrefs(next);
-      // 推送类开关全部关掉后，取消这台设备的订阅
-      const anyPush = REMINDER_ROWS.some((r) => r.push && next[r.key]);
+      // 推送类开关全部关掉后，取消这台设备的订阅（强制期内的每日提醒仍算开着）
+      const anyPush = REMINDER_ROWS.some((r) => r.push && (next[r.key] || isLocked(r)));
       if (row.push && !turningOn && !anyPush) await unsubscribe();
     } catch (err) {
       logger.error('toggle reminder failed:', err);
       toast('保存失败，请稍后再试', { kind: 'error' });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function allowNotifications() {
+    if (!uid || busyKey) return;
+    setBusyKey('allow');
+    setProblem('');
+    try {
+      await requestPermission();
     } finally {
       setBusyKey(null);
     }
@@ -308,12 +295,26 @@ export function Reminders() {
         <ul className="mep-list">
           {REMINDER_ROWS.map((row) => {
             const on = isOn(row);
-            const disabled = !loaded || !available || busyKey === row.key || (row.push && blocked && !on);
+            const locked = isLocked(row);
+            const disabled = !loaded || !available || locked || busyKey === row.key || (row.push && blocked && !on);
             return (
               <li key={row.key} className="mep-li static">
                 <span className="mep-li-t">
                   <b id={`rem-${row.key}`}>{row.title}</b>
                   <span>{row.desc(prefs)}</span>
+                  {locked && forcedUntil && (
+                    <span className="mep-lock-note">注册后第一个月会每天提醒，{fmtMonthDay(forcedUntil)} 之后可以关闭</span>
+                  )}
+                  {locked && !granted && !blocked && (
+                    <button
+                      type="button"
+                      className="yb-btn ghost sm"
+                      disabled={!loaded || busyKey === 'allow'}
+                      onClick={allowNotifications}
+                    >
+                      允许通知
+                    </button>
+                  )}
                   {row.time && on && (
                     <label className="mep-time">
                       提醒时间
@@ -332,7 +333,7 @@ export function Reminders() {
                   role="switch"
                   aria-checked={on}
                   aria-labelledby={`rem-${row.key}`}
-                  className={'mep-switch' + (on ? ' on' : '')}
+                  className={'mep-switch' + (on ? ' on' : '') + (locked ? ' locked' : '')}
                   disabled={disabled}
                   onClick={() => toggle(row)}
                 />
@@ -342,7 +343,7 @@ export function Reminders() {
         </ul>
       </section>
 
-      <p className="mep-note mep-center">每天最多一条提醒（导师邀请除外），22:30–07:00 不打扰。</p>
+      <p className="mep-note mep-center">每天最多一条提醒（导师邀请除外），22:30–07:00 不打扰；几天没记录时只在第 3 天和第 7 天各提醒一次，记录一次后重新计算。</p>
     </div>
   );
 }

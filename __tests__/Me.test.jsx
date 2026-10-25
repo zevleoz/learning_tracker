@@ -180,10 +180,77 @@ describe('我的 · 导师邀请同意页', () => {
 describe('提醒设置', () => {
   it('normalizePrefs 补全缺省并丢弃脏数据', () => {
     expect(normalizePrefs(null).invites).toBe(true);
-    const p = normalizePrefs({ daily_reminder: 'yes', daily_reminder_time: '25:99', weekly_email: true });
+    const p = normalizePrefs({ daily_reminder: 'yes', daily_reminder_time: '25:99', weekly_email: true, pending_digest: true });
     expect(p.daily_reminder).toBe(false);
     expect(p.daily_reminder_time).toBe('21:00');
-    expect(p.weekly_email).toBe(true);
+    expect(p.inactive_reminder).toBe(true);       // 默认开
+    expect(p).not.toHaveProperty('weekly_email'); // 已移除的旧字段
+    expect(p).not.toHaveProperty('pending_digest');
+  });
+
+  it('只有三行：几天没记录时提醒我 · 每日提醒 · 导师邀请；一句话说明规则', async () => {
+    seed();
+    renderAt('/me/reminders', <Reminders />);
+    await screen.findByRole('switch', { name: '每日提醒' });
+    const names = screen.getAllByRole('switch').map((s) => s.getAttribute('aria-labelledby'));
+    expect(names).toEqual(['rem-inactive_reminder', 'rem-daily_reminder', 'rem-invites']);
+    expect(screen.getByRole('switch', { name: '几天没记录时提醒我' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '导师邀请' })).toBeInTheDocument();
+    for (const gone of ['待补填', '连续记录快断了', '每周小结']) expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    expect(screen.getByText(/每天最多一条提醒.*22:30–07:00 不打扰.*第 3 天和第 7 天/)).toBeInTheDocument();
+  });
+
+  describe('注册后第一个月：每日提醒强制开启', () => {
+    const DAY = 86400000;
+    const lastForcedDay = (createdIso) => {
+      const d = new Date(new Date(createdIso).getTime() + 8 * 3600 * 1000 + 29 * DAY); // 上海日期 + 29 天
+      return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
+    };
+
+    it('显示为已开启并锁定，附说明与日期；时间仍可改；导师邀请不受影响', async () => {
+      const created = new Date(Date.now() - 5 * DAY).toISOString();
+      seed();
+      supabase.__setTableData('profiles', [{ id: 'u1', role: 1, created_at: created, notification_prefs: { daily_reminder: false } }]);
+      renderAt('/me/reminders', <Reminders />);
+      const sw = await screen.findByRole('switch', { name: '每日提醒' });
+      await waitFor(() => expect(screen.getByText(/注册后第一个月会每天提醒/)).toBeInTheDocument());
+      expect(sw).toHaveAttribute('aria-checked', 'true');
+      expect(sw).toBeDisabled();
+      expect(screen.getByText(`注册后第一个月会每天提醒，${lastForcedDay(created)} 之后可以关闭`)).toBeInTheDocument();
+      expect(screen.getByLabelText('每日提醒时间')).toHaveValue('21:00');
+      fireEvent.click(sw);
+      expect(updates('profiles')).toHaveLength(0);
+      // 还没授权通知：给一个「允许通知」按钮，点了才请求
+      expect(push.subscribe).not.toHaveBeenCalled();
+      push.subscribe.mockImplementation(async () => { push.getPermission.mockReturnValue('granted'); return { ok: true }; });
+      fireEvent.click(screen.getByRole('button', { name: '允许通知' }));
+      await waitFor(() => expect(push.subscribe).toHaveBeenCalledWith('u1'));
+      await waitFor(() => expect(screen.queryByRole('button', { name: '允许通知' })).not.toBeInTheDocument());
+    });
+
+    it('强制期内关掉「几天没记录」也不会取消订阅（每日提醒还开着）', async () => {
+      const created = new Date(Date.now() - 2 * DAY).toISOString();
+      seed();
+      supabase.__setTableData('profiles', [{ id: 'u1', role: 1, created_at: created, notification_prefs: { inactive_reminder: true, invites: false } }]);
+      push.getPermission.mockReturnValue('granted');
+      renderAt('/me/reminders', <Reminders />);
+      const sw = await screen.findByRole('switch', { name: '几天没记录时提醒我' });
+      await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'true'));
+      fireEvent.click(sw);
+      await waitFor(() => expect(updates('profiles').pop().args.notification_prefs.inactive_reminder).toBe(false));
+      expect(push.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('一个月之后：不再锁定，默认关，可自行开关', async () => {
+      const created = new Date(Date.now() - 60 * DAY).toISOString();
+      seed();
+      supabase.__setTableData('profiles', [{ id: 'u1', role: 1, created_at: created, notification_prefs: {} }]);
+      renderAt('/me/reminders', <Reminders />);
+      const sw = await screen.findByRole('switch', { name: '每日提醒' });
+      await waitFor(() => expect(sw).not.toBeDisabled());
+      expect(sw).toHaveAttribute('aria-checked', 'false');
+      expect(screen.queryByText(/注册后第一个月会每天提醒/)).not.toBeInTheDocument();
+    });
   });
 
   it('打开页面不请求权限；iOS 未安装时显示添加到主屏幕卡片', async () => {
@@ -230,11 +297,11 @@ describe('提醒设置', () => {
     seed();
     push.subscribe.mockResolvedValue({ ok: false, reason: 'denied' });
     renderAt('/me/reminders', <Reminders />);
-    const sw = await screen.findByRole('switch', { name: '待补填' });
+    const sw = await screen.findByRole('switch', { name: '几天没记录时提醒我' });
     await waitFor(() => expect(sw).not.toBeDisabled());
     fireEvent.click(sw);
     expect(await screen.findByRole('alert')).toHaveTextContent('权限被拒绝');
-    expect(screen.getByRole('switch', { name: '待补填' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('switch', { name: '几天没记录时提醒我' })).toHaveAttribute('aria-checked', 'false');
     expect(updates('profiles')).toHaveLength(0);
   });
 
@@ -259,14 +326,14 @@ describe('提醒设置', () => {
   it('已授权时，推送类开关按已存偏好显示；关掉最后一个会取消订阅', async () => {
     seed();
     supabase.__setTableData('profiles', [
-      { id: 'u1', role: 1, notification_prefs: { daily_reminder: false, pending_digest: true, streak_reminder: false, invites: false, weekly_email: false, daily_reminder_time: '21:00' } },
+      { id: 'u1', role: 1, notification_prefs: { inactive_reminder: true, daily_reminder: false, invites: false, daily_reminder_time: '21:00' } },
     ]);
     push.getPermission.mockReturnValue('granted');
     renderAt('/me/reminders', <Reminders />);
-    const digest = await screen.findByRole('switch', { name: '待补填' });
-    await waitFor(() => expect(digest).toHaveAttribute('aria-checked', 'true'));
+    const inactive = await screen.findByRole('switch', { name: '几天没记录时提醒我' });
+    await waitFor(() => expect(inactive).toHaveAttribute('aria-checked', 'true'));
     expect(screen.getByRole('switch', { name: '导师邀请' })).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(digest);
+    fireEvent.click(inactive);
     await waitFor(() => expect(push.unsubscribe).toHaveBeenCalled());
   });
 });

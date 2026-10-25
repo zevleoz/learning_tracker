@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toLocalDateStr } from '../../lib/date.js';
 import {
@@ -8,6 +8,9 @@ import { recentCombos } from '../../lib/sessionRules.js';
 import {
   useStudentData, openLogSheet, fmtHM, courseName, CATEGORY_LABEL,
 } from '../../lib/useStudentData.js';
+import { getPermission, isIOSNeedsInstall, isPushSupported, subscribe } from '../../lib/push.js';
+import { loadPrefs, dismissPushCard, isCardDismissedLocally } from '../../lib/notifyPrefs.js';
+import { toast } from '../../lib/toast.js';
 import '../../styles/student-home.css';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -72,8 +75,24 @@ function PageState({ loading, error, onRetry }) {
 export default function Today({ today: todayProp } = {}) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { loading, error, reload, sessions, pendingInvites, today, profile } = useStudentData({ today: todayProp });
+  const {
+    loading, error, reload, sessions, pendingInvites, today, profile, userId,
+  } = useStudentData({ today: todayProp });
   const todayStr = toLocalDateStr(today);
+
+  // 提醒权限小卡片：第 3 条记录之后才出现，点「开启」才弹系统授权，「不用」永久收起
+  const [pushPrefs, setPushPrefs] = useState(null);       // 读到 notification_prefs 之后才可能显示
+  const [cardHidden, setCardHidden] = useState(() => isCardDismissedLocally());
+  const [permission, setPermission] = useState(() => getPermission());
+  const [cardBusy, setCardBusy] = useState(false);
+  useEffect(() => {
+    if (!userId) return undefined;
+    let alive = true;
+    loadPrefs(userId)
+      .then((res) => { if (alive) setPushPrefs(res.prefs); })
+      .catch(() => { if (alive) setPushPrefs(null); });
+    return () => { alive = false; };
+  }, [userId]);
 
   const view = useMemo(() => {
     const week = weekRange(todayStr);
@@ -100,6 +119,26 @@ export default function Today({ today: todayProp } = {}) {
   const todoCount = (pending.length > 0 ? 1 : 0) + (pendingInvites > 0 ? 1 : 0);
   const openLog = (detail) => openLogSheet(navigate, detail, pathname);
 
+  const needsInstall = isIOSNeedsInstall();
+  const showPushCard = pushPrefs != null && !pushPrefs.push_card_dismissed && !cardHidden
+    && sessions.length >= 3
+    && (needsInstall || (isPushSupported() && permission === 'default'));
+  async function enablePush() {
+    if (cardBusy) return;
+    setCardBusy(true);
+    try {
+      const res = await subscribe(userId);
+      setPermission(getPermission());
+      if (!res.ok && getPermission() === 'default') toast('没能开启提醒，可以稍后在「我的 › 提醒」里再试', { kind: 'error' });
+    } finally {
+      setCardBusy(false);
+    }
+  }
+  function declinePush() {
+    setCardHidden(true);
+    dismissPushCard(userId, pushPrefs);
+  }
+
   const compare = !hasLast && cat.total === 0
     ? '上周也没有记录，从今天开始。'
     : diff === 0 ? '和上周同期持平'
@@ -114,6 +153,23 @@ export default function Today({ today: todayProp } = {}) {
       </header>
 
       <div className="sh-grid today">
+        {showPushCard && (
+          <section className="sh-card sh-wide sh-pushcard" aria-label="开启提醒">
+            <p className="sh-note">
+              {needsInstall
+                ? '需要时提醒你？iPhone 需要先添加到主屏幕，之后只在三天没记录时提醒一次。'
+                : '需要时提醒你？只在三天没记录时提醒一次。'}
+            </p>
+            <div className="acts">
+              {needsInstall ? (
+                <Link className="sh-link" to="/me/reminders">查看步骤</Link>
+              ) : (
+                <button type="button" className="sh-link" disabled={cardBusy} onClick={enablePush}>开启</button>
+              )}
+              <button type="button" className="sh-link quiet" onClick={declinePush}>不用</button>
+            </div>
+          </section>
+        )}
         <section className="sh-card" aria-label="本周">
           <div className="sh-ring-wrap">
             <Ring study={cat.study} review={cat.review} practice={cat.practice} total={cat.total} />

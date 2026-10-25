@@ -219,6 +219,27 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
     expect(await screen.findByRole('dialog', { name: '记一笔' })).toBeInTheDocument();
   });
 
+  test('提醒推送的链接 ?log=1&course&category&form&minutes：打开即预填，与 yb:open-log 一致', async () => {
+    seed();
+    renderLearning(`/records?log=1&course=course-2&category=3&form=${encodeURIComponent('学校作业')}&minutes=90`);
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '物理' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.getByRole('radio', { name: '练习' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: '学校作业' })).toHaveAttribute('aria-pressed', 'true');
+    const t = document.querySelectorAll('input[type="time"]');
+    expect(computeDuration(t[0].value, t[1].value)).toBe(90);
+    // 主观 / 客观默认不变：默认「基本掌握」(80)，客观 B+
+    expect(screen.getByRole('radio', { name: 'B+' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('链接里的参数不合法时忽略：类别回到默认、课程不存在则用默认课程', async () => {
+    seed();
+    renderLearning('/records?log=1&course=nope&category=9&minutes=abc');
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    expect(screen.getByRole('radio', { name: '学习' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   test('关闭按钮有可读名称', async () => {
     seed();
     renderLearning();

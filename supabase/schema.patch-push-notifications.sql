@@ -19,6 +19,15 @@ create table if not exists public.push_subscriptions (
   last_used_at timestamptz
 );
 
+-- 表若早已存在（旧版本建的），上面的 create table 会被跳过：逐列补齐，避免
+-- register_push_subscription 报「column … does not exist」。
+alter table public.push_subscriptions add column if not exists user_agent text;
+alter table public.push_subscriptions add column if not exists created_at timestamptz not null default now();
+alter table public.push_subscriptions add column if not exists last_used_at timestamptz;
+-- on conflict (endpoint) 需要 endpoint 上有唯一约束/索引
+create unique index if not exists push_subscriptions_endpoint_key
+  on public.push_subscriptions (endpoint);
+
 create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
@@ -108,6 +117,7 @@ create table if not exists public.push_deliveries (
   kind text not null,                 -- inactive / daily / invite（历史行可能还有 digest / streak）
   created_at timestamptz not null default now()
 );
+alter table public.push_deliveries add column if not exists created_at timestamptz not null default now();
 
 create unique index if not exists push_deliveries_one_per_day
   on public.push_deliveries (user_id, sent_date)

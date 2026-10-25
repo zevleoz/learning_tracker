@@ -1,0 +1,421 @@
+<meta charset="utf-8">
+<title>导师台与 E4 体检</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one reading column for the argument; findings as a ledger; the proposed screen as a framed working mock. */
+:root {
+  --bg: #F4F4F2;
+  --surface: #FFFFFF;
+  --sunken: #ECECE8;
+  --line: #DCDCD6;
+  --ink: #17181B;
+  --ink-2: #44474E;
+  --ink-3: #686C74;
+  --crest: #A3202A;
+  --crest-text: #A3202A;
+  --crest-soft: #F6E5E6;
+  --warn: #8A4F05;
+  --warn-soft: #F5EADB;
+  --good: #2C7549;
+  --good-soft: #E1EFE6;
+  --study: #2D5BD7;
+  --review: #7A4FD0;
+  --practice: #12857A;
+  --code-bg: #EDEDE8;
+  --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111214; --surface: #1A1C20; --sunken: #23262B; --line: #2E3138;
+    --ink: #ECEDEF; --ink-2: #BCC0C7; --ink-3: #959BA5;
+    --crest: #C2353C; --crest-text: #F08489; --crest-soft: #33191B;
+    --warn: #E6AA52; --warn-soft: #2E2414; --good: #74C798; --good-soft: #17281E;
+    --study: #7FA0F2; --review: #AE91EC; --practice: #4CC4B3; --code-bg: #23262B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111214; --surface: #1A1C20; --sunken: #23262B; --line: #2E3138;
+  --ink: #ECEDEF; --ink-2: #BCC0C7; --ink-3: #959BA5;
+  --crest: #C2353C; --crest-text: #F08489; --crest-soft: #33191B;
+  --warn: #E6AA52; --warn-soft: #2E2414; --good: #74C798; --good-soft: #17281E;
+  --study: #7FA0F2; --review: #AE91EC; --practice: #4CC4B3; --code-bg: #23262B;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--sans);
+  font-size: 15.5px; line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; }
+.col { max-width: 700px; }
+h1, h2, h3 { text-wrap: balance; letter-spacing: -0.01em; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.12; font-weight: 700; }
+h2 { font-size: 26px; line-height: 1.25; font-weight: 700; }
+h3 { font-size: 17px; line-height: 1.35; font-weight: 650; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+a { color: var(--crest-text); }
+.kicker { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: 18px; color: var(--ink-2); line-height: 1.6; }
+.muted { color: var(--ink-3); }
+section { padding-top: 64px; display: flex; flex-direction: column; gap: 18px; }
+header.top { padding-top: 48px; display: flex; flex-direction: column; gap: 18px; }
+.crestline { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 13px; }
+.crestline span.bar { width: 28px; height: 3px; background: var(--crest); border-radius: 2px; }
+
+/* verdict strip */
+.tally { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border-radius: var(--radius); overflow: hidden; }
+.tally div { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tally b { font-size: 26px; font-variant-numeric: tabular-nums; }
+.tally span { font-size: 13px; color: var(--ink-3); }
+
+/* findings ledger */
+.ledger { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); }
+.f { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 4px 16px; padding: 18px 20px; border-top: 1px solid var(--line); }
+.f:first-child { border-top: 0; }
+.sev { font-size: 12.5px; font-weight: 650; display: flex; align-items: flex-start; gap: 7px; padding-top: 2px; }
+.sev::before { content: ""; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--ink-3); }
+.sev.h { color: var(--crest-text); } .sev.h::before { background: var(--crest); }
+.sev.m { color: var(--warn); } .sev.m::before { background: var(--warn); }
+.sev.l { color: var(--ink-3); }
+.f .body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.f .meta { font-size: 12.5px; color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.f .fix { color: var(--ink-2); font-size: 14.5px; }
+.f .fix b { color: var(--ink); font-weight: 600; }
+@media (max-width: 560px) { .f { grid-template-columns: 1fr; } }
+
+/* screenshots */
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+figure img { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; background: var(--sunken); }
+figcaption { font-size: 13.5px; color: var(--ink-3); }
+figcaption b { color: var(--ink-2); font-weight: 600; }
+.shot-wide { grid-column: 1 / -1; }
+.shot-wide img { max-width: 760px; }
+
+/* mock of 今日 */
+.mock { background: var(--sunken); border-radius: 18px; padding: 18px; overflow-x: auto; }
+.screen { background: var(--surface); border-radius: 12px; min-width: 620px; display: grid; grid-template-columns: 168px minmax(0, 1fr); overflow: hidden; font-size: 13.5px; }
+.side { background: var(--bg); padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--line); }
+.side .brand { font-weight: 700; font-size: 14px; padding: 0 8px 12px; }
+.side .nav { padding: 7px 10px; border-radius: 8px; color: var(--ink-2); }
+.side .nav.on { background: var(--crest-soft); color: var(--crest-text); font-weight: 600; }
+.main { padding: 22px 24px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.main h4 { margin: 0; font-size: 22px; }
+.main .sub { color: var(--ink-3); font-size: 13px; }
+.grp { display: flex; flex-direction: column; gap: 0; }
+.grp-h { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.grp-h b { font-size: 14.5px; }
+.grp-h span { color: var(--ink-3); font-size: 12.5px; }
+.draft { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 4px 14px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.draft .who b { display: block; font-size: 14px; }
+.draft .who span { color: var(--ink-3); font-size: 12px; }
+.draft .txt { color: var(--ink); line-height: 1.6; }
+.draft .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.btn { font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: default; }
+.btn.p { background: var(--crest); border-color: var(--crest); color: #fff; }
+.miss { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.miss .d { color: var(--warn); font-size: 12.5px; white-space: nowrap; }
+.miss .last { color: var(--ink-3); font-size: 12.5px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.note { font-size: 12.5px; color: var(--ink-3); }
+
+/* rules table */
+.tbl-wrap { overflow-x: auto; background: var(--surface); border-radius: var(--radius); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 12px 16px; border-top: 1px solid var(--line); }
+thead th { border-top: 0; font-size: 12.5px; color: var(--ink-3); font-weight: 600; letter-spacing: 0.02em; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+
+/* steps */
+.steps { display: flex; flex-direction: column; gap: 0; background: var(--surface); border-radius: var(--radius); }
+.step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; padding: 18px 20px; border-top: 1px solid var(--line); }
+.step:first-child { border-top: 0; }
+.step .n { width: 26px; height: 26px; border-radius: 50%; background: var(--crest-soft); color: var(--crest-text); font-weight: 700; font-size: 13px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.step .b { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+pre { margin: 0; font-family: var(--mono); font-size: 13px; background: var(--code-bg); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+.tag { font-size: 12px; color: var(--ink-3); }
+
+/* workstreams */
+.ws { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.ws > div { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ws .when { font-size: 12.5px; color: var(--ink-3); }
+.ws ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+.ws .files { font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+
+ol.q { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+ol.q li { padding-left: 4px; }
+ol.q li span { color: var(--ink-3); display: block; font-size: 14px; }
+
+@media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="crestline"><span class="bar"></span>一表人才 · 导师台 /mentor 与 E4 /e4 · 2026-10-25</div>
+  <h1>Two solid tools with three wrong answers and no morning list</h1>
+  <p class="lede col">Both mentor surfaces are well built and don't need a redesign. But some of their logic gives mentors wrong answers. And nothing tells a mentor who needs them today. This page lists what I found, proposes the one new screen (今日) that the AI check-ins need, and shows how to test all of it on localhost before anything ships.</p>
+  <div class="tally">
+    <div><b>3</b><span>high: wrong data or a privacy gap</span></div>
+    <div><b>7</b><span>medium: correct but slows mentors down</span></div>
+    <div><b>6</b><span>low: polish</span></div>
+    <div><b>1</b><span>new feature: AI 监督流程</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="kicker">How this was checked</div>
+  <div class="col" style="display:flex;flex-direction:column;gap:12px">
+    <p>I read the code paths that decide what a mentor sees: the data loading, invite/connect and inactivity code in <code>Mentor.jsx</code>; the analytics panels; the E4 store, 待办 grouping and detail page; and the connection RLS in <code>supabase/migrations/001-production-setup.sql</code>.</p>
+    <p>I then extended the local harness with a fake admin mentor, 9 students covering every case (daily filler, first-month filled or missed, 4 days missing, new and never filled, 邀请中, 已拒绝, 未邀请), and 5 E4 students. The E4 reports are built from the real Leo and Catherine protocol fixtures. Every screenshot below comes from that harness, so no production login or data was involved.</p>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">Findings</div>
+  <h2>What's wrong, in order of harm</h2>
+  <div class="ledger">
+    <div class="f"><div class="sev h">High</div><div class="body">
+      <h3>The analytics can't see letter grades, so they report missing feedback that isn't missing</h3>
+      <p class="fix">Student v2 saves 客观评价 as a letter in <code>grade_label</code> with <code>score</code> empty. The diagnosis, practice average, per-subject score rule and the E4 过程报告's 客观 stats only count numeric <code>score</code>. In the harness, the practice card says 8 客观评价 while the diagnosis right below says 0 of 10 and raises a red alert. N/A is also counted as a 客观评价. <b>Fix:</b> one shared <code>objectiveOf(row)</code> helper that reads letters, keeps old numeric rows working, and leaves N/A out of both sides of the ratio.</p>
+      <div class="meta"><span>Mentor 数据分析 + E4 过程报告</span><span>DeepDivePanels.jsx · DimensionStrip.jsx · e4ProgressData.js</span><span>WS-A</span></div>
+    </div></div>
+    <div class="f"><div class="sev h">High</div><div class="body">
+      <h3>Any mentor account can connect itself to any student without the student accepting</h3>
+      <p class="fix">The insert policy on <code>teacher_student_connections</code> checks the teacher but not the status. Admin auto-connect writes <code>status = 1</code> directly from the browser, and any other mentor account could do the same through the API and then read that student's records. <b>Fix:</b> only admins may insert <code>status = 1</code>; everyone else can only create an invite.</p>
+      <div class="meta"><span>Database policy</span><span>schema.patch-mentor-connections.sql</span><span>WS-C</span></div>
+    </div></div>
+    <div class="f"><div class="sev h">High · verify first</div><div class="body">
+      <h3>断开连接 probably does nothing, and re-inviting never works</h3>
+      <p class="fix">No policy in the production setup lets a teacher update a connection, so the disconnect update most likely matches no rows. Supabase doesn't report that as an error, so the toast says 已断开 and the next reload shows 已连接 again. The button to re-invite a student who said no tries to insert a second row for the same pair, hits the unique key, and shows 「该学生已经被邀请过了」. <b>Fix:</b> two small database functions, 断开 and 重新邀请, that fail loudly. The SQL file starts with a read-only query, so you can confirm the current policies before changing anything.</p>
+      <div class="meta"><span>学生管理</span><span>Mentor.jsx sendInvite / doDisconnectStudent</span><span>WS-C + WS-D</span></div>
+    </div></div>
+
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>The student list is everyone, newest signup first</h3>
+      <p class="fix">A mentor lands on up to 500 student profiles, other mentors' students included, with no "needs attention" order. <b>Fix:</b> default to 我的学生 sorted by days without a record; admin keeps 全部. The new 今日 tab becomes the landing view.</p>
+      <div class="meta"><span>学生管理</span><span>WS-D</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>The 未填写 rule ignores exactly the students the new check-in flow is for</h3>
+      <p class="fix">Accounts younger than 7 days with no records are never flagged. 刘佳琪 signed up 5 days ago and has never logged anything, yet her card is clean. The first-month rule handles her separately.</p>
+      <div class="meta"><span>utils/inactivity.js</span><span>WS-C</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>「学习行为健康」 shows up while a student is going quiet</h3>
+      <p class="fix">陈思远 logged on 3 of 7 days and nothing for the last 3, and the diagnosis is green. 日均 is averaged over active days only, which hides the gaps. <b>Fix:</b> add a participation check before the healthy verdict, and label the number 有记录日均.</p>
+      <div class="meta"><span>数据分析</span><span>WS-A</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>The student side panel can't support a day's feedback</h3>
+      <p class="fix">It shows all-time totals, then a red alert box that is only a pointer to 数据分析, then a list of course names and durations. There's no category, 主观/客观, or notes. <b>Fix:</b> show this week by day with those fields, the 待补填 count and the latest AI draft.</p>
+      <div class="meta"><span>学生管理</span><span>WS-D</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>E4 待办 puts the most urgent card last</h3>
+      <p class="fix">When a meeting date passes without a report, the student drops to 待安排 at the bottom, next to students who were never scheduled. Progress meetings get no 写报告 prompt at all. <b>Fix:</b> a 待写报告 group at the top for first and progress meetings alike.</p>
+      <div class="meta"><span>E4 待办事项</span><span>e4Todos.js · E4TodosPage.jsx</span><span>WS-E</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium · needs your call</div><div class="body">
+      <h3>E4 shows every mentor every student</h3>
+      <p class="fix">待办 and 学生中心 list the whole E4 pool. A 负责导师 field exists but nothing filters by it. With more than one mentor, the to-do list fills with other people's meetings. <b>Fix:</b> a 我的 / 全部 switch; you decide the default.</p>
+      <div class="meta"><span>E4</span><span>WS-E</span></div>
+    </div></div>
+    <div class="f"><div class="sev m">Medium</div><div class="body">
+      <h3>E4 student page doesn't say what's next</h3>
+      <p class="fix">Leo has a 过程中 meeting today according to 待办, but his page doesn't show it. 生成会前准备, 生成首次报告 and 生成过程报告 all look equally important, even though the first two already exist. 追踪学生 林小满 isn't a link. <b>Fix:</b> a 下次会议 line, one 下一步 button, and links in both directions between E4 and the tracker.</p>
+      <div class="meta"><span>E4 学生详情</span><span>WS-E + WS-D</span></div>
+    </div></div>
+
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>Phone list fits three students per screen</h3>
+      <p class="fix">Each card carries full-width 查看数据 and 编辑学校 buttons. Make rows tappable and move 编辑学校 into the sheet.</p>
+      <div class="meta"><span>WS-D</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>Permanent 删除 sits on every admin card, next to 备注名</h3>
+      <p class="fix">Move it into the student sheet behind a typed confirmation.</p>
+      <div class="meta"><span>WS-D</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>Analytics uses indigo and violet where the rest uses crest red</h3>
+      <p class="fix">Selected tabs and progress rings use the crest red. 学 / 复 / 练 keep their data colours.</p>
+      <div class="meta"><span>WS-A</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>A few layouts break in a 1000px window</h3>
+      <p class="fix">The 4-week 周历 wraps numbers into 「3h3 / 3」, and the E4 student table and builder toolbar clip their right edge.</p>
+      <div class="meta"><span>WS-A · WS-E</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>「已触达 N 次」 doesn't say what was counted</h3>
+      <p class="fix">It counts first and progress reports. Rename it 「已出报告 N 份」.</p>
+      <div class="meta"><span>WS-E</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Low</div><div class="body">
+      <h3>Old invites block admin's automatic connection</h3>
+      <p class="fix">If admin once invited a student, or the student declined, auto-connect skips them. The list shows them, but their records can't be read, and they get a false 未填写. A database trigger that connects new students to admins fixes this and the client-side insert in one go.</p>
+      <div class="meta"><span>WS-C (optional)</span></div>
+    </div></div>
+    <div class="f"><div class="sev l">Housekeeping</div><div class="body">
+      <h3>Old passwords are still written in HANDOFF.md on GitHub</h3>
+      <p class="fix">The appendix lists the admin and test-account passwords as "rotation pending". Rotate them if that hasn't happened, then delete them from the file. Only you can do this.</p>
+      <div class="meta"><span>You</span></div>
+    </div></div>
+  </div>
+
+  <div class="shots">
+    <figure class="shot-wide"><img src="shots/analytics-contradiction.jpg" alt="Practice card shows 8 objective ratings; diagnosis below says 0 of 10 and raises a red alert"><figcaption><b>H1 in the harness.</b> 练习质量 counts 8 客观评价 for physics. The diagnosis directly below says 0 of 10 and raises a red alert. N/A appears in the 客观 list.</figcaption></figure>
+    <figure><img src="shots/tracker-list.jpg" alt="Mentor student list as a grid of cards"><figcaption><b>学生管理 today.</b> Every student, signup order, delete on every card.</figcaption></figure>
+    <figure><img src="shots/tracker-drawer.jpg" alt="Student side panel with totals and a red hint box"><figcaption><b>Side panel.</b> All-time totals and a red box used as a link.</figcaption></figure>
+    <figure><img src="shots/e4-todos.jpg" alt="E4 to-do list grouped by date"><figcaption><b>E4 待办.</b> The past meeting that needs a report is below the fold, in 待安排.</figcaption></figure>
+    <figure><img src="shots/e4-detail.jpg" alt="E4 student detail page"><figcaption><b>E4 学生详情.</b> No next meeting, no next step, 追踪学生 isn't a link.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">The one new screen</div>
+  <h2>今日: what a mentor opens every morning</h2>
+  <p class="col">This becomes the first tab and the landing view of <code>/mentor</code>. The drafts are made overnight; the two lists are computed live, so a student who fills in late drops off on their own. Names and records below are the harness's fake students. The draft text is an example of the tone, not real model output.</p>
+  <div class="mock" role="img" aria-label="Mock of the proposed 今日 tab">
+    <div class="screen">
+      <div class="side">
+        <div class="brand">一表人才</div>
+        <div class="nav on">今日</div>
+        <div class="nav">学生管理</div>
+        <div class="nav">数据分析</div>
+        <div class="nav">课表</div>
+        <div class="nav">系统设置</div>
+      </div>
+      <div class="main">
+        <div>
+          <h4>今日</h4>
+          <div class="sub">10月26日 周一 · 昨天的反馈已生成 · 上周周报已生成</div>
+        </div>
+        <div class="grp">
+          <div class="grp-h"><b>待发反馈 3</b><span>改过的内容会保存，复制后标记已发</span></div>
+          <div class="draft">
+            <div class="who"><b>周以宁</b><span>第 13 天</span></div>
+            <div class="txt">物理练习做完马上回头复习了牛顿定律，这个顺序很好，B+ 也说明方法对了。</div>
+            <div class="acts"><button class="btn p" type="button">复制</button><button class="btn" type="button">已发</button><button class="btn" type="button">重新生成</button></div>
+          </div>
+          <div class="draft">
+            <div class="who"><b>林小满</b><span>上周</span></div>
+            <div class="txt">这周 7 天都有记录，微积分链式法则从预习到练习走完了一整轮，A- 很扎实。可能要注意：物理有两次练习还没补客观评价，自评“基本掌握”但上次测验是 B，下周可以先把这两次补上再对一对。</div>
+            <div class="acts"><button class="btn p" type="button">复制</button><button class="btn" type="button">已发</button><button class="btn" type="button">重新生成</button></div>
+          </div>
+          <div class="draft">
+            <div class="who"><b>赵一鸣</b><span>上周</span></div>
+            <div class="txt">英语写作连续三次都写了笔记，论点展开越来越具体。可能要注意：物理这周没有记录。</div>
+            <div class="acts"><button class="btn p" type="button">复制</button><button class="btn" type="button">已发</button><button class="btn" type="button">重新生成</button></div>
+          </div>
+        </div>
+        <div class="two">
+          <div class="grp">
+            <div class="grp-h"><b>昨天未填写 2</b><span>第一个月的学生</span></div>
+            <div class="miss"><b>陈思远</b><span class="last">最后记录 10月22日</span><span class="d">第 21 天</span></div>
+            <div class="miss"><b>刘佳琪</b><span class="last">还没有记录</span><span class="d">第 6 天</span></div>
+          </div>
+          <div class="grp">
+            <div class="grp-h"><b>连续 3 天以上未填写 1</b><span><button class="btn" type="button">复制名单</button></span></div>
+            <div class="miss"><b>王可欣</b><span class="last">最后记录 10月21日</span><span class="d">5 天</span></div>
+          </div>
+        </div>
+        <div class="note">已发 4 条 · 展开</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">AI 监督流程</div>
+  <h2>The rules the job follows</h2>
+  <p class="col">These are your rules with the four decisions from earlier applied: drafts for mentors only, summaries on this page only, first month counted from signup, and a nightly job that saves the drafts. Dates are Shanghai dates.</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Student</th><th>When</th><th>Filled in</th><th>Didn't fill in</th></tr></thead>
+      <tbody>
+        <tr><td>Days 0–29 after signup</td><td>Every morning, for yesterday</td><td>One sentence of praise tied to a specific record</td><td>Listed under 昨天未填写</td></tr>
+        <tr><td>Day 30 onward</td><td>Monday, for last Mon–Sun</td><td>A short paragraph: what went well, then any problem the records actually show</td><td>No draft; listed under 连续 3 天以上未填写 once yesterday and the two days before are all empty</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col" style="display:flex;flex-direction:column;gap:10px">
+    <p><b>Filled</b> means at least one record dated that day. A 练习 still waiting for its 客观评价 counts as filled, and the draft can mention it.</p>
+    <p><b>What the model sees:</b> that period's records (course, 学/复/练, 主观, 客观 or 待补填, notes, duration) and the existing student stats, without the student's name. It returns the text plus the ids of the records it relied on, so you can check the praise is real. It is told never to set minute targets, compare students, or judge rest days.</p>
+    <p><b>How it runs:</b> a new endpoint with its own 15-minute cron, separate from the push reminders. Each call writes at most 15 drafts and is safe to repeat, so a student who fills in at 10am still gets their draft that morning. It uses the same DashScope key and model E4 already uses (<code>qwen3.8-flash</code> in your local setup).</p>
+    <p><b>Storage:</b> one new table, <code>supervision_drafts</code>. Mentors can read and mark drafts only for their connected students. Only the server writes new drafts. Students can't see the table at all. The exact SQL is in <code>docs/mentor-e4-audit/PLAN.md</code>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">Before production</div>
+  <h2>Testing it on localhost, in four steps</h2>
+  <p class="col">The first three steps need no database access and send nothing to students. Steps 2 and 3 use the real DashScope model through your <code>.env.local</code> key, but only on fake data.</p>
+  <div class="steps">
+    <div class="step"><div class="n">1</div><div class="b">
+      <h3>Rule tests</h3>
+      <p class="muted">Day 29 versus day 30, yesterday filled or not, late fillers, the Monday window, the 3-day rule, and dates around Shanghai midnight.</p>
+      <pre>npx jest -w 3 __tests__/supervision</pre>
+    </div></div>
+    <div class="step"><div class="n">2</div><div class="b">
+      <h3>Read the drafts in the terminal</h3>
+      <p class="muted">Generates drafts for the fake students with the real model and prints them. This is the fastest way to tune the tone. Nothing is written anywhere.</p>
+      <pre>node scripts/supervision-dry-run.mjs</pre>
+    </div></div>
+    <div class="step"><div class="n">3</div><div class="b">
+      <h3>Click through 今日 in the harness</h3>
+      <p class="muted">The local harness (already extended for this audit) serves <code>/mentor</code> and <code>/e4</code> with fake data. 重新生成 calls the real model on the fake records. Add <code>?role=2</code> to see what a normal mentor sees.</p>
+      <pre>npx vite --config vite.harness.config.js</pre>
+      <p class="tag">Then open http://127.0.0.1:5199/mentor</p>
+    </div></div>
+    <div class="step"><div class="n">4</div><div class="b">
+      <h3>Real data, still not production</h3>
+      <p class="muted">Two options, both only with your OK. The dry-run script has a read-only <code>--live</code> mode that prints drafts for a few real students without saving them, though it does send their records to DashScope. Or, after you run the SQL, push a non-main preview branch and let the cron run there for a day before merging.</p>
+      <pre>node scripts/supervision-dry-run.mjs --live --limit 5</pre>
+    </div></div>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">Work plan</div>
+  <h2>Four workstreams, three of them can start now</h2>
+  <p class="col">Each one owns its own files, so they can run in parallel without collisions. The model picks follow your preference: Sonnet where the spec is tight, Opus where security or a 2,250-line file is involved.</p>
+  <div class="ws">
+    <div><div class="when">Start now · Sonnet</div><h3>WS-A · Analytics correctness</h3>
+      <ul><li>Letter grades and N/A read correctly everywhere (H1)</li><li>Participation before 「健康」 (M3)</li><li>Crest red for selected states; 周历 at 1000px</li></ul>
+      <div class="files">objective.js (new) · DeepDivePanels · DimensionStrip · DayDetailPanel · WeekGrid · e4ProgressData</div></div>
+    <div><div class="when">Start now · Opus</div><h3>WS-C · AI backend + connection SQL</h3>
+      <ul><li>Rules, endpoint, prompt, cron block</li><li>Two SQL patches (H2, H3, drafts table)</li><li>Dry-run script and harness middleware</li></ul>
+      <div class="files">supervision.js · api/supervision · api-lib/supervision.mjs · 2 × schema.patch · scripts</div></div>
+    <div><div class="when">Start now · Sonnet</div><h3>WS-E · E4 polish</h3>
+      <ul><li>待写报告 group (M5)</li><li>我的 / 全部 (M6, after your answer)</li><li>下次会议 + 下一步 + tracker link (M7)</li></ul>
+      <div class="files">e4Todos.js · E4TodosPage · E4StudentListPage · E4StudentDetailPage</div></div>
+    <div><div class="when">After WS-C fixes its contract · Opus</div><h3>WS-D · Mentor tracker UI</h3>
+      <ul><li>今日 tab as landing view</li><li>My students by need; new student sheet</li><li>Invite/disconnect via the new functions; phone rows</li></ul>
+      <div class="files">Mentor.jsx · MentorLayout · mentor/TodayPanel · DraftRow · StudentSheet (new)</div></div>
+  </div>
+  <p class="col muted">Then: merge on one local branch, check in the harness (admin and normal mentor, phone and desktop, student side unchanged), you run the SQL, then a preview branch, then main.</p>
+</section>
+
+<section>
+  <div class="kicker">Your decisions</div>
+  <h2>Five questions before work starts</h2>
+  <ol class="q col">
+    <li>Should E4 show each mentor only their own students by default, or keep the shared view?<span>Decides the default of the new 我的 / 全部 switch.</span></li>
+    <li>When a mentor re-invites a student who declined, should the student get the invite push again?<span>It would be the same push a first invite sends today.</span></li>
+    <li>Keep the minute thresholds in the mentor diagnosis?<span>「日均 &lt; 60 分钟 = 学习时间不足」 and the 30% 自主 警戒线 are mentor-only today, but they read like a minutes goal.</span></li>
+    <li>Is it fine that a planned rest day shows up as 未填写?<span>Students can't mark a rest day, so the list can't tell rest from forgetting.</span></li>
+    <li>OK to send students' records, without names, to DashScope?<span>E4 already sends meeting minutes there.</span></li>
+  </ol>
+</section>
+
+</div>

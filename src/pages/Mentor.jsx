@@ -42,6 +42,12 @@ function statusMeta(status) {
   return STATUS_META[status] || STATUS_META['-1'];
 }
 
+// RPC 不存在（数据库补丁还没执行）
+function isMissingFunction(error) {
+  return error?.code === 'PGRST202' || error?.code === '42883'
+    || /could not find the function|function .* does not exist/i.test(error?.message || '');
+}
+
 export default function Mentor() {
   const nav = useNavigate();
   // 角色与账号信息统一来自 useAuth（数据库 profile 为权威来源），
@@ -491,13 +497,28 @@ export default function Mentor() {
     if (!user) { toast('请先登录老师账号', { kind: 'error' }); return; }
     if (!deployCheck.ok) { toast('邀请系统尚未部署完成', { kind: 'error' }); return; }
     if (inviteBusyId) return;
+    const existing = connections[studentId];
+    // 邀请中：行已存在，再插入会撞唯一约束；邀请保持有效即可
+    if (existing?.status === 0) {
+      toast('邀请已发出，正在等待学生接受', { kind: 'success' });
+      return;
+    }
     const note = inviteNotes[studentId] || '';
     setInviteBusyId(studentId);
     try {
-      const { error } = await supabase
-        .from('teacher_student_connections')
-        .insert({ teacher_id: user.id, student_id: studentId, status: 0, note });
-      if (error) throw error;
+      if (existing?.status === 2) {
+        // 已拒绝 / 已断开：把原有的行改回邀请中（插入新行会撞 unique(teacher_id, student_id)）
+        const { error } = await supabase.rpc('mentor_reinvite', { p_student: studentId, p_note: note || null });
+        if (error) {
+          if (isMissingFunction(error)) throw new Error('需要先在数据库执行 schema.patch-mentor-connections.sql 才能再次邀请');
+          throw error;
+        }
+      } else {
+        const { error } = await supabase
+          .from('teacher_student_connections')
+          .insert({ teacher_id: user.id, student_id: studentId, status: 0, note });
+        if (error) throw error;
+      }
       setConnections((m) => ({
         ...m,
         [studentId]: { id: 'new', student_id: studentId, status: 0, note, created_at: new Date().toISOString() },
@@ -512,6 +533,8 @@ export default function Mentor() {
         toast('邀请表未创建。请在 Supabase SQL Editor 运行 schema.patch-invites.sql。', { kind: 'error' });
       } else if (code === '23505' || /unique.*constraint/i.test(msg || '')) {
         toast('该学生已经被邀请过了', { kind: 'error' });
+      } else if (!code && msg) {
+        toast(msg, { kind: 'error' });
       } else {
         toast(`邀请失败（${code || 'error'}: ${msg || '未知错误'}）`, { kind: 'error' });
       }
@@ -577,17 +600,28 @@ export default function Mentor() {
     const c = connections[studentId];
     if (!c || c.status !== 1) return;
     try {
-      const { error } = await supabase
-        .from('teacher_student_connections')
-        .update({ status: 2, updated_at: new Date().toISOString() })
-        .match({ teacher_id: user.id, student_id: studentId });
-      if (error) throw error;
+      const { error } = await supabase.rpc('mentor_disconnect', { p_student: studentId });
+      if (error && isMissingFunction(error)) {
+        // 补丁未执行时退回直接更新，但必须确认真的改到了行：
+        // 没有老师 UPDATE 策略时更新 0 行也不报错，之前会显示假的「已断开」
+        const { data, error: updErr } = await supabase
+          .from('teacher_student_connections')
+          .update({ status: 2, updated_at: new Date().toISOString() })
+          .match({ teacher_id: user.id, student_id: studentId })
+          .select('id');
+        if (updErr) throw updErr;
+        if (!data || data.length === 0) {
+          throw new Error('断开没有生效：需要先在数据库执行 schema.patch-mentor-connections.sql');
+        }
+      } else if (error) {
+        throw error;
+      }
       setConnections((m) => ({ ...m, [studentId]: { ...c, status: 2, updated_at: new Date().toISOString() } }));
       if (picked?.id === studentId) setPicked(null);
       toast('已断开连接', { kind: 'success' });
     } catch (err) {
       logger.error('disconnectStudent failed:', err);
-      toast(`断开失败`, { kind: 'error' });
+      toast(err?.message ? `断开失败：${err.message}` : '断开失败', { kind: 'error' });
     }
   }
 

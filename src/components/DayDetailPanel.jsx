@@ -89,6 +89,9 @@ function RecordRow({ record: r }) {
             客观：{r.grade_label}
           </div>
         )}
+        {cat === 3 && !hasObjective && (
+          <div className="text-xs font-medium text-amber-600">客观：待补填</div>
+        )}
         {hasObjective && r.score != null && (
           <div
             className="text-xs font-medium tabular-nums"

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { fmtMins, isSelfForm } from './WeekGrid.jsx';
+import { objectiveOf } from '../lib/objective.js';
 
 // ── 维度卡片 ──────────────────────────────────────────
 function DimensionCard({ icon, label, value, sub, bar, color, index, bars }) {
@@ -122,8 +123,10 @@ export default function DimensionStrip({ sessions = [], period }) {
 
     // 05 练习质量
     const practiceScores = safe
-      .filter(s => Number(s.category) === 3 && Number(s.eval_type) === 2 && s.score != null && s.score !== '')
-      .map(s => Number(s.score));
+      .filter(s => Number(s.category) === 3)
+      .map(s => objectiveOf(s))
+      .filter(o => o && o.kind !== 'na')
+      .map(o => o.value);
     const practiceAvgScore = practiceScores.length > 0
       ? Math.round(practiceScores.reduce((a, b) => a + b, 0) / practiceScores.length)
       : null;
@@ -133,9 +136,10 @@ export default function DimensionStrip({ sessions = [], period }) {
     const selfPct = totalMins > 0 ? Math.round(selfMins / totalMins * 100) : 0;
 
     // 07 反馈密度
-    const feedbackCount = safe.filter(s =>
-      (s.score != null && s.score !== '') || s.self_rating != null
-    ).length;
+    const feedbackCount = safe.filter(s => {
+      const o = objectiveOf(s);
+      return (o && o.kind !== 'na') || s.self_rating != null;
+    }).length;
     const feedbackPerDay = activeDays > 0 ? (feedbackCount / activeDays).toFixed(1) : '0';
 
     return {
@@ -154,7 +158,7 @@ export default function DimensionStrip({ sessions = [], period }) {
     {
       icon: '⏱', label: '总时长',
       value: fmtMins(dims.totalMins),
-      sub: `日均${fmtMins(dims.dailyAvg)}`,
+      sub: `有记录日均${fmtMins(dims.dailyAvg)}`,
       bars: [
         {
           label: '工',

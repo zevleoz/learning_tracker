@@ -434,6 +434,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
         sessions={periodSessions}
         weeks={weeks}
         studentName={studentName}
+        range={range}
       />
     </div>
   );

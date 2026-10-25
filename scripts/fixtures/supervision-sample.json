@@ -1,0 +1,316 @@
+[
+ {
+  "label": "周以宁 · 第 13 天 · 昨天有记录",
+  "kind": "daily",
+  "dayN": 13,
+  "records": [
+   {
+    "session_date": "2026-10-25",
+    "start_time": "19:10:00",
+    "end_time": "19:55:00",
+    "course": "AP 物理 C 力学",
+    "chapter": "牛顿定律",
+    "unit": "受力分析",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 45,
+    "self_rating": 80,
+    "grade_label": "B+",
+    "notes": "斜面那题受力图画错两次，后来对着例题改对了"
+   },
+   {
+    "session_date": "2026-10-25",
+    "start_time": "20:05:00",
+    "end_time": "20:35:00",
+    "course": "AP 物理 C 力学",
+    "chapter": "牛顿定律",
+    "unit": "牛顿第二定律",
+    "category": 2,
+    "form": "自主复习",
+    "duration_minutes": 30,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": null
+   }
+  ]
+ },
+ {
+  "label": "刘佳琪 · 第 4 天 · 只有一条、没备注",
+  "kind": "daily",
+  "dayN": 4,
+  "records": [
+   {
+    "session_date": "2026-10-25",
+    "start_time": "16:30:00",
+    "end_time": "17:00:00",
+    "course": "IGCSE 数学",
+    "chapter": "二次函数",
+    "unit": "配方法",
+    "category": 1,
+    "form": "学校课堂",
+    "duration_minutes": 30,
+    "self_rating": 60,
+    "grade_label": null,
+    "notes": null
+   }
+  ]
+ },
+ {
+  "label": "陈思远 · 第 21 天 · 练习实测还没填",
+  "kind": "daily",
+  "dayN": 21,
+  "records": [
+   {
+    "session_date": "2026-10-25",
+    "start_time": "21:00:00",
+    "end_time": "21:40:00",
+    "course": "IB 英语 A",
+    "chapter": "词汇",
+    "unit": "Unit 6",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 40,
+    "self_rating": 100,
+    "grade_label": null,
+    "notes": "背了50个，有8个老是记混，单独抄下来了"
+   }
+  ]
+ },
+ {
+  "label": "林小满 · 周报 · 自评偏高 + 待补填",
+  "kind": "weekly",
+  "records": [
+   {
+    "session_date": "2026-10-19",
+    "start_time": "18:00:00",
+    "end_time": "18:50:00",
+    "course": "AP 微积分 BC",
+    "chapter": "导数",
+    "unit": "链式法则",
+    "category": 1,
+    "form": "自主预习",
+    "duration_minutes": 50,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-20",
+    "start_time": "19:00:00",
+    "end_time": "20:00:00",
+    "course": "AP 微积分 BC",
+    "chapter": "导数",
+    "unit": "链式法则",
+    "category": 3,
+    "form": "学校作业",
+    "duration_minutes": 60,
+    "self_rating": 80,
+    "grade_label": "A-",
+    "notes": "复合三层的那几道慢，但都做对了"
+   },
+   {
+    "session_date": "2026-10-21",
+    "start_time": "20:00:00",
+    "end_time": "20:40:00",
+    "course": "AP 物理 C 力学",
+    "chapter": "牛顿定律",
+    "unit": "摩擦力",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 40,
+    "self_rating": 100,
+    "grade_label": null,
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-22",
+    "start_time": "17:30:00",
+    "end_time": "18:10:00",
+    "course": "AP 物理 C 力学",
+    "chapter": "牛顿定律",
+    "unit": "摩擦力",
+    "category": 3,
+    "form": "学校作业",
+    "duration_minutes": 40,
+    "self_rating": 100,
+    "grade_label": "B-",
+    "notes": "最后两题没思路"
+   },
+   {
+    "session_date": "2026-10-23",
+    "start_time": "19:00:00",
+    "end_time": "19:45:00",
+    "course": "IB 英语 A",
+    "chapter": "议论文写作",
+    "unit": "论点展开",
+    "category": 1,
+    "form": "校外线上",
+    "duration_minutes": 45,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-24",
+    "start_time": "10:00:00",
+    "end_time": "10:40:00",
+    "course": "AP 物理 C 力学",
+    "chapter": "牛顿定律",
+    "unit": "摩擦力",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 40,
+    "self_rating": 100,
+    "grade_label": null,
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-25",
+    "start_time": "15:00:00",
+    "end_time": "15:50:00",
+    "course": "AP 微积分 BC",
+    "chapter": "导数",
+    "unit": "隐函数求导",
+    "category": 2,
+    "form": "自主复习",
+    "duration_minutes": 50,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": "把链式法则的错题又过了一遍"
+   }
+  ],
+  "issues": [
+   "物理摩擦力：三次自评都是「完全掌握」，填了实测的那次（10/22）是 B-，备注写「最后两题没思路」",
+   "物理有 2 次练习的实测还没填"
+  ]
+ },
+ {
+  "label": "王可欣 · 周报 · 只记了三天、只有语文",
+  "kind": "weekly",
+  "records": [
+   {
+    "session_date": "2026-10-19",
+    "start_time": "19:30:00",
+    "end_time": "20:20:00",
+    "course": "IB 中文 A",
+    "chapter": "现代散文",
+    "unit": "细读",
+    "category": 1,
+    "form": "学校课堂",
+    "duration_minutes": 50,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": "老师讲了怎么找文中的转折"
+   },
+   {
+    "session_date": "2026-10-20",
+    "start_time": "20:00:00",
+    "end_time": "20:45:00",
+    "course": "IB 中文 A",
+    "chapter": "现代散文",
+    "unit": "细读",
+    "category": 3,
+    "form": "学校作业",
+    "duration_minutes": 45,
+    "self_rating": 80,
+    "grade_label": "B+",
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-21",
+    "start_time": "21:00:00",
+    "end_time": "21:30:00",
+    "course": "IB 中文 A",
+    "chapter": "现代散文",
+    "unit": "写作",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 30,
+    "self_rating": 60,
+    "grade_label": "B",
+    "notes": "仿写一段，结尾写得太急"
+   }
+  ],
+  "issues": [
+   "周四到周日（10/22–10/25）连续 4 天没有记录",
+   "数学、物理整周没有记录"
+  ]
+ },
+ {
+  "label": "赵一鸣 · 周报 · 稳定、看不出问题",
+  "kind": "weekly",
+  "records": [
+   {
+    "session_date": "2026-10-19",
+    "start_time": "18:00:00",
+    "end_time": "18:45:00",
+    "course": "IB 英语 A",
+    "chapter": "议论文写作",
+    "unit": "论点展开",
+    "category": 1,
+    "form": "学校课堂",
+    "duration_minutes": 45,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": "老师说每段只放一个论点"
+   },
+   {
+    "session_date": "2026-10-20",
+    "start_time": "19:00:00",
+    "end_time": "19:40:00",
+    "course": "AP 化学",
+    "chapter": "化学平衡",
+    "unit": "平衡常数",
+    "category": 3,
+    "form": "学校作业",
+    "duration_minutes": 40,
+    "self_rating": 80,
+    "grade_label": "A-",
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-22",
+    "start_time": "19:30:00",
+    "end_time": "20:10:00",
+    "course": "IB 英语 A",
+    "chapter": "议论文写作",
+    "unit": "论点展开",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 40,
+    "self_rating": 80,
+    "grade_label": "B+",
+    "notes": "按一段一个论点改了上次的文章"
+   },
+   {
+    "session_date": "2026-10-23",
+    "start_time": "20:00:00",
+    "end_time": "20:30:00",
+    "course": "AP 化学",
+    "chapter": "化学平衡",
+    "unit": "勒夏特列原理",
+    "category": 2,
+    "form": "自主复习",
+    "duration_minutes": 30,
+    "self_rating": 80,
+    "grade_label": null,
+    "notes": null
+   },
+   {
+    "session_date": "2026-10-25",
+    "start_time": "14:00:00",
+    "end_time": "14:50:00",
+    "course": "AP 化学",
+    "chapter": "化学平衡",
+    "unit": "勒夏特列原理",
+    "category": 3,
+    "form": "自主练习",
+    "duration_minutes": 50,
+    "self_rating": 80,
+    "grade_label": "A",
+    "notes": null
+   }
+  ],
+  "issues": []
+ }
+]

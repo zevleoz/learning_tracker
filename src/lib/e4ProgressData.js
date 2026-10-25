@@ -2,6 +2,7 @@
 // 从 learning_sessions（联表 courses 取学科）计算 8 页中需要的量化指标。
 // 量化字段可自动预填；定性字段（观察/判断/情绪/方案）留给导师填写。
 import { supabase } from './supabase.js';
+import { objectiveOf, scoreToGrade } from './objective.js';
 import { stripToDate, isWeekday } from './date.js';
 import { subjectiveLabel } from './rating.js';
 
@@ -80,7 +81,7 @@ function evalText(stats) {
   const parts = [];
   if (stats.objectiveCount > 0) {
     const mean = Math.round(stats.objectiveSum / stats.objectiveCount);
-    parts.push(`客观 ${stats.objectiveCount} 次（均分 ${mean}）`);
+    parts.push(`客观 ${stats.objectiveCount} 次（平均约 ${scoreToGrade(mean)}）`);
   }
   if (stats.subjectiveCount > 0) {
     const mean = Math.round(stats.subjectiveSum / stats.subjectiveCount);
@@ -137,11 +138,10 @@ export function aggregateProgress(rows, startDate, endDate, syllabus = []) {
 
     if (AUTONOMOUS_RE.test(String(r.form || ''))) s.autonomousMins += mins;
 
-    if (r.eval_type === 1) {
-      if (r.self_rating != null) { s.subjectiveCount += 1; s.subjectiveSum += r.self_rating; }
-    } else {
-      if (r.score != null) { s.objectiveCount += 1; s.objectiveSum += r.score; }
-    }
+    // 主观每条都会存（self_rating 必填）；客观按字母等第/旧数字分统计，N/A 不计
+    if (r.self_rating != null) { s.subjectiveCount += 1; s.subjectiveSum += Number(r.self_rating); }
+    const obj = objectiveOf(r);
+    if (obj && obj.kind !== 'na') { s.objectiveCount += 1; s.objectiveSum += obj.value; }
   }
 
   const toSubject = (s) => {

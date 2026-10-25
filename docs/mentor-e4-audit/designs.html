@@ -1,0 +1,443 @@
+<meta charset="utf-8">
+<title>导师台与 E4 新版布局</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a reading column of notes per screen, each followed by a full-size frame that reuses the app's own colours, radii and type sizes. Frames scroll sideways on small screens; the page body never does. */
+:root {
+  --bg: #EEEEF0;
+  --surface: #FFFFFF;
+  --line: #D9D9DE;
+  --ink: #17181B;
+  --ink-2: #44474E;
+  --ink-3: #686C74;
+  --mark: #A3202A;
+  --mark-soft: #F6E5E6;
+  --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #101113; --surface: #191A1E; --line: #2C2E34; --ink: #ECEDEF; --ink-2: #BCC0C7; --ink-3: #959BA5; --mark: #E07078; --mark-soft: #33191B; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #101113; --surface: #191A1E; --line: #2C2E34; --ink: #ECEDEF; --ink-2: #BCC0C7; --ink-3: #959BA5; --mark: #E07078; --mark-soft: #33191B; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 72px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+.col { max-width: 720px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(28px, 4.6vw, 40px); line-height: 1.15; }
+h2 { font-size: 24px; line-height: 1.25; }
+p { margin: 0; }
+.top { padding-top: 44px; display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: 17px; color: var(--ink-2); }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
+.toc a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line); }
+.toc a:hover { color: var(--mark); border-color: var(--mark); }
+section.screen { padding-top: 60px; display: flex; flex-direction: column; gap: 16px; }
+.notes { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px 32px; align-items: start; }
+.notes ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.notes .keep { color: var(--ink-3); font-size: 14px; }
+.now { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--ink-3); }
+.now img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+@media (max-width: 760px) { .notes { grid-template-columns: 1fr; } .now { max-width: 320px; } }
+.frame { overflow-x: auto; border-radius: 14px; background: var(--surface); padding: 14px; }
+.frame-label { font-size: 12.5px; color: var(--ink-3); padding: 0 2px 10px; }
+.phones { display: flex; gap: 22px; flex-wrap: wrap; }
+.mark-new { background: var(--mark-soft); color: var(--mark); font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+
+/* ===== E4 replica (dark default, values read from the running app) ===== */
+.e4 { --e-bg: #0F1215; --e-bg-2: #15191D; --e-bg-3: #1C2126; --e-bg-4: #23292F; --e-side: #0C0F12; --e-line: rgba(255,255,255,.07); --e-line-2: rgba(255,255,255,.13);
+  --e-ink: #E8E5DD; --e-ink-2: #A39E92; --e-ink-3: #6E695F; --e-accent: #7FA0C5; --e-accent-strong: #93B3D4; --e-accent-dim: rgba(127,160,197,.14); --e-danger: #C4706F; --e-amber: #F59E0B;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--e-bg); color: var(--e-ink); font-size: 14px; line-height: 1.55; letter-spacing: .005em;
+  width: 1180px; min-height: 720px; display: grid; grid-template-columns: 248px 1fr; border-radius: 10px; overflow: hidden; color-scheme: dark; }
+.e-side { background: var(--e-side); border-right: 1px solid var(--e-line); display: flex; flex-direction: column; }
+.e-brand { display: flex; gap: 10px; align-items: center; padding: 18px 16px; border-bottom: 1px solid var(--e-line); }
+.e-brand .lg { width: 34px; height: 34px; border-radius: 8px; background: #22262B; border: 1px solid var(--e-line-2); }
+.e-brand small { display: block; font-size: 9.5px; letter-spacing: .08em; color: var(--e-ink-3); font-weight: 600; }
+.e-brand b { font-size: 14px; }
+.e-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+.e-nav .lbl { font-size: 11px; color: var(--e-ink-3); padding: 0 8px 6px; }
+.e-nav div.it { padding: 8px 12px; border-radius: 6px; font-size: 13px; color: var(--e-ink-2); display: flex; gap: 10px; align-items: center; }
+.e-nav div.it.on { background: var(--e-accent-dim); color: var(--e-accent-strong); font-weight: 600; }
+.e-nav i { width: 14px; height: 14px; border: 1.5px solid currentColor; border-radius: 3px; display: inline-block; opacity: .8; }
+.e-search { margin: 4px 12px; border: 1px solid var(--e-line-2); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; color: var(--e-ink-3); display: flex; justify-content: space-between; }
+.e-side-foot { margin-top: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.e-side-foot div { border: 1px solid var(--e-line-2); border-radius: 8px; padding: 9px 12px; font-size: 12.5px; color: var(--e-ink-2); background: var(--e-bg-2); }
+.e-main { padding: 32px 40px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.e-h1 { font-size: 22px; font-weight: 650; margin: 0; }
+.e-sub { font-size: 12.5px; color: var(--e-ink-3); margin-top: 4px; }
+.e-head { display: flex; align-items: flex-end; gap: 16px; }
+.e-seg { margin-left: auto; display: inline-flex; border: 1px solid var(--e-line-2); border-radius: 8px; padding: 2px; }
+.e-seg span { font-size: 12.5px; padding: 4px 12px; border-radius: 6px; color: var(--e-ink-2); }
+.e-seg span.on { background: var(--e-bg-3); color: var(--e-ink); font-weight: 600; }
+.e-grp { display: flex; flex-direction: column; gap: 10px; }
+.e-grp-h { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--e-ink-2); }
+.e-grp-h small { color: var(--e-ink-3); font-weight: 500; }
+.e-grp-h::after { content: ""; flex: 1; height: 1px; background: var(--e-line); }
+.e-grp-h.hot { color: var(--e-ink); }
+.e-cards { display: grid; grid-template-columns: repeat(3, 236px); gap: 12px; }
+.e-card { background: var(--e-bg-2); border: 1px solid var(--e-line-2); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.e-card.hot { border-color: rgba(245,158,11,.38); }
+.e-card .top { display: flex; align-items: center; gap: 8px; }
+.e-badge { font-size: 12px; font-weight: 600; color: var(--e-ink-2); border: 1px solid var(--e-line-2); border-radius: 10px; padding: 1px 9px; }
+.e-badge.first { background: var(--e-accent-dim); color: var(--e-accent-strong); border-color: transparent; }
+.e-card .top .ic { margin-left: auto; color: var(--e-ink-3); font-size: 12px; }
+.e-who { display: flex; gap: 10px; align-items: center; }
+.e-who .av { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--e-line-2); background: var(--e-bg-3); display: grid; place-items: center; font-size: 11px; color: var(--e-ink-2); }
+.e-who b { display: block; font-size: 14.5px; }
+.e-who span { font-size: 12px; color: var(--e-ink-3); }
+.e-date { font-size: 13px; color: var(--e-ink-2); }
+.e-date em { font-style: normal; color: var(--e-amber); font-weight: 600; }
+.e-date .muted { color: var(--e-ink-3); }
+.e-cta { font-size: 12.5px; color: var(--e-amber); font-weight: 600; }
+.e-foot { border-top: 1px solid var(--e-line); padding-top: 9px; font-size: 12px; color: var(--e-ink-3); display: flex; justify-content: space-between; }
+.e-foot b { color: var(--e-ink); }
+.e-btn { font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--e-line-2); background: transparent; color: var(--e-ink); white-space: nowrap; }
+.e-btn.pri { background: var(--e-accent); color: #0F1215; border-color: var(--e-accent); font-weight: 600; }
+.e-btn.amber { background: rgba(245,158,11,.14); color: #FBBF24; border-color: rgba(245,158,11,.35); font-weight: 600; }
+.e-back { font-size: 12.5px; color: var(--e-ink-3); }
+.e-title-row { display: flex; gap: 12px; align-items: center; }
+.e-title-row .av { width: 34px; height: 34px; border-radius: 8px; background: var(--e-bg-3); border: 1px solid var(--e-line-2); display: grid; place-items: center; color: var(--e-ink-2); font-weight: 600; }
+.e-title-row h4 { margin: 0; font-size: 20px; }
+.e-title-row .m { font-size: 12.5px; color: var(--e-ink-3); }
+.e-title-row .e-btn { margin-left: auto; }
+.e-next { background: var(--e-bg-2); border: 1px solid var(--e-line-2); border-radius: 10px; padding: 14px 16px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 16px; align-items: center; }
+.e-next .k { font-size: 11px; color: var(--e-ink-3); letter-spacing: .04em; }
+.e-next .v { font-size: 14px; }
+.e-next .v em { font-style: normal; color: var(--e-amber); font-weight: 600; }
+.e-next .sep { width: 1px; height: 34px; background: var(--e-line-2); }
+.e-statbar { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--e-bg-2); border: 1px solid var(--e-line-2); border-radius: 10px; }
+.e-statbar div { text-align: center; padding: 10px; border-left: 1px solid var(--e-line); }
+.e-statbar div:first-child { border: 0; }
+.e-statbar b { display: block; font-size: 15px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 500; }
+.e-statbar span { font-size: 11px; color: var(--e-ink-3); }
+.e-sec { background: var(--e-bg-2); border: 1px solid var(--e-line-2); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.e-sec-h { display: flex; align-items: center; gap: 10px; }
+.e-sec-h b { font-size: 14px; }
+.e-sec-h .e-btn { margin-left: auto; }
+.e-kv { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; font-size: 13px; }
+.e-kv span:nth-child(odd) { color: var(--e-ink-3); }
+.e-kv a { color: var(--e-accent-strong); text-decoration: none; }
+.e-doc { border: 1px solid var(--e-line-2); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+.e-doc b { font-size: 13.5px; }
+.e-doc .st { font-size: 11px; background: var(--e-accent-dim); color: var(--e-accent-strong); border-radius: 4px; padding: 1px 6px; }
+.e-doc .st.draft { background: var(--e-bg-4); color: var(--e-ink-2); }
+.e-doc .sub { font-size: 12px; color: var(--e-ink-3); }
+.e-doc .acts { margin-left: auto; display: flex; gap: 6px; }
+.e-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.e-table { border: 1px solid var(--e-line-2); border-radius: 10px; overflow: hidden; background: var(--e-bg-2); font-size: 13px; }
+.e-tr { display: grid; grid-template-columns: 1.3fr .6fr 1.2fr 1.3fr 1.3fr 1fr; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--e-line); align-items: center; }
+.e-tr:first-child { border-top: 0; font-size: 11.5px; color: var(--e-ink-3); }
+.e-tr .n { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.e-tr .s { color: var(--e-ink-2); }
+.e-tr .dim { color: var(--e-ink-3); }
+.e-tr .lk::before { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--e-accent); margin-right: 6px; vertical-align: 2px; }
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">一表人才 · 导师台 /mentor 与 E4 /e4 · 布局稿 · 2026-10-25</div>
+  <h1>The mentor changes, kept to what's needed</h1>
+  <p class="lede col">The 一表人才 mentor interface keeps its look. 学生管理 drops the page header, shows who filled in on every card, and gains the 今日反馈 panel; the side panel shows full records. The tracker screenshots come from the real app in the local harness, signed in as a normal mentor, with the changes added to the page; draft text is an example of the tone. The analytics change only their numbers. E4 keeps the layout changes you approved. Each screen lists what changes and what stays, next to a screenshot of the current version. Nothing here is built yet.</p>
+  <nav class="toc" aria-label="Screens"><a href="#tracker">学生管理</a><a href="#drafts">AI 草稿</a><a href="#sheet">学生侧栏</a><a href="#analytics">数据分析</a><a href="#e4todos">E4 待办事项</a><a href="#e4detail">E4 学生详情</a><a href="#e4list">E4 学生中心</a></nav>
+</header>
+
+<!-- ================= 学生管理 ================= -->
+<section class="screen" id="tracker">
+  <div class="eyebrow">一表人才 · 学生管理 · same sidebar and colours, denser and faster to work with</div>
+  <h2>A list you can work through</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li><b>List view by default</b>, one row per student, about 40px tall, so a whole advisor group fits on screen. 「卡片」 at the right of the filter bar switches back to cards (bottom screenshot).</li>
+        <li><b>Advisor groups stay</b>, read from the 备注名 parentheses. Each group header sums it up: 「4 人 · 新生 2 · 新生昨天没填 1 · 3 天以上没填 1」. 「新生」 means signed up within the last 30 days, the students to check every day.</li>
+        <li><b>Columns line up across groups:</b> 学生, 学校, 阶段 (red 「新生 · 第 N 天」 in the first 30 days, 「每周」 after), 近 7 天 (seven squares, today dashed until it's over, plus N/7), 需关注 (「昨天填了」 / 「昨天没填」 for 新生, 「N 天没填」 from 3 days for the rest), 最后记录 (date and 「3 天前」), 待补填, 连接.</li>
+        <li><b>Inside each group:</b> connected students first, 新生 at the top of those, then most days without a record.</li>
+        <li><b>Actions appear on hover</b> (断开, 改备注, ···) instead of sitting on every row. Clicking a row or a name opens the side panel.</li>
+        <li><b>One filter bar:</b> search, 学校, 连接, advisor chips and the view switch in a single row.</li>
+        <li><b>Keyboard:</b> <code>J</code>/<code>K</code> move between students, <code>Enter</code> opens one, <code>/</code> searches, <code>T</code> opens 今日反馈. In 今日反馈, <code>C</code> copies and <code>E</code> marks as sent. The hints sit at the bottom of the page.</li>
+        <li><b>今日反馈</b> folds into a strip of counts (top screenshot). Opened, it has tabs for 待发, 新生昨天没填, 3 天以上没填 and 已发, with the selected draft highlighted (middle screenshot).</li>
+      </ul>
+      <p class="keep">Kept: sidebar, red highlight, glass panels, black main button, status dots, advisor grouping, the side panel. No page header.</p>
+    </div>
+    <div class="now"><img src="shots/tracker-list.jpg" alt="Current 学生管理">Now: cards only, page header, no fill status.</div>
+  </div>
+  <div class="frame">
+    <div class="frame-label">List view, 今日反馈 folded, one advisor row hovered (周以宁)</div>
+    <img src="shots/tool-list.jpg" alt="学生管理 as a dense list grouped by advisor" style="width:100%;max-width:1160px;display:block;border-radius:8px">
+  </div>
+  <div class="frame">
+    <div class="frame-label">今日反馈 open on 待发, first draft selected</div>
+    <img src="shots/tool-feedback-open.jpg" alt="今日反馈 open with tabs and keyboard hints" style="width:100%;max-width:1160px;display:block;border-radius:8px">
+  </div>
+  <div class="frame">
+    <div class="frame-label">卡片 view, for anyone who prefers cards: same data on the current cards (it will use the same wording as the list: 新生 · 第 N 天, 昨天填了 / 昨天没填)</div>
+    <img src="shots/fill-cards.jpg" alt="学生管理 card view with fill indicators" style="width:100%;max-width:1160px;display:block;border-radius:8px">
+  </div>
+  <div class="col" style="display:flex;flex-direction:column;gap:8px">
+    <h3 style="font-size:17px">Does this need its own page?</h3>
+    <p>No. The list view already answers "who filled in" for every student on the page mentors land on. A names-by-days table covering two weeks could later become a third view on the same switch if the student count grows.</p>
+  </div>
+</section>
+
+<!-- ================= AI drafts ================= -->
+<section class="screen" id="drafts">
+  <div class="eyebrow">AI 草稿 · tuned against the real model</div>
+  <h2>Drafts that sound like a mentor typing on WeChat</h2>
+  <div class="col" style="display:flex;flex-direction:column;gap:10px">
+    <p>The prompt was run against your DashScope model (<code>qwen3.8-flash</code>, from <code>.env.local</code>) on six sample students over five rounds, 66 drafts in all, until the drafts stopped sounding written. The samples include notes in a student's own words, a record with no notes, practices still missing 实测, and a week with nothing to complain about. No real student data was used.</p>
+    <ul style="margin:0;padding-left:18px;color:var(--ink-2);display:flex;flex-direction:column;gap:4px">
+      <li>Written as the mentor talking: short, plain, 「你」, no name, no 「同学」.</li>
+      <li>One concrete thing from the records, using the student's own words from their notes. Actions the notes don't mention (改对, 标出来, 重做) can't be claimed.</li>
+      <li>No stock praise or report language: 加油, 继续保持, 值得表扬, 展现, 体现, 态度, 习惯, 说明, 目标 and similar are blocked. Drafts that still contain them, or run long, are rewritten once automatically.</li>
+      <li>Daily: praise only, no advice and no questions. Weekly: what went well, then at most one question, and only about a problem the code found (自评 above 实测, 实测 not filled, a subject untouched, days without records). If the code finds none, the weekly draft is praise only.</li>
+    </ul>
+  </div>
+  <div class="tbl-wrap" style="overflow-x:auto;background:var(--surface);border-radius:14px">
+    <table style="border-collapse:collapse;width:100%;min-width:620px;font-size:14px">
+      <thead><tr><th style="text-align:left;padding:10px 14px;font-size:12px;color:var(--ink-3)">Sample</th><th style="text-align:left;padding:10px 14px;font-size:12px;color:var(--ink-3)">Round 1</th><th style="text-align:left;padding:10px 14px;font-size:12px;color:var(--ink-3)">Final prompt</th></tr></thead>
+      <tbody>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">新生第 13 天，物理练习 + 复习</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">斜面那题受力图画错两次又自己改对了，练完还顺手复习牛顿第二定律，这顺序对。<br><span style="font-size:12px;color:var(--ink-3)">「这顺序对」 copied from the prompt's example</span></td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">斜面那题受力图画错两次，你后来对着例题改对了。牛顿第二定律复习也做了。</td></tr>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">新生第 4 天，一条记录，没备注</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">数学二次函数那节，你把没掌握的地方都标出来了，回头复习配方法的时候能直接对着看。<br><span style="font-size:12px;color:var(--ink-3)">invented: the student marked nothing</span></td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">昨天数学配方法那节课记上了。</td></tr>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">新生第 21 天，单词练习</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">英语词汇那8个老记混的你单独抄下来了，下次复习先看这几个就行。</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">英语Unit 6那50个词，你把记混的8个单独抄下来了，复习的时候好找。</td></tr>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">周报，自评偏高 + 实测没填</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">微积分周日复习时把链式法则错题又过了一遍，这个顺序对。物理摩擦力填了实测那次是B-，备注写最后两题没思路，说明自评完全掌握可能有点高估。物理还有两次练习的实测没填，下周有空先补上？这样能看出到底哪里卡住了。<br><span style="font-size:12px;color:var(--ink-3)">reads like an analysis report</span></td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">微积分链式法则三层复合的题都做对了，周日复习时又把错题过了一遍。<br><br>物理摩擦力那几次自评都是完全掌握，但周四实测只有 B- 且最后两题没思路，是不是还没弄明白？</td></tr>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">周报，只记了三天</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">……周二到周五都没记录，是课业太多还是中间卡住了？下周要不要先排个短计划……<br><span style="font-size:12px;color:var(--ink-3)">wrong days (it was Thursday to Sunday)</span></td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">中文散文仿写那段，你备注说结尾太急，实测拿了 B。<br><br>周四到周日没记录，是这周太忙还是漏记了？</td></tr>
+        <tr><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap">周报，看不出问题</td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink-2)">……周五复习勒夏特列原理后没做练习也没填实测，周日才补上。中间隔了两天，下周要不要把复习和做题连着安排？<br><span style="font-size:12px;color:var(--ink-3)">made up a problem</span></td><td style="padding:10px 14px;border-top:1px solid var(--line);vertical-align:top">英语议论文你按老师说的每段一个论点改了文章，化学平衡常数练习拿了A-。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col muted">The drafts in the 今日反馈 screenshot above come from the final prompt. Try it yourself with <code>node scripts/supervision-dry-run.mjs</code>, or <code>--times 3</code> to see how much it varies. It only reads the sample file and writes nothing.</p>
+</section>
+
+<!-- ================= Side panel ================= -->
+<section class="screen" id="sheet">
+  <div class="eyebrow">一表人才 · side panel · same layout, full records</div>
+  <h2>The side panel shows everything the student filled in</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li>The three tiles show 近 7 天有记录, 待补填 and 最后记录 instead of all-time totals.</li>
+        <li>While the panel is open, <code>J</code>/<code>K</code> step to the next or previous student in the list.</li>
+        <li>Records are grouped by date. Each row shows what the student entered: start and end time, course, 学/复/练, 形式, chapter and unit, 备注, duration, 主观, and 客观 (or 待补填 / 不适用).</li>
+        <li>The red 「详细周度复盘请前往数据分析页」 box is removed. 前往数据分析 and 前往课表 stay at the bottom.</li>
+        <li>数据分析's day detail also shows 客观 待补填 for practices still waiting for a grade, which it currently leaves blank.</li>
+      </ul>
+      <p class="keep">Kept: the panel itself, its width, header, 备注名, tiles, row style and bottom buttons.</p>
+    </div>
+    <div class="now"><img src="shots/tracker-drawer.jpg" alt="Current side panel">Now: course, date and duration only.</div>
+  </div>
+  <div class="frame">
+    <img src="shots/sheet-full-records.jpg" alt="Side panel listing full records by date" style="width:100%;max-width:1100px;display:block;border-radius:8px">
+  </div>
+</section>
+
+<!-- ================= Analytics (logic only) ================= -->
+<section class="screen" id="analytics">
+  <div class="eyebrow">一表人才 · 数据分析 · numbers only</div>
+  <h2>数据分析: no layout change, corrected numbers</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li>Letter grades count as 客观评价. N/A is left out of the count.</li>
+        <li>「练习反馈密度」 only fires when practices really lack a grade.</li>
+        <li>「学习行为健康」 won't show for a student with 3 or more days in a row without records; they get a 「记录在变少」 note instead.</li>
+        <li>The 60-minute and 30% 自主 thresholds stay.</li>
+      </ul>
+      <p class="keep">Panels, colours and order stay exactly as they are.</p>
+    </div>
+    <div class="now"><img src="shots/analytics-contradiction.jpg" alt="Current contradiction">Now: 8 客观评价 above, 「0 次有客观评分」 below.</div>
+  </div>
+</section>
+
+<!-- ================= E4 待办 ================= -->
+<section class="screen" id="e4todos">
+  <div class="eyebrow">E4 · changed</div>
+  <h2>E4 待办事项: the report you owe comes first</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li>A 「我的 / 全部」 switch at the top right, defaulting to <b>我的</b> (students where you are 负责导师).</li>
+        <li>A new top group, <b>待写报告</b>: meetings that have happened (first or progress) with no report since. The card's main action opens the right report.</li>
+        <li>待安排 now holds only students with no date.</li>
+        <li>「已触达 N 次」 becomes 「已出报告 N 份」.</li>
+      </ul>
+      <p class="keep">Kept: card design, type badges, the schedule icon, date line, groups by time.</p>
+    </div>
+    <div class="now"><img src="shots/e4-todos.jpg" alt="Current E4 to-do">Now: the overdue report sits at the bottom, in 待安排.</div>
+  </div>
+  <div class="frame">
+    <div class="e4">
+      <aside class="e-side">
+        <div class="e-brand"><div class="lg"></div><div><small>E4 · LEARN WITH EASE</small><b>学习力导师平台</b></div></div>
+        <div class="e-nav"><div class="lbl">工作台</div><div class="it on"><i></i>待办事项</div><div class="it"><i></i>学生中心</div></div>
+        <div class="e-search"><span>快速跳转</span><span>⌘K</span></div>
+        <div class="e-side-foot"><div>前往 一表人才</div><div>陈老师 · E4 导师账号</div></div>
+      </aside>
+      <main class="e-main">
+        <div class="e-head">
+          <div><h3 class="e-h1">待办事项</h3><div class="e-sub">会议已过但还没写报告的排在最前；没有日期的归入「待安排」</div></div>
+          <div class="e-seg"><span class="on">我的</span><span>全部</span></div>
+        </div>
+
+        <div class="e-grp">
+          <div class="e-grp-h hot">待写报告 <small>1</small></div>
+          <div class="e-cards">
+            <div class="e-card hot">
+              <div class="top"><span class="e-badge first">首次</span><span class="ic">▣ ›</span></div>
+              <div class="e-who"><div class="av">陈</div><div><b>陈思远</b><span>G9 · 平和双语</span></div></div>
+              <div class="e-date">10月21日周三 <span class="muted">· 5 天前</span></div>
+              <button class="e-btn amber" type="button">填写首次会议记录报告</button>
+              <div class="e-foot"><span>已出报告 <b>0</b> 份</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="e-grp">
+          <div class="e-grp-h">今天 <small>1</small></div>
+          <div class="e-cards">
+            <div class="e-card">
+              <div class="top"><span class="e-badge">进程中</span><span class="ic">▣ ›</span></div>
+              <div class="e-who"><div class="av">L</div><div><b>Leo</b><span>G10 · 上海中学国际部</span></div></div>
+              <div class="e-date">10月26日周一 <em>· 今天</em></div>
+              <div class="e-foot"><span>已出报告 <b>1</b> 份</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="e-grp">
+          <div class="e-grp-h">未来 7 天 <small>1</small></div>
+          <div class="e-cards">
+            <div class="e-card">
+              <div class="top"><span class="e-badge first">首次</span><span class="ic">▣ ›</span></div>
+              <div class="e-who"><div class="av">C</div><div><b>Catherine</b><span>G11 · 平和双语</span></div></div>
+              <div class="e-date">10月28日周三 ~ 10月30日 <span class="muted">· 2 天后</span></div>
+              <div class="e-foot"><span>已出报告 <b>0</b> 份</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="e-two" style="grid-template-columns: 236px 236px 1fr">
+          <div class="e-grp">
+            <div class="e-grp-h">之后 <small>1</small></div>
+            <div class="e-card">
+              <div class="top"><span class="e-badge">进程中</span><span class="ic">▣ ›</span></div>
+              <div class="e-who"><div class="av">E</div><div><b>Ethan</b><span>G10 · 包玉刚</span></div></div>
+              <div class="e-date">11月14日周六 <span class="muted">· 19 天后</span></div>
+              <div class="e-foot"><span>已出报告 <b>2</b> 份</span></div>
+            </div>
+          </div>
+          <div class="e-grp">
+            <div class="e-grp-h">待安排 <small>1</small></div>
+            <div class="e-card">
+              <div class="top"><span class="e-badge first">首次</span><span class="ic">▣ ›</span></div>
+              <div class="e-who"><div class="av">M</div><div><b>Mia</b><span>G12 · 包玉刚</span></div></div>
+              <div class="e-date muted">待安排</div>
+              <div class="e-foot"><span>已出报告 <b>0</b> 份</span></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ================= E4 detail ================= -->
+<section class="screen" id="e4detail">
+  <div class="eyebrow">E4 · changed</div>
+  <h2>E4 学生详情: one clear next step</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li>A new 「下次会议 · 下一步」 bar under the name. It shows the meeting date and type, plus the one report to make next.</li>
+        <li>That report's button is the only filled one. The other 生成 buttons become outlines, still available.</li>
+        <li>In 一表人才关联, 追踪学生 links to that student's panel in the tracker.</li>
+      </ul>
+      <p class="keep">Kept: header, stat bar, Y4 card, the three report sections and their rows.</p>
+    </div>
+    <div class="now"><img src="shots/e4-detail.jpg" alt="Current E4 detail">Now: no meeting date, three equal buttons, no link.</div>
+  </div>
+  <div class="frame">
+    <div class="e4" style="min-height:820px">
+      <aside class="e-side">
+        <div class="e-brand"><div class="lg"></div><div><small>E4 · LEARN WITH EASE</small><b>学习力导师平台</b></div></div>
+        <div class="e-nav"><div class="lbl">工作台</div><div class="it"><i></i>待办事项</div><div class="it on"><i></i>学生中心</div></div>
+        <div class="e-search"><span>快速跳转</span><span>⌘K</span></div>
+        <div class="e-side-foot"><div>前往 一表人才</div><div>陈老师 · E4 导师账号</div></div>
+      </aside>
+      <main class="e-main">
+        <div class="e-back">← 学生中心</div>
+        <div class="e-title-row"><div class="av">L</div><div><h4>Leo</h4><div class="m">G10 · 上海中学国际部 · 导师 陈老师</div></div><button class="e-btn" type="button">编辑资料</button></div>
+        <div class="e-next">
+          <div><div class="k">下次会议</div><div class="v">10月26日周一 <em>· 今天</em> · 进程中复盘</div></div>
+          <div style="display:flex;gap:16px;align-items:center"><span class="sep"></span><div><div class="k">下一步</div><div class="v">会后写过程中报告（基于一表人才 9/28 起的记录）</div></div></div>
+          <button class="e-btn pri" type="button">生成过程报告</button>
+        </div>
+        <div class="e-statbar"><div><b>1</b><span>会前准备</span></div><div><b>1</b><span>分析报告</span></div><div><b>0</b><span>过程报告</span></div><div><b style="font-family:inherit">● 已关联</b><span>Y4 协议</span></div></div>
+        <div class="e-two">
+          <div class="e-sec">
+            <div class="e-sec-h"><b>Y4 测评关联</b><button class="e-btn" type="button">更换关联</button></div>
+            <div class="e-kv"><span>Y4 学生</span><span>Leo</span><span>Y4 报告</span><span>#25 · 测评日期 2026-09-25</span></div>
+          </div>
+          <div class="e-sec">
+            <div class="e-sec-h"><b>一表人才关联</b></div>
+            <div class="e-kv"><span>追踪学生</span><span><a href="#e4detail">林小满 · 查看学习数据 →</a></span><span>最后记录</span><span>10月25日 · 本周 7/7 天</span></div>
+          </div>
+        </div>
+        <div class="e-sec">
+          <div class="e-sec-h"><b>首次学习力会议 · 会前准备</b><button class="e-btn" type="button">生成会前准备</button></div>
+          <div class="e-doc"><div><b>首次学习力会议会前准备</b> <span class="st">最终版</span><div class="sub">会议 2026-09-20 · 创建于 2026-09-19</div></div><div class="acts"><button class="e-btn" type="button">进入工作台</button><button class="e-btn" type="button">预览 / 下载 PDF</button></div></div>
+        </div>
+        <div class="e-sec">
+          <div class="e-sec-h"><b>学习力分析报告</b><button class="e-btn" type="button">生成首次报告</button></div>
+          <div class="e-doc"><div><b>首次学习力分析报告</b> <span class="st">最终版</span><div class="sub">会议 2026-09-20 · 报告 2026-09-22</div></div><div class="acts"><button class="e-btn" type="button">查看 / 编辑</button><button class="e-btn" type="button">预览 / 下载 PDF</button></div></div>
+        </div>
+        <div class="e-sec">
+          <div class="e-sec-h"><b>过程中报告</b><button class="e-btn pri" type="button">生成过程报告</button></div>
+          <div class="e-sub" style="margin:0">基于一表人才追踪数据生成的过程性学习力反馈，自动填入记录覆盖、时长、学科结构与自主占比，其余由导师完善。</div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ================= E4 list ================= -->
+<section class="screen" id="e4list">
+  <div class="eyebrow">E4 · changed</div>
+  <h2>E4 学生中心: mine first, with the next meeting</h2>
+  <div class="notes">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <ul>
+        <li>The same 「我的 / 全部」 switch, defaulting to 我的.</li>
+        <li>A 下次会议 column replaces the cut-off space on the right. The table keeps its width below 1100px by dropping 学校 first.</li>
+      </ul>
+      <p class="keep">Kept: search, sortable columns, row style, the Y4 and 一表人才 link dots.</p>
+    </div>
+    <div class="now" style="font-size:12.5px">The current table clips its right columns in a 1000px window.</div>
+  </div>
+  <div class="frame">
+    <div class="e4" style="min-height:420px">
+      <aside class="e-side">
+        <div class="e-brand"><div class="lg"></div><div><small>E4 · LEARN WITH EASE</small><b>学习力导师平台</b></div></div>
+        <div class="e-nav"><div class="lbl">工作台</div><div class="it"><i></i>待办事项</div><div class="it on"><i></i>学生中心</div></div>
+      </aside>
+      <main class="e-main">
+        <div class="e-head">
+          <div><h3 class="e-h1">学生中心</h3><div class="e-sub">为每位学生建立 E4 档案，关联 Y4 测评并生成学习力分析报告</div></div>
+          <div class="e-seg"><span class="on">我的</span><span>全部</span></div>
+        </div>
+        <div class="e-search" style="margin:0;width:300px">搜索学生姓名、年级或 Y4 姓名</div>
+        <div class="e-table">
+          <div class="e-tr"><span>学生</span><span>年级</span><span>学校</span><span>Y4 测评</span><span>一表人才</span><span>下次会议</span></div>
+          <div class="e-tr"><span class="n"><span class="e-who"><span class="av">L</span></span>Leo</span><span class="s">G10</span><span class="s">上海中学国际部</span><span class="lk">已关联 <span class="dim">#25</span></span><span class="lk">林小满</span><span><span style="color:var(--e-amber);font-weight:600">今天</span> <span class="dim">进程中</span></span></div>
+          <div class="e-tr"><span class="n"><span class="e-who"><span class="av">C</span></span>Catherine</span><span class="s">G11</span><span class="s">平和双语</span><span class="lk">已关联 <span class="dim">#27</span></span><span class="dim">—</span><span>10/28 <span class="dim">首次</span></span></div>
+          <div class="e-tr"><span class="n"><span class="e-who"><span class="av">E</span></span>Ethan</span><span class="s">G10</span><span class="s">包玉刚</span><span class="lk">已关联 <span class="dim">#12</span></span><span class="dim">—</span><span>11/14 <span class="dim">进程中</span></span></div>
+          <div class="e-tr"><span class="n"><span class="e-who"><span class="av">陈</span></span>陈思远</span><span class="s">G9</span><span class="s">平和双语</span><span class="lk">已关联 <span class="dim">报告未选</span></span><span class="lk">陈思远</span><span><span style="color:var(--e-amber);font-weight:600">待写报告</span></span></div>
+          <div class="e-tr"><span class="n"><span class="e-who"><span class="av">M</span></span>Mia</span><span class="s">G12</span><span class="s">包玉刚</span><span class="dim">未关联</span><span class="dim">—</span><span class="dim">待安排</span></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+</div>

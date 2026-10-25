@@ -5,6 +5,9 @@ import {
   fmtMins, isSelfForm, scoreToGrade,
 } from './WeekGrid.jsx';
 import { logger } from '../lib/logger.js';
+import { objectiveOf, hasObjectiveValue } from '../lib/objective.js';
+import { toLocalDateStr } from '../lib/date.js';
+import { daysBetween } from '../utils/inactivity.js';
 
 // ── 主观评价标签映射（self_rating 值 → 可读文本） ──
 const SELF_RATING_LABELS = {
@@ -396,7 +399,7 @@ function PracticeQualityPanel({ sessions }) {
       const name = s.subject || '未分类';
       if (!map[name]) map[name] = { name, allSessions: [], objCount: 0, subjCount: 0 };
 
-      const hasObj = (s.grade_label != null && s.grade_label !== '') || (s.score != null && s.score !== '');
+      const hasObj = hasObjectiveValue(s); // N/A 不适用不算客观评价
       const hasSubj = s.self_rating != null;
 
       if (hasObj) map[name].objCount++;
@@ -409,7 +412,7 @@ function PracticeQualityPanel({ sessions }) {
         String(b.date || '').localeCompare(String(a.date || ''))
       );
       const last5Obj = sorted
-        .filter(s => (s.grade_label != null && s.grade_label !== '') || (s.score != null && s.score !== ''))
+        .filter(s => hasObjectiveValue(s))
         .slice(0, 5);
       return { ...c, allSessions: sorted, last5Obj };
     }).sort((a, b) => b.allSessions.length - a.allSessions.length);
@@ -665,9 +668,42 @@ function SubjectPracticeModal({ subject, sessions, onClose }) {
 
 
 // ── 6. 教育诊断结论 ──────────────────────────────────
-function generateDiagnosis(sessions) {
+// range: { start: Date, end: Date }，today: 'YYYY-MM-DD'（测试可注入）。
+// 参与度先于其他规则判断：时段内断记 ≥ 3 天时不会给出「学习行为健康」。
+export function generateDiagnosis(sessions, { range = null, today = toLocalDateStr(new Date()) } = {}) {
   const safe = sessions.filter(s => s && s.date);
   if (safe.length === 0) return [];
+
+  const diagnoses = [];
+
+  // Rule 0: Participation — 统计到「时段结束日」与「今天」中较早的一天
+  if (range?.start && range?.end) {
+    const startIso = toLocalDateStr(range.start);
+    const endIso = toLocalDateStr(range.end);
+    const refIso = endIso < today ? endIso : today;
+    const elapsed = daysBetween(startIso, refIso) + 1;
+    if (elapsed >= 1) {
+      const recordDays = new Set(safe.map(s => s.date.split('T')[0]).filter(d => d >= startIso && d <= refIso));
+      const lastIso = [...recordDays].sort().pop();
+      const gap = lastIso ? daysBetween(lastIso, refIso) : elapsed;
+      const lastLabel = lastIso ? `${Number(lastIso.slice(5, 7))}/${Number(lastIso.slice(8, 10))}` : null;
+      if (gap >= 3) {
+        diagnoses.push({
+          level: 'risk', icon: '✓',
+          title: '记录在变少',
+          detail: `本时段 ${recordDays.size}/${elapsed} 天有记录，最近 ${gap} 天没有记录${lastLabel ? `（最后一次 ${lastLabel}）` : ''}`,
+          suggestion: '先确认是没学还是没记，再看其他指标',
+        });
+      } else if (elapsed >= 4 && recordDays.size / elapsed < 0.5) {
+        diagnoses.push({
+          level: 'warn', icon: '✓',
+          title: '记录不连续',
+          detail: `本时段 ${recordDays.size}/${elapsed} 天有记录`,
+          suggestion: '了解没有记录的日子是没学还是忘了记，帮学生固定一个每天记录的时间',
+        });
+      }
+    }
+  }
 
   const totalMins = safe.reduce((a, s) => a + (s.duration_minutes || 0), 0);
   const dates = new Set(safe.map(s => s.date.split('T')[0]));
@@ -698,13 +734,12 @@ function generateDiagnosis(sessions) {
   // Subject scores
   const subjScores = {};
   for (const s of safe) {
-    if (Number(s.eval_type) !== 2 || s.score == null || s.score === '') continue;
+    const obj = objectiveOf(s);
+    if (!obj || obj.kind === 'na') continue;
     const name = s.subject || '未分类';
     if (!subjScores[name]) subjScores[name] = [];
-    subjScores[name].push(Number(s.score));
+    subjScores[name].push(obj.value);
   }
-
-  const diagnoses = [];
 
   // Rule 1: Low self-direction — < 20% 直接升级成 alert（品牌红）
   if (selfPct < 0.2 && totalMins > 0) {
@@ -767,7 +802,7 @@ function generateDiagnosis(sessions) {
         diagnoses.push({
           level: 'alert', icon: '⚠',
           title: `${sub.name}：学习行为正常但成绩偏低`,
-          detail: `该生日均 ${Math.round(dailyAvg)} 分钟、复习占比 ${Math.round(reviewPct * 100)}%、自主占比 ${Math.round(selfPct * 100)}%，行为无明显缺陷，但 ${sub.name} 均分仅 ${sub.avg} 分`,
+          detail: `该生有记录日均 ${Math.round(dailyAvg)} 分钟、复习占比 ${Math.round(reviewPct * 100)}%、自主占比 ${Math.round(selfPct * 100)}%，行为无明显缺陷，但 ${sub.name} 均分仅 ${sub.avg} 分`,
           suggestion: '问题可能不在学生。建议检查：课堂教学完整度 / 教师反馈及时性 / 课程难度与基础匹配 / 学校支持资源',
         });
       }
@@ -779,18 +814,17 @@ function generateDiagnosis(sessions) {
     diagnoses.push({
       level: 'alert', icon: '⏱',
       title: '有效学习时间不足',
-      detail: `日均仅 ${Math.round(dailyAvg)} 分钟，再好的学习方法也无法弥补输入不足`,
+      detail: `有记录日均仅 ${Math.round(dailyAvg)} 分钟，再好的学习方法也无法弥补输入不足`,
       suggestion: '优先解决"学不够"的问题，而非学习方法。检查是时间管理问题还是学习回避',
     });
   }
 
   // Rule 6: Low objective feedback density on practice
   //  - For all practice sessions (category=3), how many have eval_type=2 and a score?
-  const totalPractice = safe.filter(s => Number(s.category) === 3);
+  //  - N/A（不适用）既不算有反馈，也不计入分母
+  const totalPractice = safe.filter(s => Number(s.category) === 3 && objectiveOf(s)?.kind !== 'na');
   if (totalPractice.length >= 4) {
-    const withFeedback = totalPractice.filter(s =>
-      Number(s.eval_type) === 2 && s.score != null && s.score !== ''
-    ).length;
+    const withFeedback = totalPractice.filter(s => hasObjectiveValue(s)).length;
     const feedbackPct = totalPractice.length > 0
       ? withFeedback / totalPractice.length
       : 0;
@@ -798,23 +832,23 @@ function generateDiagnosis(sessions) {
       diagnoses.push({
         level: 'alert', icon: '◈',
         title: '练习反馈密度严重不足',
-        detail: `${totalPractice.length} 次练习中仅 ${withFeedback} 次有客观评分（${Math.round(feedbackPct * 100)}%），` +
+        detail: `${totalPractice.length} 次练习中仅 ${withFeedback} 次有客观评价（${Math.round(feedbackPct * 100)}%），` +
           `缺少"做得对不对"的即时反馈，大量作业训练价值被浪费`,
-        suggestion: '引导学生记录每次练习的客观得分或主观自评。反馈越及时，调整成本越低',
+        suggestion: '引导学生练习后补上客观评价（等第），待补填的记录可以在学生端「待补填」里一次补完',
       });
     } else if (feedbackPct < 0.4) {
       diagnoses.push({
         level: 'risk', icon: '◈',
         title: '练习反馈密度偏低',
-        detail: `${totalPractice.length} 次练习中 ${withFeedback} 次有客观评分（${Math.round(feedbackPct * 100)}%），仍有较大提升空间`,
-        suggestion: '对薄弱科目练习特别注意记录得分，形成可追踪的进步曲线',
+        detail: `${totalPractice.length} 次练习中 ${withFeedback} 次有客观评价（${Math.round(feedbackPct * 100)}%），仍有较大提升空间`,
+        suggestion: '对薄弱科目的练习特别注意补上客观评价，形成可追踪的进步曲线',
       });
     } else if (feedbackPct < 0.5) {
       diagnoses.push({
         level: 'warn', icon: '◈',
         title: '练习反馈密度偏低',
-        detail: `${totalPractice.length} 次练习中 ${withFeedback} 次有客观评分（${Math.round(feedbackPct * 100)}%），仍有提升空间`,
-        suggestion: '对薄弱科目练习特别注意记录得分，形成可追踪的进步曲线',
+        detail: `${totalPractice.length} 次练习中 ${withFeedback} 次有客观评价（${Math.round(feedbackPct * 100)}%），仍有提升空间`,
+        suggestion: '对薄弱科目的练习特别注意补上客观评价，形成可追踪的进步曲线',
       });
     }
   }
@@ -824,7 +858,7 @@ function generateDiagnosis(sessions) {
     diagnoses.push({
       level: 'good', icon: '✓',
       title: '学习行为健康',
-      detail: `日均 ${Math.round(dailyAvg)} 分钟，复习占比 ${Math.round(reviewPct * 100)}%，自主占比 ${Math.round(selfPct * 100)}%，各维度指标合理`,
+      detail: `有记录日均 ${Math.round(dailyAvg)} 分钟，复习占比 ${Math.round(reviewPct * 100)}%，自主占比 ${Math.round(selfPct * 100)}%，各维度指标合理`,
       suggestion: '保持当前节奏，持续关注趋势变化',
     });
   }
@@ -832,8 +866,8 @@ function generateDiagnosis(sessions) {
   return diagnoses;
 }
 
-function DiagnosisPanel({ sessions }) {
-  const diagnoses = useMemo(() => generateDiagnosis(sessions), [sessions]);
+function DiagnosisPanel({ sessions, range }) {
+  const diagnoses = useMemo(() => generateDiagnosis(sessions, { range }), [sessions, range]);
 
   if (diagnoses.length === 0) return <div style={emptyStyle}>暂无诊断数据</div>;
 
@@ -1005,7 +1039,7 @@ const emptyStyle = {
 };
 
 // ── 主面板容器 ───────────────────────────────────────
-export default function DeepDivePanels({ sessions = [], weeks = [], studentName = '学生' }) {
+export default function DeepDivePanels({ sessions = [], weeks = [], studentName = '学生', range = null }) {
   return (
     <div>
       <div style={{
@@ -1029,7 +1063,7 @@ export default function DeepDivePanels({ sessions = [], weeks = [], studentName 
           <PracticeQualityPanel sessions={sessions} />
         </CollapsiblePanel>
         <CollapsiblePanel title="教育诊断结论" icon="⚠" defaultOpen _dataKey={`${sessions.length}-${weeks.length}`}>
-          <DiagnosisPanel sessions={sessions} />
+          <DiagnosisPanel sessions={sessions} range={range} />
         </CollapsiblePanel>
       </div>
     </div>

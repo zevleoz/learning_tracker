@@ -1,0 +1,116 @@
+/* 学生端 · 我的（WS7）：我的页、导师与邀请、提醒设置、我的课程（覆盖度）。
+   颜色一律走 --yb-* token（fallback 为浅色值）。内容卡片为实色、无描边；
+   状态 = 圆点 + 文字；Liquid Glass 只出现在 sheet（来自 student-logging.css 的 Sheet）。
+   .yb-lg 提供 --lg-* 变量与 .yb-btn / .yb-input 等基础件，我的页根节点同时挂 .yb-lg。 */
+
+.mep-page { max-width: 640px; margin: 0 auto; padding: 4px 0 96px; display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------- 资料 ---------- */
+.mep-profile { display: flex; align-items: center; gap: 14px; padding-top: 6px; }
+.mep-profile-t { flex: 1; min-width: 0; }
+.mep-profile-t h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mep-profile-t p { margin: 2px 0 0; font-size: 13px; color: var(--yb-ink-3, #5F6570); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mep-avatar { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--yb-crest-soft, #F6E5E6); color: var(--yb-crest-text, #A3202A); font-size: 14px; font-weight: 700; }
+.mep-avatar.lg { width: 56px; height: 56px; font-size: 21px; }
+.mep-avatar.muted { background: var(--yb-sunken, #E8EAEE); color: var(--yb-ink-2, #434852); }
+
+/* ---------- 分组 ---------- */
+.mep-block { display: flex; flex-direction: column; gap: 10px; }
+.mep-h2 { margin: 4px 2px 0; font-size: 15px; font-weight: 700; }
+.mep-note { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--yb-ink-3, #5F6570); }
+.mep-note.warn { color: var(--yb-warn, #8A4F05); }
+.mep-center { text-align: center; }
+.mep-quote { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--yb-sunken, #E8EAEE); color: var(--yb-ink-2, #434852); font-size: 13px; line-height: 1.5; }
+.mep-eyebrow { padding: 4px 0 2px; font-size: 12px; font-weight: 600; color: var(--yb-ink-3, #5F6570); }
+
+/* ---------- 状态点 ---------- */
+.mep-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mep-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--yb-ink-3, #5F6570); }
+.mep-dot.brass { background: var(--yb-brass-fill, #C9A54B); }
+.mep-dot.good { background: var(--yb-good, #2C7549); }
+
+/* ---------- 邀请卡 / 列表 ---------- */
+.mep-invite { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border: 0; border-radius: var(--yb-radius-card, 18px); background: var(--yb-brass-soft, #F3EBD7); color: var(--yb-ink, #14161B); text-align: left; font: inherit; cursor: pointer; }
+.mep-invite-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mep-invite-t b { font-size: 14px; }
+.mep-pill { flex: none; height: 32px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--yb-crest, #A3202A); color: var(--yb-crest-ink, #fff); font-size: 13px; font-weight: 700; }
+
+.mep-list { list-style: none; margin: 0; padding: 4px 16px; border-radius: var(--yb-radius-card, 18px); background: var(--yb-surface, #fff); }
+.mep-list > li + li { border-top: 1px solid var(--yb-line, #DADDE3); }
+.mep-li { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.mep-li.static { cursor: default; }
+.mep-li-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mep-li-t b { font-size: 14.5px; font-weight: 600; }
+.mep-li-t > span:not(.mep-status) { font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mep-li-r { flex: none; font-size: 13px; color: var(--yb-ink-3, #5F6570); }
+.mep-chev { flex: none; color: var(--yb-ink-3, #5F6570); }
+
+/* ---------- 同意页清单 ---------- */
+.mep-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-radius: var(--yb-radius-card, 18px); background: var(--yb-surface, #fff); }
+.mep-card.warm { background: var(--yb-brass-soft, #F3EBD7); }
+.mep-access { display: flex; flex-direction: column; gap: 4px; }
+.mep-perm { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mep-perm + .mep-perm { margin-top: 4px; }
+.mep-perm li { position: relative; padding: 7px 0 7px 22px; font-size: 14px; line-height: 1.45; color: var(--yb-ink, #14161B); }
+.mep-perm li::before { content: ""; position: absolute; left: 4px; top: 13px; width: 8px; height: 8px; border-radius: 50%; }
+.mep-perm li.yes::before { background: var(--yb-good, #2C7549); }
+.mep-perm li.no { color: var(--yb-ink-2, #434852); }
+.mep-perm li.no::before { background: transparent; box-shadow: inset 0 0 0 2px var(--yb-ink-3, #5F6570); }
+
+/* ---------- 退出登录 ---------- */
+.mep-signout { align-self: center; border: 0; background: none; padding: 10px 16px; color: var(--yb-crest-text, #A3202A); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+
+/* ---------- 提醒 ---------- */
+.mep-sub h1 { margin: 2px 0 0; font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
+.mep-back { font-size: 13px; color: var(--yb-ink-3, #5F6570); text-decoration: none; }
+.mep-back::before { content: "‹ "; }
+.mep-steps { margin: 4px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--yb-ink-2, #434852); }
+.mep-time { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mep-time .yb-input { width: 120px; height: 36px; font-size: 14px; }
+.mep-switch { position: relative; flex: none; width: 51px; height: 31px; border: 0; border-radius: 999px; background: var(--yb-sunken, #E8EAEE); cursor: pointer; transition: background .2s; }
+.mep-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(20, 22, 27, .3); transition: transform .2s; }
+.mep-switch.on { background: var(--yb-good, #2C7549); }
+.mep-switch.on::after { transform: translateX(20px); }
+.mep-switch:disabled { opacity: .5; cursor: default; }
+.mep-switch:focus-visible { outline: 2px solid var(--yb-ink, #14161B); outline-offset: 2px; }
+
+.mep-form { display: flex; flex-direction: column; gap: 14px; }
+
+/* ================================================================
+   我的课程（Syllabus 覆盖度视图 + 页头）
+   ================================================================ */
+.mec-page { max-width: 760px; margin: 0 auto; padding: 4px 0 96px; display: flex; flex-direction: column; gap: 14px; color: var(--yb-ink, #14161B); font-family: var(--yb-font, inherit); }
+.mec-page-edit { padding-top: 4px; }
+.mec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.mec-head h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -.01em; }
+.mec-head p { margin: 2px 0 0; font-size: 13px; color: var(--yb-ink-3, #5F6570); }
+.mec-eyebrow { font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mec-edit { flex: none; height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--yb-glass, rgba(255, 255, 255, .56)); -webkit-backdrop-filter: blur(12px) saturate(190%); backdrop-filter: blur(12px) saturate(190%); box-shadow: inset 0 0 0 1px var(--yb-glass-edge, rgba(255, 255, 255, .72)); color: var(--yb-ink, #14161B); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+@supports not (backdrop-filter: blur(1px)) { .mec-edit { background: var(--yb-surface, #fff); } }
+.mec-edit:focus-visible { outline: 2px solid var(--yb-ink, #14161B); outline-offset: 2px; }
+.mec-note { margin: 0; font-size: 13px; color: var(--yb-ink-3, #5F6570); }
+.mec-empty { padding: 28px 18px; border-radius: var(--yb-radius-card, 18px); background: var(--yb-surface, #fff); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.mec-empty p { margin: 0 0 8px; font-size: 13.5px; line-height: 1.55; color: var(--yb-ink-3, #5F6570); }
+
+.mec-list { display: flex; flex-direction: column; gap: 10px; }
+.mec-course { border-radius: var(--yb-radius-card, 18px); background: var(--yb-surface, #fff); overflow: hidden; }
+.mec-course > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
+.mec-course > summary::-webkit-details-marker { display: none; }
+.mec-course > summary:focus-visible { outline: 2px solid var(--yb-ink, #14161B); outline-offset: -2px; border-radius: var(--yb-radius-card, 18px); }
+.mec-course-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mec-course-t b { font-size: 16px; font-weight: 700; }
+.mec-meta { font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mec-cov { flex: none; font-size: 14px; font-weight: 700; color: var(--yb-ink-2, #434852); }
+.mec-body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+.mec-sum { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--yb-ink-2, #434852); }
+.mec-bar { height: 6px; border-radius: 999px; background: var(--yb-sunken, #E8EAEE); overflow: hidden; }
+.mec-bar i { display: block; height: 100%; border-radius: 999px; background: var(--yb-study, #2D5BD7); }
+.mec-ch { margin-top: 6px; }
+.mec-ch-h { display: flex; justify-content: space-between; padding: 8px 0 4px; border-top: 1px solid var(--yb-line, #DADDE3); font-size: 13.5px; font-weight: 700; }
+.mec-ch-h .num { font-weight: 500; color: var(--yb-ink-3, #5F6570); }
+.mec-un { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 10px; padding: 6px 0; font-size: 14px; }
+.mec-un-n { min-width: 0; overflow-wrap: anywhere; }
+.mec-un-s { font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.mec-un-t { min-width: 44px; text-align: right; font-size: 13px; color: var(--yb-ink-2, #434852); }
+.mec-dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--yb-ink-3, #5F6570); background: transparent; }
+.mec-dot.on { background: var(--yb-good, #2C7549); box-shadow: none; }

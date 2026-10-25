@@ -1,16 +1,44 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
-import { toLocalDateStr } from '../lib/date.js';
+import { Sheet } from '../components/student/LogSheet.jsx';
 
-// created_at 是 timestamptz（UTC）：直接 slice(0,10) 会在 UTC+8 的早 8 点前偏一天
-function formatLocalDate(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : toLocalDateStr(d);
+/* ================================================================
+   导师与邀请（在「我的」页内渲染；/notifications 已重定向到 /me）。
+
+   同意页的每一行都对照数据库实际允许的范围：
+   - 能看：is_connected_teacher_of(student_id)（status = 1 且对方是导师）才能 SELECT
+       learning_sessions（时间、课程、类别、形式、备注、主观评价、客观评价）、exam_scores；
+       没有时间下限，所以包含接受之前的全部历史记录。
+       profiles 对所有导师可读（profiles_select_self_or_mentor）。
+   - 能改：只有 update_student_name / update_student_school 两个 RPC，要求已连接。
+   - 不能：learning_sessions 的 INSERT/UPDATE 策略都是 student_id = auth.uid()，
+       没有 DELETE 策略；exam_scores 同理。
+   - 接受前：status = 0 时 is_connected_teacher_of 为 false，看不到任何记录。
+   - 断开：学生可把 status 更新为 2（tsc_update_student），断开后立即失效。
+   改 RLS 时必须同步修改这里的文案。
+   ================================================================ */
+export const MENTOR_ACCESS = {
+  can: [
+    '你的学习记录：时间、课程、类别、形式和备注，包括接受之前的全部记录',
+    '你的主观评价和客观评价',
+    '你的考试成绩',
+    '你的姓名和学校',
+  ],
+  mayDo: ['更正你的姓名和学校（用于归类）'],
+  cannot: [
+    '不能修改或删除你的任何学习记录和考试成绩',
+    '接受之前，看不到你的任何记录',
+  ],
+};
+
+// created_at 是 timestamptz（UTC）：用本地时区取月日，避免 UTC+8 早 8 点前偏一天
+function monthDay(value) {
+  const d = value ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 // 把 Supabase 错误转换成用户友好的中文提示，避免直接暴露技术细节
@@ -20,45 +48,96 @@ function friendlyError(err, fallback = '操作失败，请稍后再试') {
   const code = err.code;
   // 42501 = insufficient_privilege / RLS 拒绝
   if (code === '42501' || /permission denied|policy/i.test(msg)) return '权限不足：您只能操作自己的数据';
-  // 网络类
   if (/Failed to fetch|NetworkError/i.test(msg)) return '网络连接异常，请检查网络';
   if (/timeout|abort/i.test(msg)) return '请求超时，请稍后重试';
   return fallback;
 }
 
-/* Spinner：inline loading indicator，用于按钮 busy 态 */
-function Spinner({ size = 12, color = 'currentColor' }) {
+function Avatar({ name, muted }) {
+  const ch = (name || '').trim().slice(0, 1) || '师';
+  return <span className={'mep-avatar' + (muted ? ' muted' : '')} aria-hidden="true">{ch}</span>;
+}
+
+/** 同意页 / 导师详情共用的「能看 / 不能」清单。 */
+function AccessList({ withMayDo = true }) {
   return (
-    <motion.svg
-      width={size} height={size} viewBox="0 0 50 50"
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
-      style={{ display: 'inline-block', verticalAlign: 'middle' }}
-    >
-      <circle cx="25" cy="25" r="20" fill="none" stroke={color} strokeOpacity="0.25" strokeWidth="5" />
-      <path d="M25 5 a20 20 0 0 1 20 20" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" />
-    </motion.svg>
+    <div className="mep-access">
+      <ul className="mep-perm" aria-label="可以看到">
+        {MENTOR_ACCESS.can.map((t) => (<li key={t} className="yes">{t}</li>))}
+      </ul>
+      {withMayDo && (
+        <ul className="mep-perm" aria-label="还可以">
+          {MENTOR_ACCESS.mayDo.map((t) => (<li key={t} className="yes">{t}</li>))}
+        </ul>
+      )}
+      <ul className="mep-perm" aria-label="不能">
+        {MENTOR_ACCESS.cannot.map((t) => (<li key={t} className="no">{t}</li>))}
+      </ul>
+    </div>
   );
 }
 
-export default function Notifications() {
+export default function Notifications({ onPendingChange }) {
   const [user, setUser] = useState(null);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
-  const [confirmTarget, setConfirmTarget] = useState(null);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [openId, setOpenId] = useState(null);          // 当前打开的 sheet 对应的连接
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   // 用 ref 保存 subscription，确保卸载时能正确清理（不能用 state，否则 cleanup 闭包里读到的是 null）
   const subRef = useRef(null);
+  const onPendingRef = useRef(onPendingChange);
+  onPendingRef.current = onPendingChange;
+
+  const loadInvites = useCallback(async (studentId) => {
+    if (!studentId) return;
+    try {
+      const { data: connData, error: connError } = await supabase
+        .from('teacher_student_connections')
+        .select('id, teacher_id, status, note, created_at, updated_at')
+        .eq('student_id', studentId);
+
+      if (connError) {
+        logger.error('Connection query error:', connError);
+        toast(friendlyError(connError, '加载邀请失败，请稍后重试'), { kind: 'error' });
+        return;
+      }
+
+      const teacherIds = Array.from(new Set((connData || []).map((c) => c.teacher_id)));
+      let names = {};
+      if (teacherIds.length > 0) {
+        const { data: profData, error: profError } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', teacherIds);
+        if (profError) {
+          logger.error('Profiles query error:', profError);
+          toast('无法获取老师信息', { kind: 'warning' });
+        } else {
+          names = Object.fromEntries((profData || []).map((p) => [p.id, p.full_name]));
+        }
+      }
+
+      setInvites((connData || []).map((c) => ({
+        ...c,
+        teacher_name: names[c.teacher_id] || '未命名老师',
+      })));
+    } catch (err) {
+      logger.error('loadInvites error:', err);
+      toast(friendlyError(err, '加载邀请失败，请稍后重试'), { kind: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const { data: { user: u } } = await supabase.auth.getUser();
-      if (!u || cancelled) return;
+      if (!u || cancelled) { setLoading(false); return; }
       setUser(u);
       await loadInvites(u.id);
-      setInitialLoaded(true);
+      if (cancelled) return;
 
       // 在 effect 内创建 subscription，cleanup 时通过同一引用卸载
       const subscription = supabase
@@ -71,7 +150,7 @@ export default function Notifications() {
         }, (payload) => {
           if (cancelled) return; // 卸载后不再触发刷新
           if (payload.eventType === 'INSERT' && payload.new?.status === 0) {
-            toast('收到新的老师邀请！', { kind: 'success' });
+            toast('收到新的老师邀请', { kind: 'success' });
           }
           loadInvites(u.id);
         })
@@ -86,57 +165,21 @@ export default function Notifications() {
         subRef.current = null;
       }
     };
-  }, []);
+  }, [loadInvites]);
 
-  async function loadInvites(studentId) {
-    if (!studentId && !user) return;
-    const id = studentId || user.id;
-    setLoading(true);
-    try {
-      const { data: connData, error: connError } = await supabase
-        .from('teacher_student_connections')
-        .select('id, teacher_id, status, note, created_at, updated_at')
-        .eq('student_id', id);
+  const pending = invites.filter((i) => i.status === 0);
+  const accepted = invites.filter((i) => i.status === 1);
+  const open = openId ? invites.find((c) => c.id === openId) : null;
 
-      if (connError) {
-        logger.error('Connection query error:', connError);
-        toast(friendlyError(connError, '加载邀请失败，请稍后重试'), { kind: 'error' });
-        return;
-      }
+  useEffect(() => { onPendingRef.current?.(pending.length); }, [pending.length]);
 
-      const teacherIds = Array.from(new Set((connData || []).map((c) => c.teacher_id)));
-
-      let names = {};
-      if (teacherIds.length > 0) {
-        const { data: profData, error: profError } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', teacherIds);
-
-        if (profError) {
-          logger.error('Profiles query error:', profError);
-          toast('无法获取老师信息', { kind: 'warning' });
-        } else {
-          names = Object.fromEntries((profData || []).map((p) => [p.id, p.full_name]));
-        }
-      }
-
-      const decorated = (connData || []).map((c) => ({
-        ...c,
-        teacher_name: names[c.teacher_id] || '(未命名老师)',
-      }));
-      setInvites(decorated);
-    } catch (err) {
-      logger.error('loadInvites error:', err);
-      toast(friendlyError(err, '加载邀请失败，请稍后重试'), { kind: 'error' });
-    } finally {
-      setLoading(false);
-    }
+  function closeSheet() {
+    setOpenId(null);
+    setConfirmDisconnect(false);
   }
 
-  async function updateStatus(id, status) {
-    if (!user) return;
-    if (busyId) return;
+  async function setStatus(id, status, { okMsg, failMsg }) {
+    if (!user || busyId) return;
     setBusyId(id);
     try {
       const { error } = await supabase
@@ -145,239 +188,122 @@ export default function Notifications() {
         .eq('id', id)
         .eq('student_id', user.id);
       if (error) {
-        logger.error('updateStatus error:', error);
-        toast(friendlyError(error, '操作失败，请稍后重试'), { kind: 'error' });
+        logger.error('connection status update error:', error);
+        toast(friendlyError(error, failMsg), { kind: 'error' });
         return;
       }
       // 乐观更新本地状态，避免完全依赖 realtime 回流
-      setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status } : c));
-      toast(status === 1 ? '已接受邀请，老师现在可以查看你的学习数据' : '已拒绝邀请', { kind: 'success' });
+      setInvites((prev) => prev.map((c) => (c.id === id ? { ...c, status, updated_at: new Date().toISOString() } : c)));
+      toast(okMsg, { kind: 'success' });
+      closeSheet();
     } finally {
       setBusyId(null);
     }
   }
 
-  async function disconnect(id) {
-    if (!user) return;
-    if (busyId) return;
-    setBusyId(id);
-    try {
-      const { error } = await supabase
-        .from('teacher_student_connections')
-        .update({ status: 2, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('student_id', user.id);
-      if (error) {
-        logger.error('disconnect error:', error);
-        toast(friendlyError(error, '断开失败，请稍后重试'), { kind: 'error' });
-        return;
-      }
-      setInvites((prev) => prev.map((c) => c.id === id ? { ...c, status: 2 } : c));
-      toast('已断开连接', { kind: 'success' });
-    } finally {
-      setBusyId(null);
-    }
-  }
+  const accept = (id) => setStatus(id, 1, { okMsg: '已接受，老师现在可以查看你的学习数据', failMsg: '操作失败，请稍后重试' });
+  const decline = (id) => setStatus(id, 2, { okMsg: '已拒绝邀请', failMsg: '操作失败，请稍后重试' });
+  const disconnect = (id) => setStatus(id, 2, { okMsg: '已断开连接', failMsg: '断开失败，请稍后重试' });
 
-  const pending = invites.filter((i) => i.status === 0);
-  const accepted = invites.filter((i) => i.status === 1);
-
-  // 确认弹窗的目标对象
-  const confirmInvite = confirmTarget ? invites.find((c) => c.id === confirmTarget) : null;
+  const busy = Boolean(open && busyId === open.id);
 
   return (
-    <div className="notif-page" style={{ fontSize: 13, color: '#334155' }}>
-      <header className="page-title">
-        <h1>邀请通知</h1>
-        <p>
-          当你的老师邀请你加入时，他们可以在接受后查看你的学习数据、Review、得分。
-        </p>
-      </header>
+    <section className="mep-block" aria-labelledby="mep-mentors-h">
+      <h2 id="mep-mentors-h" className="mep-h2">导师</h2>
 
-      {loading && !initialLoaded && (
-        <div className="loading-state" style={{ padding: '60px 16px' }}>
-          <div className="loading-spinner"></div>
-          <span>加载中…</span>
-        </div>
-      )}
+      {loading && <p className="mep-note" role="status">加载中…</p>}
 
-      {!loading && initialLoaded && pending.length === 0 && accepted.length === 0 && (
-        <div className="empty-state" style={{ marginTop: 16 }}>
-          <div className="empty-state-icon"></div>
-          <h3>还没有邀请</h3>
-          <p>老师邀请你后，你将在这里看到并选择接受或拒绝。</p>
-        </div>
-      )}
-
-      {initialLoaded && pending.length > 0 && (
-        <Section title="等待你的决定" count={pending.length} hint="接受后老师将能查看你的学习数据">
-          {pending.map((c) => (
-            <InviteRow
-              key={c.id}
-              invite={c}
-              busy={busyId === c.id}
-              onAccept={() => updateStatus(c.id, 1)}
-              onReject={() => updateStatus(c.id, 2)}
-            />
-          ))}
-        </Section>
-      )}
+      {pending.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          className="mep-invite"
+          aria-haspopup="dialog"
+          onClick={() => { setConfirmDisconnect(false); setOpenId(c.id); }}
+        >
+          <span className="mep-invite-t">
+            <b>{c.teacher_name}邀请你连接</b>
+            <span className="mep-status"><i className="mep-dot brass" aria-hidden="true" />{monthDay(c.created_at)} · 等你决定</span>
+          </span>
+          <span className="mep-pill">查看</span>
+        </button>
+      ))}
 
       {accepted.length > 0 && (
-        <Section title="已连接（正在查看你）" count={accepted.length} hint="以下老师可以查看你的学习数据。">
+        <ul className="mep-list">
           {accepted.map((c) => (
-            <div key={c.id} style={{
-              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
-              padding: '12px 14px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontWeight: 600, color: '#0f172a' }}>{c.teacher_name}</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                  从 {formatLocalDate(c.created_at)} 起可以查看你的学习数据
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{
-                  fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
-                  color: '#059669', background: '#a7f3d0',
-                }}>已连接</span>
-                <button
-                  onClick={() => setConfirmTarget(c.id)}
-                  disabled={busyId === c.id}
-                  className="btn btn-ghost btn-sm"
-                  style={{ color: '#b91c1c', borderColor: 'rgba(239,68,68,0.3)' }}
-                >断开</button>
-              </div>
-            </div>
+            <li key={c.id}>
+              <button
+                type="button"
+                className="mep-li"
+                aria-haspopup="dialog"
+                onClick={() => { setConfirmDisconnect(false); setOpenId(c.id); }}
+              >
+                <Avatar name={c.teacher_name} muted />
+                <span className="mep-li-t">
+                  <b>{c.teacher_name}</b>
+                  <span className="mep-status"><i className="mep-dot good" aria-hidden="true" />已连接 · {monthDay(c.updated_at || c.created_at)}起可查看你的学习数据</span>
+                </span>
+                <ChevronRight size={16} aria-hidden="true" className="mep-chev" />
+              </button>
+            </li>
           ))}
-        </Section>
+        </ul>
       )}
 
-      {confirmTarget && confirmInvite && createPortal(
-        <ConfirmDialog
-          title="断开连接？"
-          message={`确定要断开与 ${confirmInvite.teacher_name} 的连接吗？断开后老师将无法继续查看你的学习数据。`}
-          busy={busyId === confirmInvite.id}
-          confirmLabel="断开"
-          confirmVariant="danger"
-          onCancel={() => setConfirmTarget(null)}
-          onConfirm={() => {
-            disconnect(confirmInvite.id).then(() => setConfirmTarget(null));
-          }}
-        />,
-        document.body
+      {!loading && pending.length === 0 && accepted.length === 0 && (
+        <p className="mep-note">还没有导师。老师邀请你之后，会在这里等你决定。</p>
       )}
-    </div>
-  );
-}
 
-function Section({ title, count, hint, children }) {
-  return (
-    <section style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-        <h2 style={{ fontSize: 15, margin: 0 }}>{title}</h2>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>{count}</span>
-      </div>
-      {hint && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>{hint}</div>}
-      <div className="notif-list">{children}</div>
-    </section>
-  );
-}
-
-function InviteRow({ invite, onAccept, onReject, busy }) {
-  return (
-    <div style={{
-      background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)',
-      padding: '12px 14px', borderRadius: 12,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{invite.teacher_name}</div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-            邀请时间：{formatLocalDate(invite.created_at)}
-          </div>
-          {invite.note && (
-            <div style={{ fontSize: 12, color: '#475569', marginTop: 6, padding: '6px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: 8 }}>
-              "{invite.note}"
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            onClick={onAccept}
-            disabled={busy}
-            className="btn btn-primary btn-sm"
-            style={{ borderColor: '#10b981', color: '#065f46', background: '#d1fae5', minWidth: 64 }}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {busy && <Spinner size={11} color="#065f46" />}
+      <Sheet
+        open={Boolean(open)}
+        onClose={closeSheet}
+        title={open?.status === 0 ? `${open?.teacher_name || ''}想查看你的学习数据` : (open?.teacher_name || '导师')}
+        footer={open && (open.status === 0 ? (
+          <>
+            <button type="button" className="yb-btn ghost" disabled={busy} onClick={() => decline(open.id)}>拒绝</button>
+            <button type="button" className="yb-btn" disabled={busy} onClick={() => accept(open.id)}>
               {busy ? '处理中…' : '接受'}
-            </span>
-          </button>
-          <button
-            onClick={onReject}
-            disabled={busy}
-            className="btn btn-ghost btn-sm"
-            style={{ color: '#b91c1c', borderColor: 'rgba(239,68,68,0.4)', minWidth: 64 }}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {busy && <Spinner size={11} color="#b91c1c" />}
-              {busy ? '处理中…' : '拒绝'}
-            </span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmDialog({ title, message, onConfirm, onCancel, busy, confirmLabel = '确认', confirmVariant = 'primary' }) {
-  const isDanger = confirmVariant === 'danger';
-  const confirmStyle = isDanger
-    ? { background: 'rgba(239,68,68,0.12)', color: '#b91c1c', borderColor: 'rgba(239,68,68,0.3)' }
-    : {};
-  return (
-    <div
-      onClick={onCancel}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(15,23,42,0.35)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 20, animation: 'fadeIn 180ms ease-out',
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--glass-strong, rgba(255,255,255,0.9))',
-          backdropFilter: 'var(--blur-sheet, blur(20px))',
-          WebkitBackdropFilter: 'var(--blur-sheet, blur(20px))',
-          borderRadius: 20, padding: 24,
-          width: '100%', maxWidth: 340,
-          border: '1px solid var(--edge-bright, rgba(15,23,42,0.08))',
-          boxShadow: '0 2px 6px rgba(15,23,42,0.04), 0 18px 44px rgba(15,23,42,0.12)',
-          animation: 'authModalIn 220ms cubic-bezier(0.32,0.72,0,1)',
-        }}
+            </button>
+          </>
+        ) : confirmDisconnect ? (
+          <>
+            <button type="button" className="yb-btn ghost" disabled={busy} onClick={() => setConfirmDisconnect(false)}>取消</button>
+            <button type="button" className="yb-btn" disabled={busy} onClick={() => disconnect(open.id)}>
+              {busy ? '处理中…' : '确认断开'}
+            </button>
+          </>
+        ) : (
+          <button type="button" className="yb-btn ghost" onClick={() => setConfirmDisconnect(true)}>断开连接</button>
+        ))}
       >
-        <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700, color: 'var(--text-strong, #0f172a)' }}>{title}</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-soft, #64748b)', lineHeight: 1.55 }}>{message}</p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={onCancel}
-            disabled={busy}
-            className="btn btn-ghost btn-sm"
-          >取消</button>
-          <button
-            onClick={onConfirm}
-            disabled={busy}
-            className="btn btn-primary btn-sm"
-            style={confirmStyle}
-          >{busy ? '处理中…' : confirmLabel}</button>
-        </div>
-      </div>
-    </div>
+        {open && open.status === 0 && (
+          <>
+            <p className="mep-note">
+              {open.teacher_name}（导师）· {monthDay(open.created_at)}发出
+            </p>
+            {open.note && <p className="mep-quote">“{open.note}”</p>}
+            <div className="mep-card">
+              <div className="mep-eyebrow">接受后，{open.teacher_name}可以看到</div>
+              <AccessList />
+            </div>
+            <p className="mep-note mep-center">随时可以在「我的」里断开连接。</p>
+          </>
+        )}
+        {open && open.status === 1 && (
+          <>
+            <p className="mep-note">
+              {monthDay(open.updated_at || open.created_at)}连接，现在可以看到：
+            </p>
+            <div className="mep-card"><AccessList /></div>
+            {confirmDisconnect && (
+              <p className="mep-note warn">
+                断开后，{open.teacher_name}将立即无法再查看你的学习数据。之后需要重新被邀请才能再次连接。
+              </p>
+            )}
+          </>
+        )}
+      </Sheet>
+    </section>
   );
 }

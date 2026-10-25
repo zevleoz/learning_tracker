@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import { useAuth } from '../lib/useAuth.js';
+import { Sheet } from './student/LogSheet.jsx';
 
 /**
  * ProfileEditor — reusable editor for full_name and school_name.
@@ -16,6 +17,8 @@ import { useAuth } from '../lib/useAuth.js';
  *   - externalUser: object — if provided, edit someone else's profile (mentor editing student)
  *     shape: { id, full_name, school_name }
  *   - onSaved: function (profile) — called after successful save
+ *   - variant: 'classic' (default, mentor workspace) | 'student' — 学生端新样式：玻璃 sheet，
+ *     学校是纯文本字段，退出登录放在「我的」页，不在这里
  */
 export default function ProfileEditor({
   mode = 'inline',
@@ -23,6 +26,7 @@ export default function ProfileEditor({
   forceSchool = false,
   externalUser = null,
   onSaved,
+  variant = 'classic',
 }) {
   const { user, profile, signOut } = useAuth();
   const target = externalUser || profile;
@@ -45,6 +49,29 @@ export default function ProfileEditor({
     setFullName(name);
     setSchoolName(school);
   }, [target?.id, target?.full_name, target?.school_name]);
+
+  // 学生端样式：useAuth 的 profile 不含 school_name，打开时从 profiles 取一次最新值预填
+  useEffect(() => {
+    if (variant !== 'student' || isEditingOther) return undefined;
+    const uid = user?.id || profile?.id;
+    if (!uid) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('full_name, school_name')
+          .eq('id', uid)
+          .maybeSingle();
+        if (cancelled || !data) return;
+        if (data.full_name) setFullName(data.full_name);
+        setSchoolName(data.school_name ?? '');
+      } catch {
+        // 预填失败不影响手动输入
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [variant, isEditingOther, user?.id, profile?.id]);
 
   const role = Number(target?.role || profile?.role || 1);
   const isStudent = role < 2;
@@ -112,6 +139,57 @@ export default function ProfileEditor({
     } finally {
       setBusy(false);
     }
+  }
+
+  // ============ 学生端样式：玻璃 sheet ============
+  if (variant === 'student' && !isEditingOther) {
+    const nameId = 'pe-name';
+    const schoolId = 'pe-school';
+    const loginEmail = target?.email || user?.email;
+    return (
+      <Sheet
+        open
+        onClose={onClose}
+        title="个人资料"
+        footer={(
+          <>
+            <button type="button" className="yb-btn ghost" onClick={onClose} disabled={busy}>取消</button>
+            <button type="submit" form="pe-student-form" className="yb-btn" disabled={busy}>
+              {busy ? '保存中…' : '保存'}
+            </button>
+          </>
+        )}
+      >
+        <form id="pe-student-form" onSubmit={handleSave} className="mep-form">
+          <div className="yb-field">
+            <label className="yb-label" htmlFor={nameId}><b>昵称</b></label>
+            <input
+              id={nameId}
+              className="yb-input"
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="如：小王"
+              autoComplete="nickname"
+              required
+            />
+          </div>
+          <div className="yb-field">
+            <label className="yb-label" htmlFor={schoolId}><b>学校</b><span>直接填写学校名称</span></label>
+            <input
+              id={schoolId}
+              className="yb-input"
+              type="text"
+              value={schoolName}
+              onChange={(e) => setSchoolName(e.target.value)}
+              placeholder="如：南京市第一中学"
+              autoComplete="organization"
+            />
+          </div>
+          {loginEmail && <p className="yb-note">登录邮箱：{loginEmail}</p>}
+        </form>
+      </Sheet>
+    );
   }
 
   const initials = (target?.full_name || target?.email || 'U').charAt(0).toUpperCase();

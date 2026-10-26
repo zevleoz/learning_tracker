@@ -137,7 +137,7 @@ export default function DimensionStrip({ sessions = [], period }) {
 
     // 07 反馈密度
     const feedbackCount = safe.filter(s => {
-      const o = objectiveOf(s);
+      const o = Number(s.category) === 3 ? objectiveOf(s) : null; // 客观评价只属于练习
       return (o && o.kind !== 'na') || s.self_rating != null;
     }).length;
     const feedbackPerDay = activeDays > 0 ? (feedbackCount / activeDays).toFixed(1) : '0';

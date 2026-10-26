@@ -6,14 +6,12 @@ import {
 } from './WeekGrid.jsx';
 import { logger } from '../lib/logger.js';
 import { objectiveOf, hasObjectiveValue } from '../lib/objective.js';
+import { SUBJECTIVE_LABEL } from '../lib/rating.js';
 import { toLocalDateStr } from '../lib/date.js';
 import { daysBetween } from '../utils/inactivity.js';
 
-// ── 主观评价标签映射（self_rating 值 → 可读文本） ──
-const SELF_RATING_LABELS = {
-  20: '没有听课', 40: '像在听天书', 60: '有不少没掌握',
-  80: '基本掌握', 100: '完全掌握',
-};
+// ── 主观评价标签：全平台唯一来源 rating.js（self_rating 值 → 文案） ──
+const SELF_RATING_LABELS = SUBJECTIVE_LABEL;
 
 // ── 语义层 4 档颜色（承载"好不好"，与 CSS var 全局同步） ──
 const SEM = {
@@ -734,6 +732,7 @@ export function generateDiagnosis(sessions, { range = null, today = toLocalDateS
   // Subject scores
   const subjScores = {};
   for (const s of safe) {
+    if (Number(s.category) !== 3) continue; // 客观评价只属于练习
     const obj = objectiveOf(s);
     if (!obj || obj.kind === 'na') continue;
     const name = s.subject || '未分类';

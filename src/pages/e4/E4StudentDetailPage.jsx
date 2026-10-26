@@ -14,6 +14,7 @@ import PrintPreviewModal from '../../components/e4/PrintPreviewModal.jsx';
 import PrepPrint from '../../components/e4/PrepPrint.jsx';
 import FirstReportPrint from '../../components/e4/FirstReportPrint.jsx';
 import ProgressPrint from '../../components/e4/ProgressPrint.jsx';
+import { useDayKey } from '../../lib/e4DayKey.js';
 
 function IconBack() {
   return (
@@ -48,6 +49,7 @@ function IconTrash() {
 }
 
 export default function E4StudentDetailPage() {
+  useDayKey(); // 过零点后重新渲染，「今天 / 待写报告」不停在昨天
   const { studentId } = useParams();
   const nav = useNavigate();
   const [student, setStudent] = useState(null);

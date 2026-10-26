@@ -109,3 +109,12 @@ describe('E4 零点刷新', () => {
     expect(ms).toBeLessThan(62 * 1000);
   });
 });
+
+describe('手机端导师标签高亮', () => {
+  it('JSX 用 m-mentor-tab-active，样式表必须有对应规则', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const css = fs.readFileSync(path.join(__dirname, '../src/index.css'), 'utf8');
+    expect(css).toMatch(/\.m-mentor-tab\.m-mentor-tab-active/);
+  });
+});

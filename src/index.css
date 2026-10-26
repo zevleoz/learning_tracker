@@ -5877,7 +5877,8 @@ body:has(.yb-student) {
   font-family: inherit;
   transition: all 160ms ease;
 }
-.m-mentor-tab.active {
+.m-mentor-tab.active,
+.m-mentor-tab.m-mentor-tab-active {
   background: rgba(193, 39, 45, 0.15);
   color: var(--brand);
   font-weight: 600;

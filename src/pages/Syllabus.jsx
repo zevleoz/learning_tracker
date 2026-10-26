@@ -118,12 +118,25 @@ export default function Syllabus({ defaultEditing = true }) {
 
         // 覆盖度所需的记录汇总；失败不影响课程树本身
         try {
-          const { data: rows, error: usageErr } = await supabase
-            .from('learning_sessions')
-            .select('course_id, unit_id, duration_minutes')
-            .eq('student_id', user.id)
-            .is('deleted_at', null);
-          if (!usageErr && !cancelled) setUsage(summarizeUsage(rows));
+          // PostgREST 单次最多 1000 行：记录多的学生按 id 分页取完，否则覆盖度会少算
+          const PAGE = 1000;
+          const all = [];
+          let usageErr = null;
+          let lastId = null;
+          for (;;) {
+            let q = supabase
+              .from('learning_sessions')
+              .select('id, course_id, unit_id, duration_minutes')
+              .eq('student_id', user.id)
+              .is('deleted_at', null);
+            if (lastId !== null) q = q.gt('id', lastId);
+            const { data: rows, error } = await q.order('id', { ascending: true }).limit(PAGE);
+            if (error) { usageErr = error; break; }
+            all.push(...(rows || []));
+            if (!rows || rows.length < PAGE) break;
+            lastId = rows[rows.length - 1].id;
+          }
+          if (!usageErr && !cancelled) setUsage(summarizeUsage(all));
         } catch (usageEx) {
           logger.warn('Syllabus usage load failed:', usageEx);
         }

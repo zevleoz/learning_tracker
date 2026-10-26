@@ -184,6 +184,7 @@ describe('UpdatePrompt 组件', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     reloadSpy.mockClear();
     global.fetch = jest.fn();
   });
@@ -248,5 +249,17 @@ describe('UpdatePrompt 组件', () => {
     render(<UpdatePrompt />);
     await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1), { timeout: 3000 });
     expect(screen.queryByText(/有新版本/)).not.toBeInTheDocument();
+  });
+
+  test('同一版本只静默刷新一次：刷新后仍是旧页面时改为提示，不循环', async () => {
+    localStorage.setItem('app-surface-usage', JSON.stringify({ student: Date.now() }));
+    sessionStorage.setItem('app-update-silent-reloaded', 'student:newbuild');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ surfaces: { student: 'newbuild' } }),
+    });
+    render(<UpdatePrompt />);
+    expect(await screen.findByText(/有新版本/, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 });

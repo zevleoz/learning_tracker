@@ -3,35 +3,37 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
-import E4Layout from './components/E4Layout.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
 import { renderStudentRoutes } from './pages/student/routes.jsx';
-import Mentor from './pages/Mentor.jsx';
-import { useAuth } from './lib/useAuth.js';
-import E4StudentListPage from './pages/e4/E4StudentListPage.jsx';
-import E4TodosPage from './pages/e4/E4TodosPage.jsx';
-import E4IntakePage from './pages/e4/E4IntakePage.jsx';
-import E4StudentDetailPage from './pages/e4/E4StudentDetailPage.jsx';
-import E4ReportBuilderPage from './pages/e4/E4ReportBuilderPage.jsx';
-import E4PrepPage from './pages/e4/E4PrepPage.jsx';
-import E4ProgressPage from './pages/e4/E4ProgressPage.jsx';
-import E4PrintPreview from './pages/e4/E4PrintPreview.jsx';
-import UpdatePrompt from './components/UpdatePrompt.jsx';
+import { renderMentorRoutes, renderE4Routes } from './pages/lazyRoutes.jsx';
+import RouteFallback from './components/RouteFallback.jsx';
+import { useAuth, readRoleHint } from './lib/useAuth.js';
+import { lazyWithRetry } from './lib/lazyWithRetry.js';
 import { SurfaceTracker } from './lib/useAppUpdate.js';
+
+// 新版本提示横幅：用到 framer-motion（约 130 KB），不阻塞首屏，首屏渲染后再加载
+const UpdatePrompt = lazyWithRetry(() => import('./components/UpdatePrompt.jsx'));
 
 // DebugTools 只在开发环境加载，避免生产 bundle 包含数据操作工具
 const DebugTools = import.meta.env.DEV
   ? lazy(() => import('./pages/DebugTools.jsx'))
   : null;
-
+// E4 打印预览开发页同样只在开发环境加载
+const E4PrintPreview = import.meta.env.DEV
+  ? lazy(() => import('./pages/e4/E4PrintPreview.jsx'))
+  : null;
 
 // 登录后的根路由：
 //   导师/管理员 → 按 default_workspace 偏好（即上次打开的工作区，默认 E4）；学生一律落到「今天」
 function RootRedirect() {
-  const { profile, loading } = useAuth();
-  // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /syllabus
-  if (loading) return null;
+  const { user, profile, loading } = useAuth();
+  // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /syllabus。
+  // 例外：上次确认过这个账号是学生（本机提示，不参与权限判断），直接进「今天」，不等 profile 往返。
+  if (loading) {
+    if (user && readRoleHint(user.id) === 1) return <Navigate to="/today" replace />;
+    return null;
+  }
   const role = Number(profile?.role) || 1;
   if (role >= 2) {
     // 导师只落两个工作区之一：一表人才（/mentor）或 E4，default_workspace 记录上次打开的页面
@@ -48,7 +50,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <SurfaceTracker />
-      <UpdatePrompt />
+      <Suspense fallback={null}>
+        <UpdatePrompt />
+      </Suspense>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
@@ -69,32 +73,20 @@ export default function App() {
             )}
           </Route>
         </Route>
-        {/* 导师专属路由：需要 role >= 2 —— 一表人才导师台 */}
-        <Route element={<ProtectedRoute minRole={2} />}>
-          <Route element={<Layout />}>
-            <Route path="/mentor" element={<Mentor />} />
-          </Route>
-        </Route>
+        {/* 导师专属路由与 E4 工作区：懒加载，学生端不下载（见 pages/lazyRoutes.jsx） */}
+        {renderMentorRoutes()}
         {/* E4 开发预览：Leo mock 数据，无需登录（仅 dev） */}
-        {import.meta.env.DEV && (
-          <Route path="/e4/print-preview" element={<E4PrintPreview />} />
+        {import.meta.env.DEV && E4PrintPreview && (
+          <Route
+            path="/e4/print-preview"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <E4PrintPreview />
+              </Suspense>
+            }
+          />
         )}
-        {/* E4 学习力导师平台（导师桌面布局） */}
-        <Route element={<ProtectedRoute minRole={2} />}>
-          <Route element={<E4Layout />}>
-            <Route path="/e4" element={<E4TodosPage />} />
-            <Route path="/e4/students" element={<E4StudentListPage />} />
-            <Route path="/e4/new" element={<E4IntakePage />} />
-            <Route path="/e4/students/:studentId" element={<E4StudentDetailPage />} />
-            <Route path="/e4/students/:studentId/new-first" element={<E4ReportBuilderPage />} />
-            <Route path="/e4/students/:studentId/new-prep" element={<E4PrepPage />} />
-            <Route path="/e4/students/:studentId/new-progress" element={<E4ProgressPage />} />
-            <Route path="/e4/reports/:reportId/build" element={<E4ReportBuilderPage />} />
-            <Route path="/e4/prep/:reportId" element={<E4PrepPage />} />
-            <Route path="/e4/progress/:reportId" element={<E4ProgressPage />} />
-          </Route>
-          {/* 打印预览为页内浮层（PrintPreviewModal），不再有独立路由 */}
-        </Route>
+        {renderE4Routes()}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ErrorBoundary>

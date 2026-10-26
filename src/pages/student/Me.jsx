@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase.js';
+import { useCached } from '../../lib/useCached.js';
+import { patch, invalidate } from '../../lib/studentCache.js';
+import { KEYS } from '../../lib/studentResources.js';
 import {
   DEFAULT_PREFS, normalizePrefs, loadPrefs, savePrefs, isDailyForced, forcedDailyUntil, fmtMonthDay,
 } from '../../lib/notifyPrefs.js';
@@ -21,45 +24,34 @@ import '../../styles/student-me.css';
    提醒设置（/me/reminders）作为同文件的命名导出 Reminders。
    ================================================================ */
 
+// 资料 + 课程数：两个查询并行（以前是 getUser → profiles → courses 三次串行往返）
+async function fetchMe(user) {
+  const [profileRes, coursesRes] = await Promise.all([
+    supabase.from('profiles').select('full_name, school_name').eq('id', user.id).maybeSingle(),
+    supabase.from('courses').select('id').eq('created_by', user.id).is('deleted_at', null),
+  ]);
+  const p = profileRes.data;
+  const cs = coursesRes.data;
+  return {
+    id: user.id,
+    name: p?.full_name || user.user_metadata?.full_name || '',
+    school: p?.school_name || '',
+    email: user.email || '',
+    courseCount: cs ? cs.length : null,
+  };
+}
+
+const EMPTY_ME = { id: null, name: '', school: '', email: '', courseCount: null };
+
 export default function Me() {
   const nav = useNavigate();
-  const { signOut } = useAuth();
-  const [me, setMe] = useState({ id: null, name: '', school: '', email: '' });
-  const [courseCount, setCourseCount] = useState(null);
+  const { user, signOut } = useAuth();
+  const userId = user?.id;
+  const meRes = useCached(userId, KEYS.me, () => fetchMe(user));
+  const me = meRes.data || EMPTY_ME;
+  const courseCount = me.courseCount;
   const [editingProfile, setEditingProfile] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
-  const [reload, setReload] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || cancelled) return;
-        const { data: p } = await supabase
-          .from('profiles')
-          .select('full_name, school_name')
-          .eq('id', user.id)
-          .maybeSingle();
-        if (cancelled) return;
-        setMe({
-          id: user.id,
-          name: p?.full_name || user.user_metadata?.full_name || '',
-          school: p?.school_name || '',
-          email: user.email || '',
-        });
-        const { data: cs } = await supabase
-          .from('courses')
-          .select('id')
-          .eq('created_by', user.id)
-          .is('deleted_at', null);
-        if (!cancelled && cs) setCourseCount(cs.length);
-      } catch (err) {
-        logger.error('Me load failed:', err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [reload]);
 
   async function handleSignOut() {
     await signOut();
@@ -108,7 +100,7 @@ export default function Me() {
           mode="modal"
           variant="student"
           onClose={() => setEditingProfile(false)}
-          onSaved={() => setReload((n) => n + 1)}
+          onSaved={() => invalidate(userId, KEYS.me)}
         />
       )}
 
@@ -153,11 +145,17 @@ const DENIED_COPY = {
 };
 
 export function Reminders() {
-  const [uid, setUid] = useState(null);
-  const [prefs, setPrefs] = useState(DEFAULT_PREFS);
-  const [createdAt, setCreatedAt] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const [available, setAvailable] = useState(true);     // notification_prefs 列是否存在
+  const { user } = useAuth();
+  const uid = user?.id || null;
+  // 提醒偏好走缓存（与「今天」共用）：切回来立即有，后台刷新
+  const prefsRes = useCached(uid, KEYS.prefs, () => loadPrefs(uid));
+  const cached = prefsRes.data;
+  const prefs = cached ? cached.prefs : DEFAULT_PREFS;
+  const createdAt = cached ? cached.createdAt : null;
+  const loaded = Boolean(cached) || Boolean(prefsRes.error);
+  const [columnMissing, setColumnMissing] = useState(false);
+  const available = !columnMissing && !(cached && cached.error && cached.available === false); // notification_prefs 列是否存在
+  const setPrefs = (next) => patch(uid, KEYS.prefs, (v) => ({ ...(v || { createdAt: null, available: true }), prefs: next }));
   const [permission, setPermission] = useState(() => getPermission());
   const [busyKey, setBusyKey] = useState(null);
   const [problem, setProblem] = useState('');
@@ -168,29 +166,8 @@ export function Reminders() {
   const supported = isPushSupported();
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || cancelled) return;
-        setUid(user.id);
-        const res = await loadPrefs(user.id);
-        if (cancelled) return;
-        if (res.error) {
-          if (!res.available) setAvailable(false);
-          else logger.error('load notification_prefs failed:', res.error);
-        } else {
-          setPrefs(res.prefs);
-          setCreatedAt(res.createdAt);
-        }
-      } catch (err) {
-        logger.error('Reminders load failed:', err);
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    if (cached && cached.error && cached.available !== false) logger.error('load notification_prefs failed:', cached.error);
+  }, [cached]);
 
   // 设备订阅状态随授权 / 开关变化重新读取（第一次开启、取消订阅之后）
   useEffect(() => {
@@ -229,7 +206,7 @@ export function Reminders() {
   async function persist(next) {
     const res = await savePrefs(uid, next);
     if (!res.ok) {
-      if (res.missingColumn) setAvailable(false);
+      if (res.missingColumn) setColumnMissing(true);
       else logger.error('save notification_prefs failed');
       return false;
     }

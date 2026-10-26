@@ -14,7 +14,9 @@ export default function ProtectedRoute({ minRole = 0 }) {
   const { user, profile, loading } = useAuth();
   const loc = useLocation();
 
-  if (loading) {
+  // 只要求登录的路由（minRole = 0）：session 一确认就放行，不必等 profiles 查完——
+  // 角色只影响导师专属页（minRole > 0 仍然等权威 profile），省掉冷启动里一次往返。
+  if (loading && (minRole > 0 || !user)) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 12 }}>
         <div style={{ width: 28, height: 28, border: '3px solid #e2e8f0', borderTopColor: '#4338ca', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />

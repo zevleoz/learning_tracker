@@ -3,6 +3,10 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { syncSubscription } from '../lib/push.js';
 import { supabase } from '../lib/supabase.js';
+import { prefetchStudentPages } from '../pages/student/loaders.js';
+import { useCached } from '../lib/useCached.js';
+import { patch, invalidate } from '../lib/studentCache.js';
+import { KEYS, fetchInviteCount } from '../lib/studentResources.js';
 import logoSmall from '../logo/logo_red.png';
 import logoInline from '../logo/logo_red.png';
 
@@ -97,11 +101,13 @@ const SHRINK_AFTER = 48;
 const SCROLL_DELTA = 6;
 
 export default function Layout() {
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
+  const userId = user?.id || profile?.id;
   const nav = useNavigate();
   const location = useLocation();
   const [shrunk, setShrunk] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(0);
+  // 待处理导师邀请数：与「今天」「我的」共用一份缓存，不再各查各的
+  const notificationCount = useCached(userId, KEYS.invites, () => fetchInviteCount(userId)).data ?? 0;
 
   const isTeacher = Number(profile?.role) >= 2;
 
@@ -112,40 +118,28 @@ export default function Layout() {
     syncSubscription().catch(() => {});
   }, [profile?.id, isTeacher]);
 
+  // 学生端：首屏之后空闲时预取其余页面的代码，切页时不再等一次下载
   useEffect(() => {
-    async function loadCount() {
-      if (!profile?.id) return;
-      try {
-        const { data, error } = await supabase
-          .from('teacher_student_connections')
-          .select('id')
-          .eq('student_id', profile.id)
-          .eq('status', 0);
-        if (!error) setNotificationCount(data?.length || 0);
-      } catch {
-        // 网络异常时静默处理，不影响主界面
-      }
-    }
-    if (!profile?.id) return undefined;
-    loadCount();
+    if (profile?.id && !isTeacher) prefetchStudentPages();
+  }, [profile?.id, isTeacher]);
 
+  useEffect(() => {
+    if (!userId) return undefined;
     const channel = supabase
-      .channel(`notifications:${profile?.id}`)
+      .channel(`notifications:${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'teacher_student_connections',
-          filter: `student_id=eq.${profile?.id}`,
+          filter: `student_id=eq.${userId}`,
         },
         (payload) => {
           if (payload.eventType === 'INSERT' && payload.new.status === 0) {
-            setNotificationCount((c) => c + 1);
-          } else if (payload.eventType === 'UPDATE') {
-            loadCount();
-          } else if (payload.eventType === 'DELETE') {
-            loadCount();
+            patch(userId, KEYS.invites, (c) => (c || 0) + 1);
+          } else if (payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+            invalidate(userId, KEYS.invites);   // 已挂载的订阅者（本组件）会立刻后台重取
           }
         }
       )
@@ -154,7 +148,7 @@ export default function Layout() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile?.id]);
+  }, [userId]);
 
   // 实际导航项：学生 今天 · 记录 · 洞察 · 我的；老师端在最前多一个「导师」
   const finalNavItems = useMemo(

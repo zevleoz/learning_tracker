@@ -14,8 +14,15 @@ import GradeChips from '../components/student/GradeChips.jsx';
 import {
   CATEGORY_OPTS, ALL_FORM_PRESET, GRADE_RANGES,
   validateSession, buildSessionPayload, applyPendingFilter, pendingGradePayload, recentCombos,
-  spansMidnight, findOverlap,
+  spansMidnight, findOverlap, isPendingObjective,
 } from '../lib/sessionRules.js';
+import { useCached } from '../lib/useCached.js';
+import { load, patch, peek, invalidate } from '../lib/studentCache.js';
+import {
+  KEYS, fetchExams, fetchExamCourses,
+  afterSessionAdded, afterSessionEdited, afterSessionDeleted, afterSessionGraded,
+  afterExamsChanged,
+} from '../lib/studentResources.js';
 
 /* ---------- 常量定义 ---------- */
 
@@ -69,6 +76,100 @@ function coursePath(r) {
   return parts.length ? parts.join(' · ') : '未选章节';
 }
 
+/* ============ 取数（走 studentCache：切页回来先显示缓存，后台刷新） ============ */
+
+const PENDING_SELECT = `
+  id, session_date, start_time, end_time, duration_minutes,
+  category, form, eval_type, self_rating, grade_label, notes,
+  course:courses(id,name,subject,course_type),
+  chapter:chapters(id,name),
+  unit:units(id,name)
+`;
+const PENDING_LIMIT = 50;
+
+// 新记录放进「最近记录」：同一天里最新创建的排最前（与按 created_at 倒序的查询一致）
+function insertRecent(list, row) {
+  const rest = list.filter(x => x.id !== row.id);
+  const at = rest.findIndex(x => x.session_date <= row.session_date);
+  const i = at === -1 ? rest.length : at;
+  return [...rest.slice(0, i), row, ...rest.slice(i)].slice(0, RECENT_LIMIT);
+}
+
+async function fetchRecent(userId) {
+  const { data, error } = await supabase
+    .from('learning_sessions')
+    .select(RECENT_SELECT)
+    .eq('student_id', userId)
+    .is('deleted_at', null)
+    .order('session_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(RECENT_LIMIT);
+  if (error) { logger.error('加载最近记录失败:', error); return peek(userId, KEYS.recent) ?? []; }
+  return data || [];
+}
+
+async function fetchPending(userId) {
+  const { data, error } = await applyPendingFilter(supabase
+    .from('learning_sessions')
+    .select(PENDING_SELECT)
+    .eq('student_id', userId))
+    .order('session_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(PENDING_LIMIT);
+  if (error) { logger.error('加载待补填列表失败:', error); return peek(userId, KEYS.pending) ?? []; }
+  setAppBadge((data || []).length); // 图标角标 = 待补填数量（不支持的浏览器静默忽略）
+  return data || [];
+}
+
+async function fetchCourseTree(userId) {
+  // 课程可见性完全由 RLS（courses_select）决定，前端不再做无效的学校过滤（STU-1）
+  const { data, error } = await supabase
+    .from('courses')
+    .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
+  return (data || []).map(c => ({
+    ...c,
+    chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
+      .sort((a,b)=>a.order_idx-b.order_idx)
+      .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
+  }));
+}
+
+async function fetchCustomForms(userId) {
+  const { data, error } = await supabase
+    .from('user_learning_forms')
+    .select('name')
+    .eq('student_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) { logger.error('加载学习形式失败:', error); return peek(userId, KEYS.forms) ?? []; }
+  return (data || []).map(x => x.name);
+}
+
+const NONE = [];
+
+// 插入成功之后把返回的行放进各个缓存
+function patchAfterAdd(userId, row) {
+  if (row) {
+    patch(userId, KEYS.recent, (list) => insertRecent(list || [], row));
+    if (isPendingObjective(row)) {
+      patch(userId, KEYS.pending, (list) => [row, ...(list || []).filter(x => x.id !== row.id)].slice(0, PENDING_LIMIT));
+    }
+  }
+  afterSessionAdded(userId, row);
+}
+
+// 考试成绩：日期倒序，同一天按创建时间倒序（与取数的排序一致）
+function sortExams(list) {
+  return list.slice().sort((a, b) => {
+    const da = String(a.exam_date || ''), db = String(b.exam_date || '');
+    if (da !== db) return da < db ? 1 : -1;
+    const ca = String(a.created_at || ''), cb = String(b.created_at || '');
+    return ca < cb ? 1 : ca > cb ? -1 : 0;
+  });
+}
+
 /* ============ 页面主体 ============ */
 function shiftDay(dateStr, n) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -108,17 +209,22 @@ export default function LearningPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  /* --- 课程与自定义形式 --- */
-  const [courses, setCourses] = useState([]);
-  const [loadingCourses, setLoadingCourses] = useState(true);
-  const [customForms, setCustomForms] = useState([]); // string[]
+  const userId = user?.id;
+
+  /* --- 课程与自定义形式（缓存：切回来立即有，后台刷新） --- */
+  const coursesRes = useCached(userId, KEYS.courseTree, () => fetchCourseTree(userId));
+  const courses = coursesRes.data ?? NONE;
+  const loadingCourses = coursesRes.loading;
+  const formsRes = useCached(userId, KEYS.forms, () => fetchCustomForms(userId));
+  const customForms = formsRes.data ?? NONE; // string[]
 
   /* --- 记一笔 sheet --- */
   const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null });
 
   /* --- 提交状态 / 最近记录 --- */
   const [busy, setBusy] = useState(false);
-  const [recent, setRecent] = useState([]);
+  const recentRes = useCached(userId, KEYS.recent, () => fetchRecent(userId));
+  const recent = recentRes.data ?? NONE;
   // 保存失败的本机暂存队列（网络中断/会话失效时兜底，恢复后自动重试）
   const [outboxItems, setOutboxItems] = useState(() => loadOutbox());
   const [outboxRetrying, setOutboxRetrying] = useState(false);
@@ -131,16 +237,24 @@ export default function LearningPage() {
   const tabRefs = useRef([]);
 
   /* --- 待补填客观评价列表 --- */
-  const [pending, setPending] = useState([]);
-  const [loadingPending, setLoadingPending] = useState(false);
+  const pendingRes = useCached(userId, KEYS.pending, () => fetchPending(userId));
+  const pending = pendingRes.data ?? NONE;
+  const loadingPending = pendingRes.loading;
   const [pendingSavingId, setPendingSavingId] = useState(null);
   const [pendingDone, setPendingDone] = useState({}); // { [sessionId]: grade_label }
   const pendingReloadTimer = useRef(null);
+  const gradedIdsRef = useRef(new Set());   // 刚补填、等着从待补填列表拿掉的行
 
   /* --- 成绩 Tab：校内课程 + 考试成绩 --- */
-  const [scoreCourses, setScoreCourses] = useState([]);   // 校内课程列表 course_type=1
-  const [examScores, setExamScores] = useState([]);      // 所有 exam_scores 记录
-  const [loadingScores, setLoadingScores] = useState(false);
+  // 进过「考试」tab 才取 / 显示（与改版前一致）；取过之后在缓存里，下次进来立即有
+  const scoresOpened = view === 'scores';
+  const scoreCoursesRes = useCached(userId, KEYS.examCourses, () => fetchExamCourses(userId), { enabled: scoresOpened });
+  const examScoresRes = useCached(userId, KEYS.exams, () => fetchExams(userId), { enabled: scoresOpened });
+  const [scoresSeen, setScoresSeen] = useState(false);
+  useEffect(() => { if (scoresOpened) setScoresSeen(true); }, [scoresOpened]);
+  const scoreCourses = scoresSeen ? (scoreCoursesRes.data ?? NONE) : NONE;   // 校内课程列表 course_type=1
+  const examScores = scoresSeen ? (examScoresRes.data ?? NONE) : NONE;      // 所有 exam_scores 记录
+  const loadingScores = scoresOpened && (scoreCoursesRes.loading || examScoresRes.loading);
   // 新增/编辑成绩 sheet
   const [scoreModalOpen, setScoreModalOpen] = useState(false);
   const [scoreModalEditing, setScoreModalEditing] = useState(null);  // exam_score 对象或 null(新增)
@@ -149,129 +263,23 @@ export default function LearningPage() {
   const [scoreSaving, setScoreSaving] = useState(false);
   const [scoreDeletingId, setScoreDeletingId] = useState(null);
 
-  /* ========== 载入：课程 tree ========== */
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      // 课程可见性完全由 RLS（courses_select）决定，前端不再做无效的学校过滤（STU-1）
-      const { data, error } = await supabase
-        .from('courses')
-        .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-      if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
-      const list = (data || []).map(c => ({
-        ...c,
-        chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
-          .sort((a,b)=>a.order_idx-b.order_idx)
-          .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
-      }));
-      setCourses(list);
-      setLoadingCourses(false);
-    })();
-  }, [user]);
-
-  /* ========== 载入：自定义学习行为形式 ========== */
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from('user_learning_forms')
-        .select('name')
-        .eq('student_id', user.id)
-        .order('created_at', { ascending: false });
-      if (error) { logger.error('加载学习形式失败:', error); return; }
-      setCustomForms((data || []).map(x => x.name));
-    })();
-  }, [user]);
-
-  /* ========== 最近记录（载入 / 提交成功 / 队列冲刷后共用） ========== */
-  async function refreshRecent() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('learning_sessions')
-      .select(RECENT_SELECT)
-      .eq('student_id', user.id)
-      .is('deleted_at', null)
-      .order('session_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(RECENT_LIMIT);
-    if (error) { logger.error('加载最近记录失败:', error); return; }
-    setRecent(data || []);
+  /* ========== 最近记录 / 待补填：后台刷新（提交成功 / 队列冲刷 / 切到「待补填」时共用，两个请求并行） ========== */
+  function refreshRecent() {
+    if (!userId) return Promise.resolve();
+    return load(userId, KEYS.recent, () => fetchRecent(userId)).catch(() => {});
   }
-  useEffect(() => {
-    if (user) refreshRecent();
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  function loadPending() {
+    if (!userId) return Promise.resolve();
+    return load(userId, KEYS.pending, () => fetchPending(userId)).catch(() => {});
+  }
+  function refreshLists() {
+    return Promise.all([refreshRecent(), loadPending()]);
+  }
 
-  /* ========== 载入：待补填客观评价列表（练习类 + 无客观） ========== */
-  const loadPending = async () => {
-    if (!user) return;
-    setLoadingPending(true);
-    try {
-      const { data, error } = await applyPendingFilter(supabase
-        .from('learning_sessions')
-        .select(`
-          id, session_date, start_time, end_time, duration_minutes,
-          category, form, eval_type, self_rating, grade_label, notes,
-          course:courses(id,name,subject,course_type),
-          chapter:chapters(id,name),
-          unit:units(id,name)
-        `)
-        .eq('student_id', user.id))
-        .order('session_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) { logger.error('加载待补填列表失败:', error); return; }
-      setPending(data || []);
-      setAppBadge((data || []).length); // 图标角标 = 待补填数量（不支持的浏览器静默忽略）
-    } finally {
-      setLoadingPending(false);
-    }
-  };
-
-  // 进页面即加载 pending（tab bar badge 需要立即显示数字）
+  // 切到「待补填」tab 时再次刷新（进页面时的首次加载由上面的 useCached 负责：tab bar badge 需要立即显示数字）
   useEffect(() => {
-    if (user) loadPending();
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 切到「待补填」tab 时再次刷新；提交后也刷新
-  useEffect(() => {
-    if (user && view === 'pending') loadPending();
-  }, [user, view]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /* ========== 载入：成绩 Tab 数据（校内课程 + exam_scores）========== */
-  const loadScores = async () => {
-    if (!user) return;
-    setLoadingScores(true);
-    let cancelled = false;
-    try {
-      const [coursesRes, scoresRes] = await Promise.all([
-        supabase
-          .from('courses')
-          .select('id, name, subject, course_type')
-          .eq('created_by', user.id)
-          .eq('course_type', 1)   // 仅校内课程
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('exam_scores')
-          .select('*')
-          .eq('student_id', user.id)
-          .is('deleted_at', null)
-          .order('exam_date', { ascending: false })
-          .order('created_at', { ascending: false }),
-      ]);
-      if (cancelled) return;
-      if (coursesRes.error) { logger.error('加载校内课程失败:', coursesRes.error); }
-      if (scoresRes.error)  { logger.error('加载考试成绩失败:', scoresRes.error); }
-      if (!coursesRes.error) setScoreCourses(coursesRes.data || []);
-      if (!scoresRes.error)  setExamScores(scoresRes.data || []);
-    } finally {
-      if (!cancelled) setLoadingScores(false);
-    }
-  };
-  useEffect(() => {
-    if (user && view === 'scores') loadScores();
-  }, [user, view]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (userId && view === 'pending') loadPending();
+  }, [userId, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ========== 成绩：打开新增/编辑 modal ========== */
   function openScoreModal(courseId, editingScore = null) {
@@ -345,18 +353,6 @@ export default function LearningPage() {
     }
     setScoreSaving(true);
     try {
-      // 预检：exam_scores 表是否存在
-      const { error: preCheckErr } = await supabase
-        .from('exam_scores')
-        .select('id')
-        .limit(1);
-      if (preCheckErr) {
-        const preMsg = friendlyErr(preCheckErr, '成绩数据表异常');
-        logger.error('[saveScore] pre-check failed:', JSON.stringify(preCheckErr, null, 2));
-        toast(preMsg, { kind: 'error', duration: 6000 });
-        return;
-      }
-
       const payload = {
         student_id: user.id,
         course_id: scoreModalCourseId,
@@ -366,22 +362,33 @@ export default function LearningPage() {
         grade_label: trimmedGrade || null,
         notes: notes ? notes.trim() || null : null,
       };
+      let saved = null;
       if (scoreModalEditing) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('exam_scores')
           .update(payload)
-          .eq('id', scoreModalEditing.id);
+          .eq('id', scoreModalEditing.id)
+          .select('*')
+          .maybeSingle();
         if (error) throw error;
+        saved = data;
         toast('已更新', { kind: 'success' });
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('exam_scores')
-          .insert(payload);
+          .insert(payload)
+          .select('*')
+          .single();
         if (error) throw error;
+        saved = data;
         toast('已保存', { kind: 'success' });
       }
       closeScoreModal();
-      await loadScores();
+      // 写入已确认：立刻把返回的那一行放进列表，再在后台与数据库对一次
+      if (saved) {
+        patch(user.id, KEYS.exams, (list) => sortExams([saved, ...(list || []).filter(x => x.id !== saved.id)]));
+      }
+      afterExamsChanged(user.id);
     } catch (e) {
       logger.error('[saveScore] failed:', JSON.stringify(e, null, 2));
       const msg = friendlyErr(e, '保存失败');
@@ -399,7 +406,8 @@ export default function LearningPage() {
       if (error) throw error;
       toast('已删除', { kind: 'success' });
       setScoreDeletingId(null);
-      await loadScores();
+      patch(user.id, KEYS.exams, (list) => (list || []).filter(x => x.id !== score.id));
+      afterExamsChanged(user.id);
     } catch (e) {
       logger.error('deleteScore failed:', e);
       toast(friendlyErr(e, '删除失败'), { kind: 'error' });
@@ -459,7 +467,7 @@ export default function LearningPage() {
         student_id: user.id, name,
       });
       if (error) throw error;
-      setCustomForms([name, ...customForms]);
+      patch(user.id, KEYS.forms, (list) => [name, ...(list || [])]);
       return true;
     } catch (e) {
       toast(e.message || '保存失败', { kind: 'error' });
@@ -509,8 +517,8 @@ export default function LearningPage() {
     }
     if (succeeded > 0) {
       toast(`${succeeded} 条暂存记录已补传成功`, { kind: 'success' });
-      await refreshRecent();
-      await loadPending();
+      invalidate(user.id, KEYS.student, { drop: true }); // 补传的记录没有拿回行：今天 / 洞察的缓存丢弃，下次读取等新数据
+      await refreshLists();
     }
   }
 
@@ -535,13 +543,19 @@ export default function LearningPage() {
       const conflict = await findConflict(payload, user.id);
       if (conflict) return { errors: { time: conflictMsg(conflict) } };
 
-      const { error } = await supabase.from('learning_sessions').insert(payload);
+      // 写入由数据库确认之后才算保存成功：insert 的同一次请求把这一行带回来（payload 与之前完全相同）
+      const { data: inserted, error } = await supabase
+        .from('learning_sessions')
+        .insert(payload)
+        .select(RECENT_SELECT)
+        .single();
       if (error) throw error;
 
       toast('记录已保存', { kind: 'success' });
       closeSheet();
-      await refreshRecent();
-      await loadPending();
+      // 马上把已确认的这一行放进列表（最近记录 / 待补填 / 今天与洞察的缓存），再在后台并行与数据库对一次
+      patchAfterAdd(user.id, inserted);
+      refreshLists();
       flushOutbox();  // 网络已通，顺带冲刷暂存队列（不阻塞本次提交）
       return { ok: true };
     } catch (err) {
@@ -582,18 +596,28 @@ export default function LearningPage() {
       const conflict = await findConflict(payload, user.id, editingSessionId);
       if (conflict) return { errors: { time: conflictMsg(conflict) } };
 
-      const { error } = await supabase
+      const { data: updated, error } = await supabase
         .from('learning_sessions')
         .update(payload)
-        .eq('id', editingSessionId);
+        .eq('id', editingSessionId)
+        .select(RECENT_SELECT)
+        .maybeSingle();
       if (error) {
         logger.error('Update session error:', error);
         throw error;
       }
       toast('已更新', { kind: 'success' });
       closeSheet();
-      await refreshRecent();
-      await loadPending();
+      // 马上用返回的行替换列表里的旧行；再在后台并行与数据库对一次
+      if (updated) {
+        patch(user.id, KEYS.recent, (list) => (list || []).map(x => (x.id === updated.id ? updated : x)));
+        patch(user.id, KEYS.pending, (list) => {
+          const rest = (list || []).filter(x => x.id !== updated.id);
+          return isPendingObjective(updated) ? [updated, ...rest].slice(0, PENDING_LIMIT) : rest;
+        });
+      }
+      afterSessionEdited(user.id, updated);
+      refreshLists();
       return { ok: true };
     } catch (err) {
       let msg = err.message || '保存失败';
@@ -618,7 +642,9 @@ export default function LearningPage() {
         .eq('id', r.id);
       if (error) throw error;
       toast('已删除', { kind: 'success' });
-      setRecent(prev => prev.filter(x => x.id !== r.id));
+      patch(user.id, KEYS.recent, (list) => (list || []).filter(x => x.id !== r.id));
+      patch(user.id, KEYS.pending, (list) => (list || []).filter(x => x.id !== r.id));
+      afterSessionDeleted(user.id, r.id);
       loadPending();
     } catch (err) {
       let msg = err.message || '删除失败';
@@ -636,18 +662,26 @@ export default function LearningPage() {
     if (pendingSavingId) return;
     setPendingSavingId(r.id);
     try {
+      const gradePayload = pendingGradePayload(gradeLabel);
       const { error } = await supabase
         .from('learning_sessions')
-        .update(pendingGradePayload(gradeLabel))
+        .update(gradePayload)
         .eq('id', r.id);
       if (error) throw error;
       setPendingDone(d => ({ ...d, [r.id]: gradeLabel }));
+      gradedIdsRef.current.add(r.id);
       toast('客观评价已保存', { kind: 'success' });
-      // 稍等片刻让学生看到确认，再刷新列表（连续补填时合并成一次刷新）
+      // 写入已确认：「全部」列表里该行立刻从「待补充」变成等第；今天 / 洞察的缓存同步修补
+      patch(user.id, KEYS.recent, (list) => (list || []).map(x => (x.id === r.id ? { ...x, ...gradePayload } : x)));
+      afterSessionGraded(user.id, r.id, gradePayload);
+      // 稍等片刻让学生看到确认，再把已补填的行从待补填列表拿掉（连续补填时合并成一次）
       clearTimeout(pendingReloadTimer.current);
-      pendingReloadTimer.current = setTimeout(async () => {
-        await Promise.all([loadPending(), refreshRecent()]);  // 「全部」列表里该行也要从「待补充」变成等第
+      pendingReloadTimer.current = setTimeout(() => {
+        const ids = gradedIdsRef.current;
+        gradedIdsRef.current = new Set();
+        patch(user.id, KEYS.pending, (list) => (list || []).filter(x => !ids.has(x.id)));
         setPendingDone({});
+        refreshLists();   // 后台与数据库对一次，不挡界面
       }, 1200);
     } catch (err) {
       let msg = err.message || '保存失败';

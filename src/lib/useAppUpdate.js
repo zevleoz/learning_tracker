@@ -12,6 +12,7 @@ import { reloadPage } from './utils.js';
 
 const SURFACE_USAGE_KEY = 'app-surface-usage';
 const DISMISS_KEY = 'app-update-dismissed';
+const SILENT_RELOAD_KEY = 'app-update-silent-reloaded';
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 const POLL_INTERVAL = 45 * 60 * 1000;
 
@@ -64,6 +65,18 @@ export function SurfaceTracker() {
     }
   }, [location.pathname]);
   return null;
+}
+
+/** 记下这个版本已经静默刷新过；返回 false 表示本会话已为同一版本刷新过（不要再刷） */
+function markSilentReload(signature) {
+  try {
+    if (sessionStorage.getItem(SILENT_RELOAD_KEY) === signature) return false;
+    sessionStorage.setItem(SILENT_RELOAD_KEY, signature);
+  } catch {
+    // sessionStorage 不可用时无法防循环：宁可提示，也不静默刷新
+    return false;
+  }
+  return true;
 }
 
 async function fetchRemoteSurfaces() {
@@ -120,13 +133,15 @@ export function useAppUpdate() {
       const changed = diffSurfaces(remote);
       if (!changed.length) return;
 
-      // 开机后、用户尚未操作时发现新版本：直接静默刷新
-      if (silent && !interactedRef.current) {
+      const signature = changed.map((s) => `${s}:${remote[s]}`).sort().join('|');
+
+      // 开机后、用户尚未操作时发现新版本：直接静默刷新。
+      // 同一版本只静默刷新一次：若刷新后仍拿到旧页面（缓存、部署中途），改为提示，避免循环刷新
+      if (silent && !interactedRef.current && markSilentReload(signature)) {
         reloadPage();
         return;
       }
 
-      const signature = changed.map((s) => `${s}:${remote[s]}`).sort().join('|');
       if (promptedSignatureRef.current === signature) return;
       promptedSignatureRef.current = signature;
       setUpdate({ surfaces: changed, remote });

@@ -50,9 +50,10 @@ export default function Me() {
         });
         const { data: cs } = await supabase
           .from('courses')
-          .select('id, created_by')
+          .select('id')
+          .eq('created_by', user.id)
           .is('deleted_at', null);
-        if (!cancelled && cs) setCourseCount(cs.filter((c) => c.created_by === user.id).length);
+        if (!cancelled && cs) setCourseCount(cs.length);
       } catch (err) {
         logger.error('Me load failed:', err);
       }

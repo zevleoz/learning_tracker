@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Signup from '../src/pages/Signup';
 import { supabase } from '../src/__mocks__/supabase';
 
@@ -7,6 +7,20 @@ function renderAt(url = '/signup') {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <Signup />
+    </MemoryRouter>
+  );
+}
+
+function Where() {
+  return <div data-testid="where">{useLocation().pathname}</div>;
+}
+function renderWithRoutes(url = '/signup') {
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <Routes>
+        <Route path="/signup" element={<Signup />} />
+        <Route path="*" element={<Where />} />
+      </Routes>
     </MemoryRouter>
   );
 }
@@ -110,6 +124,17 @@ describe('Signup · student', () => {
     fireEvent.click(await screen.findByRole('button', { name: /跳过/ }));
     await waitFor(() => expect(screen.getAllByText('账号已创建').length).toBeGreaterThan(0));
     expect(calls('insert')).toHaveLength(0);
+  });
+
+  it('lands a new student on /today (not the old /learning or /syllabus) after the course step', async () => {
+    signUpSpy = jest.spyOn(supabase.auth, 'signUp').mockResolvedValue({
+      data: { user: { id: 'new-user-3' }, session: { user: { id: 'new-user-3' } } },
+      error: null,
+    });
+    renderWithRoutes();
+    await fillStudentSteps();
+    fireEvent.click(await screen.findByRole('button', { name: /跳过/ }));
+    expect(await screen.findByTestId('where')).toHaveTextContent('/today');
   });
 
   it('shows the signUp error under the form and stays on step 2', async () => {

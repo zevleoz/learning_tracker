@@ -77,6 +77,20 @@ describe('我的课程 · 覆盖度', () => {
     expect(screen.queryByText(/目标|还差/)).not.toBeInTheDocument();
   });
 
+  it('记录超过 1000 条时分页取完，靠后的单元也算有记录', async () => {
+    const filler = Array.from({ length: 1200 }, (_, i) => sessionRow({
+      id: `a-${String(i).padStart(5, '0')}`, unit_id: 'u-1', duration_minutes: 1,
+    }));
+    supabase.__setTableData('learning_sessions', [
+      ...filler,
+      sessionRow({ id: 'z-last', unit_id: 'u-3', duration_minutes: 20 }),
+    ]);
+    renderReadOnly();
+    expect(await screen.findByText('AP 微积分 BC')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.mec-cov')).toHaveTextContent('2/3'));
+    expect(screen.getByText(/累计 20:20/)).toBeInTheDocument();   // 1200 + 20 分钟
+  });
+
   it('点「编辑」才出现增删改，点「完成」收起', async () => {
     renderReadOnly();
     await screen.findByText('AP 微积分 BC');

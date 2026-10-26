@@ -8,7 +8,7 @@ import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
 import {
   CATEGORY_OPTS, FORM_PRESET_BY_CATEGORY, ALL_FORM_PRESET, OBJECTIVE_STEPS,
   DEFAULT_EVAL_STATE, CLEAR_GRADE_WARNING,
-  computeDuration, shiftTime, evalStateFromRow, shouldWarnClearGrade,
+  computeDuration, startFromEnd, deriveFromEnd, evalStateFromRow, shouldWarnClearGrade,
   orderCoursesByRecent, defaultChapterUnit,
 } from '../../lib/sessionRules.js';
 import '../../styles/student-logging.css';
@@ -316,17 +316,26 @@ export default function LogSheet({
   const courseById = useMemo(() => new Map(courses.map(c => [c.id, c])), [courses]);
   const activeCourse = courseById.get(courseId);
 
+  // 新建时按时长往前推开始时间；推过午夜则 session_date 取前一天（开始所在日）。
+  // autoShiftBase 记着自动前移之前的日期，改成不跨午夜的时长时可以还原；手动改日期后不再自动改。
+  const autoShiftBase = useRef(null);
   function applyDuration(mins, endAnchor = endStr) {
-    const m = Math.round(Number(mins));
-    if (!(m > 0) || m > 24 * 60) return;
     const end = endAnchor || toTimeStr(new Date());
+    const base = autoShiftBase.current || dateStr;
+    const r = startFromEnd(end, base, mins);
+    if (!r) return;
     setEndStr(end);
-    setStartStr(shiftTime(end, -m));
+    setStartStr(r.startStr);
+    if (editing) return;
+    if (r.dateStr !== base) { autoShiftBase.current = base; setDateStr(r.dateStr); }
+    else if (autoShiftBase.current) { autoShiftBase.current = null; setDateStr(base); }
   }
+  function pickDate(v) { autoShiftBase.current = null; setDateStr(v); }
 
   // 打开时按 新建 / 编辑 / 预填 重置表单
   useEffect(() => {
     if (!open) return;
+    autoShiftBase.current = null;
     setErrors({});
     setAddingCustom(false);
     setCustomInput('');
@@ -362,16 +371,21 @@ export default function LogSheet({
       const d = defaultChapterUnit(course, recent);
       setChapterId(d.chapterId); setUnitId(d.unitId);
     }
-    setDateStr(toDateStr(new Date()));
-    if (p.durationMinutes > 0) {
-      const now = toTimeStr(new Date());
-      setEndStr(now); setStartStr(shiftTime(now, -Math.round(p.durationMinutes)));
+    autoShiftBase.current = null;
+    const todayStr = toDateStr(new Date());
+    setDateStr(todayStr);
+    const derived = p.durationMinutes > 0 ? deriveFromEnd(new Date(), p.durationMinutes) : null;
+    if (derived) {
+      setEndStr(derived.endStr); setStartStr(derived.startStr); setDateStr(derived.dateStr);
+      if (derived.dateStr !== todayStr) autoShiftBase.current = todayStr;
     } else {
       setStartStr(''); setEndStr('');
     }
     const cat = [1, 2, 3].includes(p.category) ? p.category : 1;
     setCategory(cat);
-    setFormValue(p.form || '');
+    // 预填的形式只接受该类别的预设、学生自己的自定义形式或最近记录里出现过的形式
+    const knownForms = [...(FORM_PRESET_BY_CATEGORY[cat] || []), ...customForms, ...recent.map(r => r.form)];
+    setFormValue(p.form && knownForms.includes(p.form) ? p.form : '');
     setSubjIdx(DEFAULT_EVAL_STATE.subjIdx); setObjIdx(DEFAULT_EVAL_STATE.objIdx);
     setObjDeferred(DEFAULT_EVAL_STATE.objDeferred); setIsObjNA(DEFAULT_EVAL_STATE.isObjNA);
     setEditHadGrade(false);
@@ -538,7 +552,7 @@ export default function LogSheet({
                 日期
                 <DatePicker
                   value={dateStr}
-                  onChange={setDateStr}
+                  onChange={pickDate}
                   disabled={busy}
                   className="h-[38px] rounded-xl text-sm font-normal"
                   placeholder="选择日期"

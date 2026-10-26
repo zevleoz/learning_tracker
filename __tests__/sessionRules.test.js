@@ -259,3 +259,31 @@ describe('sessionRules · 录入默认值', () => {
     expect(out[0]).toMatchObject({ courseId: 'a', courseName: 'A', category: 3, form: '自主练习', durationMinutes: 45 });
   });
 });
+
+describe('时长优先 · deriveFromEnd（结束=现在，往前推开始）', () => {
+  // eslint-disable-next-line global-require
+  const { deriveFromEnd } = require('../src/lib/sessionRules.js');
+
+  test('不跨午夜：日期为今天', () => {
+    expect(deriveFromEnd(new Date(2026, 9, 26, 10, 30), 45))
+      .toEqual({ dateStr: '2026-10-26', startStr: '09:45', endStr: '10:30' });
+  });
+
+  test('00:20 + 45 分钟：开始 23:35 属于前一天（session_date 取开始所在日），时长仍是 45', () => {
+    const r = deriveFromEnd(new Date(2026, 9, 26, 0, 20), 45);
+    expect(r).toEqual({ dateStr: '2026-10-25', startStr: '23:35', endStr: '00:20' });
+    expect(computeDuration(r.startStr, r.endStr)).toBe(45);
+  });
+
+  test('跨月 / 跨年', () => {
+    expect(deriveFromEnd(new Date(2026, 10, 1, 0, 10), 30).dateStr).toBe('2026-10-31');
+    expect(deriveFromEnd(new Date(2027, 0, 1, 0, 10), 30).dateStr).toBe('2026-12-31');
+  });
+
+  test('非法时长返回 null（NaN / Infinity / 0 / 负数 / 超过 24 小时）', () => {
+    const now = new Date(2026, 9, 26, 10, 0);
+    for (const m of [NaN, Infinity, 0, -5, 1441, 1e9, 'abc', undefined]) {
+      expect(deriveFromEnd(now, m)).toBeNull();
+    }
+  });
+});

@@ -160,6 +160,41 @@ describe('记一笔 · 时长优先', () => {
   });
 });
 
+describe('记一笔 · 午夜前后的时长优先', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('现在 00:20 点 45 分钟：开始 23:35 记在前一天，start/end/duration 一致', async () => {
+    seed();
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'queueMicrotask', 'nextTick', 'setImmediate', 'clearTimeout', 'clearInterval'] });
+    jest.setSystemTime(new Date(2026, 9, 26, 0, 20));
+    renderLearning();
+    await openSheet();
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({
+      session_date: '2026-10-25', start_time: '23:35:00', end_time: '00:20:00', duration_minutes: 45,
+    });
+  });
+
+  test('00:20 点 45 分钟再改成 10 分钟：日期回到今天', async () => {
+    seed();
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'queueMicrotask', 'nextTick', 'setImmediate', 'clearTimeout', 'clearInterval'] });
+    jest.setSystemTime(new Date(2026, 9, 26, 0, 20));
+    renderLearning();
+    await openSheet();
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '时长（分钟）' }), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({
+      session_date: '2026-10-26', start_time: '00:10:00', end_time: '00:20:00', duration_minutes: 10,
+    });
+  });
+});
+
 describe('再记一次', () => {
   test('来自学生自己的最近组合，一点预填，再点保存', async () => {
     seed([session({})]);
@@ -238,6 +273,25 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
     await screen.findByRole('dialog', { name: '记一笔' });
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     expect(screen.getByRole('radio', { name: '学习' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('链接里的 minutes 无穷大 / 过大时忽略，不会写出 NaN:NaN 的时间', async () => {
+    seed();
+    renderLearning('/records?log=1&minutes=Infinity');
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    const t = document.querySelectorAll('input[type="time"]');
+    expect(t[0].value).toBe('');
+    expect(t[1].value).toBe('');
+  });
+
+  test('链接里的 form 不属于该类别的预设 / 自定义形式时忽略（不能借链接写入任意形式）', async () => {
+    seed();
+    renderLearning('/records?log=1&category=1&form=' + encodeURIComponent('学校作业'));
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '学校作业' })).toBeNull();
+    expect(screen.getByRole('button', { name: '自主预习' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('关闭按钮有可读名称', async () => {

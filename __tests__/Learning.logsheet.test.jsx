@@ -456,3 +456,22 @@ describe('记一笔 · 跨午夜时段的冲突检测', () => {
     expect(lastCall('insert').args).toMatchObject({ start_time: '23:35:00', end_time: '00:20:00', duration_minutes: 45 });
   });
 });
+
+describe('待补填 · 键盘操作', () => {
+  test('方向键只移动焦点，不会在移动途中把等第存进库；回车 / 空格才是确认', async () => {
+    seed([session({ id: 'p-1', grade_label: null, eval_type: 1 })]);
+    renderLearning();
+    fireEvent.click(await screen.findByRole('tab', { name: /待补填/ }));
+    const group = await screen.findByRole('radiogroup', { name: /补填客观评价/ });
+    const first = within(group).getAllByRole('radio')[0];
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowRight' });
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' });
+    await new Promise(r => setTimeout(r, 30));
+    expect(lastCall('update')).toBeUndefined();
+    expect(within(group).getAllByRole('radio')[2]).toHaveFocus();
+    fireEvent.click(document.activeElement);
+    await waitFor(() => expect(lastCall('update')).toBeDefined());
+    expect(lastCall('update').args).toEqual({ grade_label: 'A-', eval_type: 2 });
+  });
+});

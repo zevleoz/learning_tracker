@@ -836,6 +836,7 @@ export default function LearningPage() {
                     <GradeChips
                       value={null}
                       includeNA
+                      commitOnMove={false}
                       showBand={false}
                       label={`为 ${r.course?.name || ''} 这次练习补填客观评价`}
                       disabled={!!pendingSavingId}

@@ -12,7 +12,8 @@ import WorkspacePreference from '../components/WorkspacePreference.jsx';
 import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
 import { AnimatedNumber, Skeleton } from '../components/animations';
 import { subjectColor } from '../components/DeepDivePanels.jsx';
-import { scoreToGrade, scoreColor } from '../components/WeekGrid.jsx';
+import { scoreColor } from '../components/WeekGrid.jsx';
+import { objectiveOf, hasObjectiveValue } from '../lib/objective.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Badge } from '../components/ui/badge.jsx';
@@ -590,7 +591,7 @@ export default function Mentor() {
         // 已拒绝 / 已断开：把原有的行改回邀请中（插入新行会撞 unique(teacher_id, student_id)）
         const { error } = await supabase.rpc('mentor_reinvite', { p_student: studentId, p_note: note || null });
         if (error) {
-          if (isMissingFunction(error)) throw new Error('需要先在数据库执行 schema.patch-mentor-connections.sql 才能再次邀请');
+          if (isMissingFunction(error)) throw new Error('暂时无法再次邀请：数据库还没升级，请联系管理员（需执行 schema.patch-mentor-connections.sql）');
           throw error;
         }
         notifyReinvite(studentId); // 再次邀请要再推送一次邀请通知；不等待，失败不影响邀请本身
@@ -706,7 +707,7 @@ export default function Mentor() {
           .select('id');
         if (updErr) throw updErr;
         if (!data || data.length === 0) {
-          throw new Error('断开没有生效：需要先在数据库执行 schema.patch-mentor-connections.sql');
+          throw new Error('数据库还没升级，请联系管理员（需执行 schema.patch-mentor-connections.sql）');
         }
       } else if (error) {
         throw error;
@@ -2075,8 +2076,9 @@ export default function Mentor() {
                       .map(([name, total]) => ({ name, total, pct: totalMins > 0 ? Math.round(total / totalMins * 100) : 0 }))
                       .sort((a, b) => b.total - a.total);
                     // 有评估的
+                    // 客观评价只属于练习；字母等第（或旧数据的数字分）计入，N/A 不算
                     const scored = sessions
-                      .filter(s => Number(s.eval_type) === 2 && s.score != null && s.score !== '' && !Number.isNaN(Number(s.score)))
+                      .filter(s => Number(s.category) === 3 && hasObjectiveValue(s))
                       .slice(0, 5);
                     const fmtD = (iso) => { const p = (iso || '').split('T')[0].split('-'); return p.length >= 3 ? `${p[1]}/${p[2]}` : ''; };
 
@@ -2140,15 +2142,16 @@ export default function Mentor() {
                               <div style={{ marginBottom: 16 }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最近评估</div>
                                 {scored.map((s, i) => {
-                                  const grade = scoreToGrade(Number(s.score));
-                                  const sColor = scoreColor(Number(s.score));
+                                  const obj = objectiveOf(s);
+                                  const grade = obj.label;
+                                  const sColor = scoreColor(obj.value);
                                   const subjC = subjectColor((s.subject || '未分类').trim());
                                   return (
                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < scored.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC, flexShrink: 0 }} />
                                       <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
-                                      <span style={{ fontSize: 14, fontWeight: 700, color: sColor, fontFamily: 'ui-monospace, monospace' }}>{s.score}</span>
-                                      {grade && <span style={{ fontSize: 11, fontWeight: 600, color: sColor, minWidth: 20 }}>{grade}</span>}
+                                      {obj.kind === 'score' && <span style={{ fontSize: 14, fontWeight: 700, color: sColor, fontFamily: 'ui-monospace, monospace' }}>{s.score}</span>}
+                                      {grade && <span style={{ fontSize: obj.kind === 'score' ? 11 : 14, fontWeight: obj.kind === 'score' ? 600 : 700, color: sColor, minWidth: 20 }}>{grade}</span>}
                                       <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 36, textAlign: 'right' }}>{fmtD(s.date)}</span>
                                     </div>
                                   );

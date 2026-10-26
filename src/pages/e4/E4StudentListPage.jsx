@@ -6,6 +6,7 @@ import { filterByScope, meetingCell } from '../../lib/e4Todos.js';
 import { useAuth } from '../../lib/useAuth.js';
 import ScopeSwitch, { useE4Scope } from '../../components/e4/ScopeSwitch.jsx';
 import { toast } from '../../lib/toast.js';
+import { useDayKey } from '../../lib/e4DayKey.js';
 
 function IconPlus() {
   return (
@@ -131,6 +132,7 @@ function LinkState({ linked, primary, secondary }) {
 }
 
 export default function E4StudentListPage() {
+  useDayKey(); // 过零点后重新渲染，「今天 / 待写报告」不停在昨天
   const nav = useNavigate();
   const { profile } = useAuth();
   const [scope, setScope] = useE4Scope();

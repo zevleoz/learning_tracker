@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog.jsx';
 import { DatePicker } from '@/components/ui/date-picker.jsx';
+import { useDayKey } from '../../lib/e4DayKey.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -224,7 +225,9 @@ export default function E4TodosPage() {
     () => (items ? filterByScope(items, scope, profile?.id) : null),
     [items, scope, profile?.id],
   );
-  const grouped = useMemo(() => groupStudents(visible), [visible]);
+  // 过了零点后重新分组（daysUntil 读当前时间，需要有东西触发重算）
+  const dayKey = useDayKey();
+  const grouped = useMemo(() => groupStudents(visible), [visible, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 首次会议 → 会前准备工作台；进程中 → 最新报告编辑界面；都没有则回退到学生档案
   function openItem(item) {

@@ -36,18 +36,8 @@ export function scoreColor(score) {
   return '#C1272D';                    // sem-alert（品牌红，最高警报）
 }
 
-export function scoreToGrade(score) {
-  if (score >= 93) return 'A';
-  if (score >= 90) return 'A-';
-  if (score >= 87) return 'B+';
-  if (score >= 83) return 'B';
-  if (score >= 80) return 'B-';
-  if (score >= 77) return 'C+';
-  if (score >= 73) return 'C';
-  if (score >= 70) return 'C-';
-  if (score >= 60) return 'D';
-  return 'F';
-}
+// 与学生端等第区间一致（含 A+ / D+ / D-），统一走 objective.js
+export { scoreToGrade } from '../lib/objective.js';
 
 export function getMonday(date) {
   const d = new Date(date);

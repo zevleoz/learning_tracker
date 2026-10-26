@@ -7,7 +7,6 @@ import { AuthBrand, PasswordInput } from './Login.jsx';
 import CourseSetup from '../components/student/CourseSetup.jsx';
 import '../styles/student-auth.css';
 
-const MOBILE_BREAKPOINT = 767;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateAccount(form) {
@@ -38,8 +37,7 @@ export default function Signup() {
   }
 
   function goHome() {
-    const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
-    nav(isMobile ? '/learning' : '/syllabus', { replace: true });
+    nav('/today', { replace: true });
   }
 
   /* ===== 学生：第 1 步（账号）===== */
@@ -78,8 +76,8 @@ export default function Signup() {
         setStep(3);
         return;
       }
-      toast('账号已创建\n开始添加你的课程大纲吧！', { kind: 'success' });
-      nav('/syllabus', { replace: true });
+      toast('账号已创建\n如需验证邮箱，请先查收邮件再登录', { kind: 'success' });
+      nav('/today', { replace: true });
     } catch (err) {
       logger.error('signup error:', err);
       const msg = err?.message || '注册失败，请稍后再试';
@@ -143,8 +141,8 @@ export default function Signup() {
         nav('/login', { replace: true });
         return;
       }
-      toast('账号已创建\n开始添加你的课程大纲吧！', { kind: 'success' });
-      nav('/syllabus', { replace: true });
+      toast('账号已创建\n如需验证邮箱，请先查收邮件再登录', { kind: 'success' });
+      nav('/today', { replace: true });
     } catch (err) {
       logger.error('signup error:', err);
       const msg = err?.message || '注册失败，请稍后再试';

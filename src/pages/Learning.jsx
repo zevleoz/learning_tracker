@@ -87,6 +87,8 @@ export default function LearningPage() {
   // 保存失败的本机暂存队列（网络中断/会话失效时兜底，恢复后自动重试）
   const [outboxItems, setOutboxItems] = useState(() => loadOutbox());
   const [outboxRetrying, setOutboxRetrying] = useState(false);
+  // 用 ref 防并发：挂载 / online 事件 / 提交成功 / 点重试各自持有旧闭包，state 拦不住同时进入的第二轮
+  const flushingRef = useRef(false);
   const [deletingId, setDeletingId] = useState(null);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
@@ -435,7 +437,8 @@ export default function LearningPage() {
   // 恢复后逐条重试：先做与 onSubmit 相同的时段重叠检查（暂存期间学生可能已手动补了同一时段），再写入。
   async function flushOutbox() {
     const items = loadOutbox();
-    if (!items.length || !user || outboxRetrying) return;
+    if (!items.length || !user || flushingRef.current) return;
+    flushingRef.current = true;
     setOutboxRetrying(true);
     let conflictDropped = 0;
     let succeeded = 0;
@@ -465,6 +468,7 @@ export default function LearningPage() {
     } catch {
       // fetch 级别的异常同样保留队列
     } finally {
+      flushingRef.current = false;
       setOutboxRetrying(false);
       setOutboxItems(loadOutbox());
     }

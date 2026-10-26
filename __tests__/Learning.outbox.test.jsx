@@ -126,4 +126,23 @@ describe('Learning · 保存失败暂存与补传', () => {
     expect(loadOutbox()).toHaveLength(0);
     expect(supabase.__getTableData('learning_sessions')).toHaveLength(1);
   });
+  test('同时触发多次冲刷（挂载 + online 事件 + 点重试）：同一条暂存只写一次', async () => {
+    seedBase();
+    const payload = {
+      student_id: 'test-user-1', course_id: 'course-1', chapter_id: null, unit_id: null,
+      category: 1, form: '自主预习', eval_type: 1, duration_minutes: 60, notes: null,
+      session_date: '2026-01-05', start_time: '09:00:00', end_time: '10:00:00',
+      self_rating: 80, grade_label: null,
+    };
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify([{ id: 'ob-1', savedAt: '2026-01-05T10:00:00Z', kind: 'learning_session', payload }]));
+    renderLearning();
+    // 挂载时的冲刷还在进行，网络恢复事件又来两次
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('online'));
+    await waitFor(() => expect(loadOutbox()).toHaveLength(0));
+    await new Promise(r => setTimeout(r, 50));
+    expect(supabase.__getTableData('learning_sessions')).toHaveLength(1);
+    const inserts = supabase.__getCallHistory().filter(c => c.method === 'insert' && c.table === 'learning_sessions');
+    expect(inserts).toHaveLength(1);
+  });
 });

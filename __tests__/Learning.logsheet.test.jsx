@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Learning from '../src/pages/Learning';
 import { supabase } from '../src/__mocks__/supabase';
@@ -160,6 +160,41 @@ describe('记一笔 · 时长优先', () => {
   });
 });
 
+describe('记一笔 · 午夜前后的时长优先', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('现在 00:20 点 45 分钟：开始 23:35 记在前一天，start/end/duration 一致', async () => {
+    seed();
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'queueMicrotask', 'nextTick', 'setImmediate', 'clearTimeout', 'clearInterval'] });
+    jest.setSystemTime(new Date(2026, 9, 26, 0, 20));
+    renderLearning();
+    await openSheet();
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({
+      session_date: '2026-10-25', start_time: '23:35:00', end_time: '00:20:00', duration_minutes: 45,
+    });
+  });
+
+  test('00:20 点 45 分钟再改成 10 分钟：日期回到今天', async () => {
+    seed();
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'queueMicrotask', 'nextTick', 'setImmediate', 'clearTimeout', 'clearInterval'] });
+    jest.setSystemTime(new Date(2026, 9, 26, 0, 20));
+    renderLearning();
+    await openSheet();
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '时长（分钟）' }), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({
+      session_date: '2026-10-26', start_time: '00:10:00', end_time: '00:20:00', duration_minutes: 10,
+    });
+  });
+});
+
 describe('再记一次', () => {
   test('来自学生自己的最近组合，一点预填，再点保存', async () => {
     seed([session({})]);
@@ -240,6 +275,25 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
     expect(screen.getByRole('radio', { name: '学习' })).toHaveAttribute('aria-checked', 'true');
   });
 
+  test('链接里的 minutes 无穷大 / 过大时忽略，不会写出 NaN:NaN 的时间', async () => {
+    seed();
+    renderLearning('/records?log=1&minutes=Infinity');
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    const t = document.querySelectorAll('input[type="time"]');
+    expect(t[0].value).toBe('');
+    expect(t[1].value).toBe('');
+  });
+
+  test('链接里的 form 不属于该类别的预设 / 自定义形式时忽略（不能借链接写入任意形式）', async () => {
+    seed();
+    renderLearning('/records?log=1&category=1&form=' + encodeURIComponent('学校作业'));
+    await screen.findByRole('dialog', { name: '记一笔' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '学校作业' })).toBeNull();
+    expect(screen.getByRole('button', { name: '自主预习' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('关闭按钮有可读名称', async () => {
     seed();
     renderLearning();
@@ -312,5 +366,112 @@ describe('编辑记录', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('编辑记录 · 不动没改的字段', () => {
+  async function editAndSave(row, mutate) {
+    seed([row]);
+    const origFrom = supabase.from.bind(supabase);
+    const spy = jest.spyOn(supabase, 'from').mockImplementation((t) => {
+      const q = origFrom(t);
+      if (q && !q.neq) q.neq = function neq(f, v) { this.filters.push({ type: 'not', operator: 'eq', field: f, value: v }); return this; };
+      return q;
+    });
+    try {
+      renderLearning();
+      fireEvent.click(await screen.findByRole('button', { name: '编辑这条记录' }));
+      await screen.findByRole('dialog', { name: '编辑记录' });
+      if (mutate) mutate();
+      fireEvent.click(screen.getByRole('button', SAVE));
+      await waitFor(() => expect(lastCall('update')).toBeDefined());
+      return lastCall('update').args;
+    } finally { spy.mockRestore(); }
+  }
+
+  test('章节 / 单元已被删除的记录：只改备注，chapter_id / unit_id 原样保留', async () => {
+    const p = await editAndSave(
+      session({ id: 'e-2', category: 1, form: '自主预习', grade_label: null, chapter_id: 'ch-gone', unit_id: 'u-gone' }),
+      () => fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: '补一句' } }),
+    );
+    expect(p).toMatchObject({ chapter_id: 'ch-gone', unit_id: 'u-gone', notes: '补一句' });
+  });
+
+  test('课程已被删除的记录：只改备注，course / chapter / unit 原样保留', async () => {
+    const p = await editAndSave(
+      session({ id: 'e-3', course_id: 'course-gone', category: 1, form: '自主预习', grade_label: null, chapter_id: 'ch-x', unit_id: 'u-x', course: null }),
+      () => fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: '补一句' } }),
+    );
+    expect(p).toMatchObject({ course_id: 'course-gone', chapter_id: 'ch-x', unit_id: 'u-x' });
+  });
+
+  test('时间不动：19:00–19:45 / 45 分钟原样写回；跨午夜的旧记录也不变', async () => {
+    const p = await editAndSave(session({ id: 'e-4', category: 1, form: '自主预习', grade_label: null }));
+    expect(p).toMatchObject({ session_date: PAST, start_time: '19:00:00', end_time: '19:45:00', duration_minutes: 45 });
+    cleanup();
+    const q = await editAndSave(session({ id: 'e-5', category: 1, form: '自主预习', grade_label: null, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 }));
+    expect(q).toMatchObject({ session_date: PAST, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 });
+  });
+});
+
+describe('待补填 · 补填后「全部」列表同步', () => {
+  test('在待补填里补了等第，回到全部列表时该行显示客观等第而不是「待补充」', async () => {
+    seed([session({ id: 'p-1', grade_label: null, eval_type: 1 })]);
+    renderLearning();
+    expect(await screen.findByText('客观：待补充')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /待补填/ }));
+    const group = await screen.findByRole('radiogroup', { name: /补填客观评价/ });
+    fireEvent.click(within(group).getByRole('radio', { name: 'A-' }));
+    await screen.findByText(/已补填 A-/);
+    // 等待补填列表的延迟刷新完成（都补齐了）
+    await screen.findByText('都补齐了', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('tab', { name: /全部/ }));
+    expect(await screen.findByText('客观：A-')).toBeInTheDocument();
+    expect(screen.queryByText('客观：待补充')).toBeNull();
+  });
+});
+
+describe('记一笔 · 跨午夜时段的冲突检测', () => {
+  test('已有 23:00–23:50 的记录，再记 23:35–00:20 被拒绝，不写库', async () => {
+    const today = new Date();
+    const d = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    seed([session({ id: 'late', session_date: d, start_time: '23:00:00', end_time: '23:50:00', category: 1, form: '自主预习', grade_label: null })]);
+    renderLearning();
+    await openSheet();
+    setTimes('23:35', '00:20');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    expect(await screen.findByText(/该时间段已有学习记录（23:00:00 - 23:50:00）/)).toBeInTheDocument();
+    expect(lastCall('insert')).toBeUndefined();
+  });
+
+  test('同一晚没有冲突时正常保存（date=开始日，end<start，duration 跨午夜）', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    setTimes('23:35', '00:20');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ start_time: '23:35:00', end_time: '00:20:00', duration_minutes: 45 });
+  });
+});
+
+describe('待补填 · 键盘操作', () => {
+  test('方向键只移动焦点，不会在移动途中把等第存进库；回车 / 空格才是确认', async () => {
+    seed([session({ id: 'p-1', grade_label: null, eval_type: 1 })]);
+    renderLearning();
+    fireEvent.click(await screen.findByRole('tab', { name: /待补填/ }));
+    const group = await screen.findByRole('radiogroup', { name: /补填客观评价/ });
+    const first = within(group).getAllByRole('radio')[0];
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowRight' });
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' });
+    await new Promise(r => setTimeout(r, 30));
+    expect(lastCall('update')).toBeUndefined();
+    expect(within(group).getAllByRole('radio')[2]).toHaveFocus();
+    fireEvent.click(document.activeElement);
+    await waitFor(() => expect(lastCall('update')).toBeDefined());
+    expect(lastCall('update').args).toEqual({ grade_label: 'A-', eval_type: 2 });
   });
 });

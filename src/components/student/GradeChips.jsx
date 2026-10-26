@@ -7,7 +7,7 @@ import '../../styles/student-logging.css';
 const GRADES_DESC = OBJECTIVE_STEPS.map(s => s.label).reverse();
 
 export default function GradeChips({
-  value, onChange, includeNA = false, disabled = false, showBand = true, label = '客观评价等第',
+  value, onChange, includeNA = false, disabled = false, commitOnMove = true, showBand = true, label = '客观评价等第',
 }) {
   const items = includeNA ? [...GRADES_DESC, 'N/A'] : GRADES_DESC;
   const refs = useRef([]);
@@ -19,7 +19,8 @@ export default function GradeChips({
     e.preventDefault();
     const next = Math.min(items.length - 1, Math.max(0, i + step));
     refs.current[next]?.focus();
-    onChange(items[next]);
+    // 点一下就保存的场景（待补填）里，方向键只移动焦点，回车 / 空格才确认
+    if (commitOnMove) onChange(items[next]);
   }
 
   return (

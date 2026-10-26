@@ -259,3 +259,70 @@ describe('sessionRules · 录入默认值', () => {
     expect(out[0]).toMatchObject({ courseId: 'a', courseName: 'A', category: 3, form: '自主练习', durationMinutes: 45 });
   });
 });
+
+describe('时长优先 · deriveFromEnd（结束=现在，往前推开始）', () => {
+  // eslint-disable-next-line global-require
+  const { deriveFromEnd } = require('../src/lib/sessionRules.js');
+
+  test('不跨午夜：日期为今天', () => {
+    expect(deriveFromEnd(new Date(2026, 9, 26, 10, 30), 45))
+      .toEqual({ dateStr: '2026-10-26', startStr: '09:45', endStr: '10:30' });
+  });
+
+  test('00:20 + 45 分钟：开始 23:35 属于前一天（session_date 取开始所在日），时长仍是 45', () => {
+    const r = deriveFromEnd(new Date(2026, 9, 26, 0, 20), 45);
+    expect(r).toEqual({ dateStr: '2026-10-25', startStr: '23:35', endStr: '00:20' });
+    expect(computeDuration(r.startStr, r.endStr)).toBe(45);
+  });
+
+  test('跨月 / 跨年', () => {
+    expect(deriveFromEnd(new Date(2026, 10, 1, 0, 10), 30).dateStr).toBe('2026-10-31');
+    expect(deriveFromEnd(new Date(2027, 0, 1, 0, 10), 30).dateStr).toBe('2026-12-31');
+  });
+
+  test('非法时长返回 null（NaN / Infinity / 0 / 负数 / 超过 24 小时）', () => {
+    const now = new Date(2026, 9, 26, 10, 0);
+    for (const m of [NaN, Infinity, 0, -5, 1441, 1e9, 'abc', undefined]) {
+      expect(deriveFromEnd(now, m)).toBeNull();
+    }
+  });
+});
+
+describe('findOverlap · 跨午夜时段重叠', () => {
+  // eslint-disable-next-line global-require
+  const { findOverlap, spansMidnight } = require('../src/lib/sessionRules.js');
+  const row = (id, d, s, e) => ({ id, session_date: d, start_time: s, end_time: e });
+  const mine = { session_date: '2026-10-25', start_time: '23:35:00', end_time: '00:20:00' };
+
+  test('spansMidnight：结束 <= 开始', () => {
+    expect(spansMidnight('23:35:00', '00:20:00')).toBe(true);
+    expect(spansMidnight('09:00:00', '10:00:00')).toBe(false);
+  });
+
+  test('同一晚已有 23:00–23:50：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-25', '23:00:00', '23:50:00')], mine).id).toBe('a');
+  });
+
+  test('次日凌晨已有 00:00–00:30：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-26', '00:00:00', '00:30:00')], mine).id).toBe('a');
+  });
+
+  test('已有同样的跨午夜记录：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], mine).id).toBe('a');
+  });
+
+  test('前一晚的跨午夜记录延伸到当天凌晨：与当天 00:10 开始的记录重叠', () => {
+    const cur = { session_date: '2026-10-26', start_time: '00:10:00', end_time: '00:50:00' };
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], cur).id).toBe('a');
+  });
+
+  test('不重叠、首尾相接、排除自身', () => {
+    expect(findOverlap([row('a', '2026-10-25', '22:00:00', '23:35:00')], mine)).toBeNull();
+    expect(findOverlap([row('a', '2026-10-26', '00:20:00', '01:00:00')], mine)).toBeNull();
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], mine, 'a')).toBeNull();
+  });
+
+  test('缺时间的旧行跳过', () => {
+    expect(findOverlap([row('a', '2026-10-25', null, null)], mine)).toBeNull();
+  });
+});

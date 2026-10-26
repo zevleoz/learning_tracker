@@ -1405,6 +1405,18 @@ body:has(.yb-student) {
 }
 .toast.success { color: #065f46; }
 .toast.error   { color: #991b1b; }
+/* 学生端外壳：提示条避开底部玻璃 tab bar，颜色跟随 --yb 主题（含深色） */
+.yb-student .yb-toast-wrap { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 599px) {
+  .yb-student .yb-toast-wrap { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+}
+.yb-student .yb-toast-wrap .toast {
+  background: var(--yb-glass-strong, rgba(250,250,252,.8));
+  color: var(--yb-ink, #14161B);
+  border-color: var(--yb-glass-edge, rgba(255,255,255,.72));
+}
+.yb-student .yb-toast-wrap .toast.success { color: var(--yb-good, #2C7549); }
+.yb-student .yb-toast-wrap .toast.error { color: var(--yb-crest-text, #A3202A); }
 
 /* ================================================================
    响应式

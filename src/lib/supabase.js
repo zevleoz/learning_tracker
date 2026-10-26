@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { defaultAuthStorage } from './authStorage.js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -28,15 +29,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    // 每个标签页独立 session：admin 标签页与学生标签页互不覆盖。
-    // sessionStorage 在标签页存活期间保留（含刷新），关闭标签页即销毁。
-    // 不读 localStorage，避免跨标签页 session 泄漏。
+    // 浏览器标签页：每个标签页独立 session（sessionStorage），admin 与学生标签页互不覆盖。
+    // 主屏幕应用（standalone）：localStorage，划掉应用后不用重新登录。见 authStorage.js。
     storageKey: 'mentor-app-auth',
-    storage: {
-      getItem: (key) => sessionStorage.getItem(key),
-      setItem: (key, value) => sessionStorage.setItem(key, value),
-      removeItem: (key) => sessionStorage.removeItem(key),
-    },
+    storage: defaultAuthStorage(),
   },
   schema: 'public',
   global: {

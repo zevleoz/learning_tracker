@@ -88,7 +88,8 @@ describe('学生端路由', () => {
   it('/today 渲染「今天」页', async () => {
     supabase.__setTableData('exam_scores', []);
     renderApp('/today');
-    expect(await screen.findByRole('heading', { level: 1, name: /好，/ })).toBeInTheDocument();
+    // 问候语随时段变化（早上好 / 下午好 / 夜深了…），只认「，姓名」
+    expect(await screen.findByRole('heading', { level: 1, name: /，陈一舟$/ })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: /^待办/ })).toBeInTheDocument();
   });
 

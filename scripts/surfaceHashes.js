@@ -38,6 +38,9 @@ export function extractSpecifiers(code) {
 /** 各使用面的入口（相对仓库根）；e4 入口由 vite.config 读目录生成 */
 export const SURFACE_SEEDS = {
   student: [
+    // 学生端外壳与路由表：今天 / 洞察 / 我的 等新页面（含懒加载）都从这里可达
+    'src/components/Layout.jsx',
+    'src/pages/student/routes.jsx',
     'src/pages/Learning.jsx',
     'src/pages/Syllabus.jsx',
     'src/pages/Review.jsx',

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { syncSubscription } from '../lib/push.js';
+import ToastHost from './ToastHost.jsx';
 import { supabase } from '../lib/supabase.js';
 import { prefetchStudentPages } from '../pages/student/loaders.js';
 import { useCached } from '../lib/useCached.js';
 import { patch, invalidate } from '../lib/studentCache.js';
 import { KEYS, fetchInviteCount } from '../lib/studentResources.js';
-import logoSmall from '../logo/logo_red.png';
-import logoInline from '../logo/logo_red.png';
+import logoSmall from '../logo/crest_red_small.png';
+import logoInline from '../logo/crest_red_small.png';
 
 /* ------- 单色线图标 (20x20, stroke=currentColor) ------- */
 function IconHome() {
@@ -254,6 +255,8 @@ export default function Layout() {
       <main key={location.pathname} className="main yb-main page-enter">
         <Outlet />
       </main>
+
+      <ToastHost />
 
       {/* 同一份 DOM，三种形态（见 index.css）：
           ≥920px 浮动侧栏 · 600–919px 图标轨 · <600px 底部玻璃 tab bar */}

@@ -26,6 +26,8 @@ export default {
     '^./useAuth.js$': '<rootDir>/src/__mocks__/useAuth.js',
   },
   setupFiles: ['<rootDir>/src/__mocks__/setupEnv.js'],
+  // 懒加载页面 + 高负载机器：单个用例上限放宽到 15 秒（见 setupCache.js 的 asyncUtilTimeout）
+  testTimeout: 15000,
   setupFilesAfterEnv: ['@testing-library/jest-dom', '<rootDir>/src/__mocks__/setupCache.js'],
   testMatch: [
     '**/__tests__/**/*.test.js',

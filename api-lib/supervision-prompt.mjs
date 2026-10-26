@@ -2,6 +2,9 @@
 // 纯函数 + 一个 OpenAI 兼容调用，服务端（api/supervision）与本地 dry-run 脚本共用。
 // 草稿只给导师看、导师改了再发，学生端永远看不到原稿。
 
+// 单次模型请求的超时（一份草稿最多 3 次请求，定时任务另有 28 秒总预算）
+export const LLM_TIMEOUT_MS = 10 * 1000;
+
 const CATEGORY = { 1: '学习', 2: '复习', 3: '练习' };
 const SUBJECTIVE = { 20: '没有听课', 40: '像在听天书', 60: '有不少没掌握', 80: '基本掌握', 100: '完全掌握' };
 const WEEKDAY = '日一二三四五六';
@@ -142,6 +145,8 @@ export async function generateDraft(input, env = process.env, { temperature = 0.
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, temperature, max_tokens: 600, response_format: { type: 'json_object' }, messages, ...extraBody }),
+      // 模型偶尔卡住：不设超时会拖到函数 60 秒被强杀，来不及返回错误
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
     if (!resp.ok) throw new Error(`模型请求失败（HTTP ${resp.status}）`);
     const data = await resp.json();

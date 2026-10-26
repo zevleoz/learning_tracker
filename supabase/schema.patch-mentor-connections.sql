@@ -63,8 +63,9 @@ begin
   end if;
 end $$;
 
-revoke all on function public.mentor_disconnect(uuid) from public;
-revoke all on function public.mentor_reinvite(uuid, text) from public;
+-- Supabase 的默认权限会把函数执行权显式授给 anon；只 revoke public 不够
+revoke all on function public.mentor_disconnect(uuid) from public, anon;
+revoke all on function public.mentor_reinvite(uuid, text) from public, anon;
 grant execute on function public.mentor_disconnect(uuid) to authenticated;
 grant execute on function public.mentor_reinvite(uuid, text) to authenticated;
 

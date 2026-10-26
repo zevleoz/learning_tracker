@@ -8,6 +8,7 @@ import nodemailer from 'nodemailer';
 
 export const UNSUBSCRIBE_PURPOSE = 'email-fallback-unsub';
 export const EMAIL_SUBJECT = '三天没记录了';
+export const SMTP_TIMEOUT_MS = 10 * 1000;
 export const CREST_RED = '#A3202A';
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
@@ -107,6 +108,10 @@ export function createMailer(env = process.env, { createTransport = nodemailer.c
     port,
     secure,
     auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS || '' } : undefined,
+    // nodemailer 默认连接 2 分钟、socket 10 分钟：SMTP 卡住会拖到函数被强杀，而当天的占位已经写入
+    connectionTimeout: SMTP_TIMEOUT_MS,
+    greetingTimeout: SMTP_TIMEOUT_MS,
+    socketTimeout: SMTP_TIMEOUT_MS,
   });
   return {
     async sendInactive({ to, userId, payload }) {

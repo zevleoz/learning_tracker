@@ -156,4 +156,17 @@ describe('Layout · 桌面快捷键', () => {
     renderShell('/today');
     await waitFor(() => expect(screen.getByRole('link', { name: /导师/ })).toHaveAttribute('href', '/mentor'));
   });
+
+  it('导师台 /mentor（含末尾斜杠）不套学生外壳，也不响应 N、数字快捷键', async () => {
+    setAuthProfile({ id: 'u1', role: 2, full_name: '李老师' });
+    for (const path of ['/mentor', '/mentor/']) {
+      const { unmount } = renderShell(path);
+      expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
+      press('n');
+      press('2');
+      expect(screen.getByTestId('where')).toHaveTextContent(path);
+      expect(openLog).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
 });

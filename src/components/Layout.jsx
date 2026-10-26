@@ -76,6 +76,11 @@ export function isTypingTarget(el) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
+// 导师台 /mentor 自带整页布局：不套学生外壳，也不响应学生端快捷键
+function isMentorSurface(pathname) {
+  return pathname === '/mentor' || pathname.startsWith('/mentor/');
+}
+
 function isOnRecords(pathname) {
   return pathname === '/records' || pathname === '/learning';
 }
@@ -121,6 +126,7 @@ export default function Layout() {
         // 网络异常时静默处理，不影响主界面
       }
     }
+    if (!profile?.id) return undefined;
     loadCount();
 
     const channel = supabase
@@ -191,6 +197,7 @@ export default function Layout() {
 
   // ＋：在记录页直接通知 LogSheet 打开，其它页先跳转再由 ?log=1 打开
   const pathname = location.pathname;
+  const onMentorSurface = isMentorSurface(pathname);
   const openLog = useCallback(() => {
     if (isOnRecords(pathname)) {
       window.dispatchEvent(new CustomEvent('yb:open-log'));
@@ -202,7 +209,7 @@ export default function Layout() {
   // 桌面快捷键：N 记一笔 · 1–4 切页 · Esc 关闭面板。输入框内、带修饰键、已有弹层时不响应
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.defaultPrevented || e.isComposing) return;
+      if (onMentorSurface || e.defaultPrevented || e.isComposing) return;
       if (e.key === 'Escape') {
         window.dispatchEvent(new CustomEvent('yb:close-log'));
         return;
@@ -223,10 +230,10 @@ export default function Layout() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [openLog, nav]);
+  }, [openLog, nav, onMentorSurface]);
 
   // 导师台 (/mentor) 自带整页布局，不套学生外壳。
-  if (pathname === '/mentor') {
+  if (onMentorSurface) {
     return <Outlet />;
   }
 

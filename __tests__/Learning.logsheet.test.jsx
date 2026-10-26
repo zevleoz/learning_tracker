@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Learning from '../src/pages/Learning';
 import { supabase } from '../src/__mocks__/supabase';
@@ -366,6 +366,51 @@ describe('编辑记录', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('编辑记录 · 不动没改的字段', () => {
+  async function editAndSave(row, mutate) {
+    seed([row]);
+    const origFrom = supabase.from.bind(supabase);
+    const spy = jest.spyOn(supabase, 'from').mockImplementation((t) => {
+      const q = origFrom(t);
+      if (q && !q.neq) q.neq = function neq(f, v) { this.filters.push({ type: 'not', operator: 'eq', field: f, value: v }); return this; };
+      return q;
+    });
+    try {
+      renderLearning();
+      fireEvent.click(await screen.findByRole('button', { name: '编辑这条记录' }));
+      await screen.findByRole('dialog', { name: '编辑记录' });
+      if (mutate) mutate();
+      fireEvent.click(screen.getByRole('button', SAVE));
+      await waitFor(() => expect(lastCall('update')).toBeDefined());
+      return lastCall('update').args;
+    } finally { spy.mockRestore(); }
+  }
+
+  test('章节 / 单元已被删除的记录：只改备注，chapter_id / unit_id 原样保留', async () => {
+    const p = await editAndSave(
+      session({ id: 'e-2', category: 1, form: '自主预习', grade_label: null, chapter_id: 'ch-gone', unit_id: 'u-gone' }),
+      () => fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: '补一句' } }),
+    );
+    expect(p).toMatchObject({ chapter_id: 'ch-gone', unit_id: 'u-gone', notes: '补一句' });
+  });
+
+  test('课程已被删除的记录：只改备注，course / chapter / unit 原样保留', async () => {
+    const p = await editAndSave(
+      session({ id: 'e-3', course_id: 'course-gone', category: 1, form: '自主预习', grade_label: null, chapter_id: 'ch-x', unit_id: 'u-x', course: null }),
+      () => fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: '补一句' } }),
+    );
+    expect(p).toMatchObject({ course_id: 'course-gone', chapter_id: 'ch-x', unit_id: 'u-x' });
+  });
+
+  test('时间不动：19:00–19:45 / 45 分钟原样写回；跨午夜的旧记录也不变', async () => {
+    const p = await editAndSave(session({ id: 'e-4', category: 1, form: '自主预习', grade_label: null }));
+    expect(p).toMatchObject({ session_date: PAST, start_time: '19:00:00', end_time: '19:45:00', duration_minutes: 45 });
+    cleanup();
+    const q = await editAndSave(session({ id: 'e-5', category: 1, form: '自主预习', grade_label: null, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 }));
+    expect(q).toMatchObject({ session_date: PAST, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 });
   });
 });
 

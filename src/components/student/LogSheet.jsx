@@ -345,7 +345,8 @@ export default function LogSheet({
       setCourseId(r.course_id || '');
       const course = courseById.get(r.course_id);
       const ch = (course?.chapters || []).find(c => c.id === r.chapter_id);
-      setChapterId(ch ? ch.id : '');
+      // 章节 / 课程已被删除时找不到 ch：保留记录原来的 chapter_id / unit_id，别因为改个备注就清掉
+      setChapterId(ch ? ch.id : (r.chapter_id || ''));
       // 只按记录本身的 unit_id 回填；没有单元时保持为空（STU-2）
       setUnitId(r.unit_id || '');
       setDateStr(String(r.session_date || toDateStr(new Date())));

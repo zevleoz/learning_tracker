@@ -639,7 +639,7 @@ export default function LearningPage() {
       // 稍等片刻让学生看到确认，再刷新列表（连续补填时合并成一次刷新）
       clearTimeout(pendingReloadTimer.current);
       pendingReloadTimer.current = setTimeout(async () => {
-        await loadPending();
+        await Promise.all([loadPending(), refreshRecent()]);  // 「全部」列表里该行也要从「待补充」变成等第
         setPendingDone({});
       }, 1200);
     } catch (err) {

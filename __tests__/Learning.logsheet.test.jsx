@@ -368,3 +368,20 @@ describe('编辑记录', () => {
     }
   });
 });
+
+describe('待补填 · 补填后「全部」列表同步', () => {
+  test('在待补填里补了等第，回到全部列表时该行显示客观等第而不是「待补充」', async () => {
+    seed([session({ id: 'p-1', grade_label: null, eval_type: 1 })]);
+    renderLearning();
+    expect(await screen.findByText('客观：待补充')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /待补填/ }));
+    const group = await screen.findByRole('radiogroup', { name: /补填客观评价/ });
+    fireEvent.click(within(group).getByRole('radio', { name: 'A-' }));
+    await screen.findByText(/已补填 A-/);
+    // 等待补填列表的延迟刷新完成（都补齐了）
+    await screen.findByText('都补齐了', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('tab', { name: /全部/ }));
+    expect(await screen.findByText('客观：A-')).toBeInTheDocument();
+    expect(screen.queryByText('客观：待补充')).toBeNull();
+  });
+});

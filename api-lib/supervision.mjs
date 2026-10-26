@@ -12,7 +12,7 @@ import {
 import { generateDraft as defaultGenerate, modelNameOf } from './supervision-prompt.mjs';
 
 export const MAX_DRAFTS_PER_RUN = 15;
-export const RUN_BUDGET_MS = 45 * 1000;
+export const RUN_BUDGET_MS = 28 * 1000; // 最坏一份草稿 3 次模型请求 × 10 秒，须在 60 秒函数上限内收尾
 export const QUIET_FROM_HOUR = 23; // 上海时间 23:00 起不跑
 export const QUIET_TO_HOUR = 6; // 到 06:00 为止不跑
 export const MAX_RECORDS_PER_DRAFT = 60;

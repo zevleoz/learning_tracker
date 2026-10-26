@@ -52,7 +52,9 @@ create policy sd_update on public.supervision_drafts for update
 -- 客户端只能改这几列；插入和重新生成只走服务端（service role）
 revoke update on public.supervision_drafts from authenticated;
 grant update (edited_body, status, handled_by, handled_at) on public.supervision_drafts to authenticated;
--- 学生零访问：没有学生相关的 policy。
+-- 学生零访问：没有学生相关的 policy。再把多余的表权限收掉（RLS 之外的第二道门）。
+revoke all on public.supervision_drafts from anon;
+revoke insert, delete, truncate on public.supervision_drafts from authenticated;
 
 -- ================================================================
 -- 以下为示例，已注释，不会被执行。把 <...> 换成真实值后手动运行。

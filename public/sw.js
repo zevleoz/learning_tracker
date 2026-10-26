@@ -124,9 +124,20 @@ self.addEventListener("push", (event) => {
   event.waitUntil(Promise.all(tasks));
 });
 
+// 只打开同源地址：载荷里的 url 若不是本站（或格式不对），一律回到应用首页
+function safeTarget(raw) {
+  const home = new URL("./", self.registration.scope);
+  try {
+    const target = new URL(raw || "/", self.registration.scope);
+    return target.origin === home.origin ? target.href : home.href;
+  } catch (e) {
+    return home.href;
+  }
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || "/", self.registration.scope).href;
+  const target = safeTarget(event.notification.data?.url);
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       // 已有同源窗口：聚焦并跳到目标页；否则新开

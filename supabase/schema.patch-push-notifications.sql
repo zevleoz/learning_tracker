@@ -32,6 +32,7 @@ create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
 alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from anon;
 
 drop policy if exists push_subs_select_own on public.push_subscriptions;
 create policy push_subs_select_own on public.push_subscriptions
@@ -129,6 +130,8 @@ alter table public.push_deliveries
   add column if not exists channel text not null default 'push';
 
 alter table public.push_deliveries enable row level security;
+-- 学生（以及未登录访问）完全不能读写：除了不建策略，再把表权限收掉；service role 不受影响
+revoke all on public.push_deliveries from anon, authenticated;
 
 -- 可选清理（建议配合 pg_cron 每周一次）：
 -- delete from public.push_deliveries where sent_date < current_date - 30;

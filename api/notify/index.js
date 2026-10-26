@@ -28,6 +28,9 @@ export const config = {
   maxDuration: 60,
 };
 
+// 单次推送请求的超时：推送服务偶尔卡住时，不能把整个函数拖到 60 秒被强杀
+export const PUSH_TIMEOUT_MS = 10 * 1000;
+
 function headerValue(req, name) {
   const v = req?.headers?.[name];
   return Array.isArray(v) ? v[0] : v || '';
@@ -178,7 +181,7 @@ export default async function handler(req, res) {
   try {
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
     const sendPush = (subscription, payload) =>
-      webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'normal' });
+      webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'normal', timeout: PUSH_TIMEOUT_MS });
     const store = createSupabaseStore({ url: supabaseUrl, serviceKey });
 
     if (request.type === 'ignore') {
@@ -228,7 +231,7 @@ async function handleTest(req, res) {
   try {
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
     const sendPush = (subscription, payload) =>
-      webpush.sendNotification(subscription, payload, { TTL: 600, urgency: 'high' });
+      webpush.sendNotification(subscription, payload, { TTL: 600, urgency: 'high', timeout: PUSH_TIMEOUT_MS });
     const store = createSupabaseStore({ url: supabaseUrl, serviceKey });
     const result = await sendTest({ store, sendPush, userId: user.id });
     if (result.rateLimited) {
@@ -285,7 +288,7 @@ async function handleReinvite(req, res, request) {
     }
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
     const sendPush = (subscription, payload) =>
-      webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'normal' });
+      webpush.sendNotification(subscription, payload, { TTL: 6 * 3600, urgency: 'normal', timeout: PUSH_TIMEOUT_MS });
     const store = createSupabaseStore({ url: supabaseUrl, serviceKey });
     const teacherName = await store.loadProfileName(auth.user.id).catch(() => '');
     const result = await sendInvite({ store, sendPush, studentId: request.studentId, teacherName });

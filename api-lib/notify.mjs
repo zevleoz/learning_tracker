@@ -53,6 +53,9 @@ export const DEFAULT_PREFS = Object.freeze({
   email_fallback: true,
 });
 
+// 一轮轮询最多跑这么久（函数上限 60 秒）；没来得及发的学生没有占位，下一轮（15 分钟后）照常补发
+export const TICK_BUDGET_MS = 35 * 1000;
+
 // 测试通知：同一用户两次之间至少间隔这么久
 export const TEST_COOLDOWN_MS = 60 * 1000;
 
@@ -397,7 +400,10 @@ function groupByUser(rows) {
  * 定时轮询入口（约每 15 分钟一次）。
  * @returns {Promise<{ skipped?: string, considered: number, due: number, sent: number, removed: number, failed: number }>}
  */
-export async function runTick({ store, sendPush, mailer = null, now = new Date() }) {
+export async function runTick({
+  store, sendPush, mailer = null, now = new Date(), clock: timeNow = Date.now, budgetMs = TICK_BUDGET_MS,
+}) {
+  const startedAt = timeNow();
   const summary = { considered: 0, due: 0, sent: 0, removed: 0, failed: 0, emailed: 0 };
   const clock = shanghaiClock(now);
   if (isQuietHours(clock.minutes)) return { ...summary, skipped: 'quiet-hours' };
@@ -489,16 +495,16 @@ export async function runTick({ store, sendPush, mailer = null, now = new Date()
     }
   }
 
-  for (const item of due) {
+  async function handleItem(item) {
     const subscriptions = subsByUser.get(item.userId) || [];
     if (subscriptions.length === 0) {
       // 没有订阅：只有第 3 天的「几天没记录」可以走邮件，其余一律不发
       if (emailAllowed(item)) await emailInstead(item, { alreadyClaimed: false });
-      continue;
+      return;
     }
     // 先占位再发送：部分唯一索引保证并发的两次轮询只有一次成功
     const claimed = await store.claimDaily(item.userId, clock.date, item.kind);
-    if (!claimed) continue;
+    if (!claimed) return;
     const r = await deliver({
       subscriptions,
       payload: item.payload,
@@ -511,11 +517,25 @@ export async function runTick({ store, sendPush, mailer = null, now = new Date()
     // 所有订阅都刚被删掉（404/410）且没有临时失败 → 第 3 天改发邮件
     if (r.sent === 0 && r.removed > 0 && r.failed === 0 && emailAllowed(item)) {
       await emailInstead(item, { alreadyClaimed: true });
-      continue;
+      return;
     }
     // 一条都没送达且不是因为订阅失效 → 释放占位，下一轮可重试
     if (r.sent === 0 && r.failed > 0) {
       await store.releaseDaily(item.userId, clock.date).catch(() => {});
+    }
+  }
+
+  for (const item of due) {
+    if (timeNow() - startedAt >= budgetMs) {
+      summary.deferred = due.length - due.indexOf(item);
+      break;
+    }
+    // 一位学生出错（占位 / 发送 / 邮件）不能拖垮整轮：其余学生照常处理
+    try {
+      await handleItem(item);
+    } catch (err) {
+      summary.failed += 1;
+      console.warn('[notify] 处理学生失败', item.userId, err?.message);
     }
   }
   return summary;

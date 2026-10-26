@@ -14,6 +14,7 @@ import GradeChips from '../components/student/GradeChips.jsx';
 import {
   CATEGORY_OPTS, ALL_FORM_PRESET, GRADE_RANGES,
   validateSession, buildSessionPayload, applyPendingFilter, pendingGradePayload, recentCombos,
+  spansMidnight, findOverlap,
 } from '../lib/sessionRules.js';
 
 /* ---------- 常量定义 ---------- */
@@ -69,6 +70,40 @@ function coursePath(r) {
 }
 
 /* ============ 页面主体 ============ */
+function shiftDay(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return toDateStr(new Date(y, m - 1, d + n));
+}
+
+// 与已有记录的时段重叠检查：返回第一条冲突记录或 null；查询失败时抛出。
+// 普通时段走数据库的 lt/gt 查询（与改版前一致）；跨午夜（结束 <= 开始）的记录占用 开始日晚上 + 次日凌晨，
+// lt/gt 查不出来（end < start），所以取前后一天的记录在本地按绝对分钟比较。
+async function findConflict(payload, studentId, excludeId = null) {
+  if (spansMidnight(payload.start_time, payload.end_time)) {
+    const { data, error } = await supabase
+      .from('learning_sessions')
+      .select('id, session_date, start_time, end_time')
+      .eq('student_id', studentId)
+      .is('deleted_at', null)
+      .in('session_date', [shiftDay(payload.session_date, -1), payload.session_date, shiftDay(payload.session_date, 1)]);
+    if (error) throw error;
+    return findOverlap(data, payload, excludeId);
+  }
+  let q = supabase
+    .from('learning_sessions')
+    .select('id, start_time, end_time')
+    .eq('student_id', studentId)
+    .eq('session_date', payload.session_date)
+    .is('deleted_at', null);
+  if (excludeId) q = q.neq('id', excludeId);
+  const { data, error } = await q
+    .lt('start_time', payload.end_time)
+    .gt('end_time', payload.start_time);
+  if (error) throw error;
+  return data && data.length > 0 ? data[0] : null;
+}
+const conflictMsg = (c) => `该时间段已有学习记录（${c.start_time} - ${c.end_time}）`;
+
 export default function LearningPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -446,16 +481,13 @@ export default function LearningPage() {
       for (const item of items) {
         if (item.kind !== 'learning_session') { removeFromOutbox(item.id); continue; }
         const p = item.payload;
-        const { data: conflicts, error: conflictErr } = await supabase
-          .from('learning_sessions')
-          .select('id')
-          .eq('student_id', p.student_id)
-          .eq('session_date', p.session_date)
-          .is('deleted_at', null)
-          .lt('start_time', p.end_time)
-          .gt('end_time', p.start_time);
-        if (conflictErr) break;            // 网络/会话仍不可用，停止本轮，保留队列
-        if (conflicts && conflicts.length > 0) {
+        let conflict;
+        try {
+          conflict = await findConflict(p, p.student_id);
+        } catch {
+          break;                           // 网络/会话仍不可用，停止本轮，保留队列
+        }
+        if (conflict) {
           removeFromOutbox(item.id);       // 已有同时段记录：丢弃暂存，不重复写
           conflictDropped += 1;
           continue;
@@ -500,20 +532,8 @@ export default function LearningPage() {
 
     setBusy(true);
     try {
-      const { data: conflicts, error: conflictError } = await supabase
-        .from('learning_sessions')
-        .select('id, start_time, end_time')
-        .eq('student_id', user.id)
-        .eq('session_date', payload.session_date)
-        .is('deleted_at', null)
-        .lt('start_time', payload.end_time)
-        .gt('end_time', payload.start_time);
-
-      if (conflictError) throw conflictError;
-      if (conflicts && conflicts.length > 0) {
-        const conflict = conflicts[0];
-        return { errors: { time: `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）` } };
-      }
+      const conflict = await findConflict(payload, user.id);
+      if (conflict) return { errors: { time: conflictMsg(conflict) } };
 
       const { error } = await supabase.from('learning_sessions').insert(payload);
       if (error) throw error;
@@ -559,21 +579,8 @@ export default function LearningPage() {
 
     setBusy(true);
     try {
-      const { data: conflicts, error: conflictError } = await supabase
-        .from('learning_sessions')
-        .select('id, start_time, end_time')
-        .eq('student_id', user.id)
-        .eq('session_date', payload.session_date)
-        .is('deleted_at', null)
-        .neq('id', editingSessionId)
-        .lt('start_time', payload.end_time)
-        .gt('end_time', payload.start_time);
-
-      if (conflictError) throw conflictError;
-      if (conflicts && conflicts.length > 0) {
-        const conflict = conflicts[0];
-        return { errors: { time: `该时间段已有学习记录（${conflict.start_time} - ${conflict.end_time}）` } };
-      }
+      const conflict = await findConflict(payload, user.id, editingSessionId);
+      if (conflict) return { errors: { time: conflictMsg(conflict) } };
 
       const { error } = await supabase
         .from('learning_sessions')

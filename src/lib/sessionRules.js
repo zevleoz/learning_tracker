@@ -121,6 +121,38 @@ export function deriveFromEnd(now, minutes) {
   return r ? { ...r, endStr } : null;
 }
 
+/** 结束 <= 开始（HH:MM[:SS]）即跨午夜。 */
+export function spansMidnight(startTime, endTime) {
+  const mins = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+  return mins(endTime) <= mins(startTime);
+}
+
+/**
+ * 在 rows 里找与 target 时段重叠的第一条（跨午夜的记录按 次日结束 计算，首尾相接不算重叠）。
+ * target / rows 用 session_date + start_time + end_time；excludeId 为编辑中的记录。
+ * 只在跨午夜时使用：普通同日时段仍走数据库的 lt/gt 查询。
+ */
+export function findOverlap(rows, target, excludeId = null) {
+  const span = (r) => {
+    if (!r || !r.session_date || !r.start_time || !r.end_time) return null;
+    const [y, mo, d] = String(r.session_date).slice(0, 10).split('-').map(Number);
+    const base = Math.round(Date.UTC(y, mo - 1, d) / 60000);
+    const mins = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const start = base + mins(r.start_time);
+    let end = base + mins(r.end_time);
+    if (end <= start) end += 24 * 60;
+    return [start, end];
+  };
+  const mine = span(target);
+  if (!mine) return null;
+  for (const r of rows || []) {
+    if (!r || (excludeId && r.id === excludeId) || r.deleted_at) continue;
+    const other = span(r);
+    if (other && mine[0] < other[1] && other[0] < mine[1]) return r;
+  }
+  return null;
+}
+
 /** 表单校验，返回 { course?, time?, form? }（空对象 = 通过）。文案与改版前一致。 */
 export function validateSession({ courseId, startStr, endStr, formValue }) {
   const errors = {};

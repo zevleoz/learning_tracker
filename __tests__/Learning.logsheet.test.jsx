@@ -385,3 +385,29 @@ describe('待补填 · 补填后「全部」列表同步', () => {
     expect(screen.queryByText('客观：待补充')).toBeNull();
   });
 });
+
+describe('记一笔 · 跨午夜时段的冲突检测', () => {
+  test('已有 23:00–23:50 的记录，再记 23:35–00:20 被拒绝，不写库', async () => {
+    const today = new Date();
+    const d = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    seed([session({ id: 'late', session_date: d, start_time: '23:00:00', end_time: '23:50:00', category: 1, form: '自主预习', grade_label: null })]);
+    renderLearning();
+    await openSheet();
+    setTimes('23:35', '00:20');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    expect(await screen.findByText(/该时间段已有学习记录（23:00:00 - 23:50:00）/)).toBeInTheDocument();
+    expect(lastCall('insert')).toBeUndefined();
+  });
+
+  test('同一晚没有冲突时正常保存（date=开始日，end<start，duration 跨午夜）', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    setTimes('23:35', '00:20');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ start_time: '23:35:00', end_time: '00:20:00', duration_minutes: 45 });
+  });
+});

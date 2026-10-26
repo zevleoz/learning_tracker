@@ -287,3 +287,42 @@ describe('时长优先 · deriveFromEnd（结束=现在，往前推开始）', (
     }
   });
 });
+
+describe('findOverlap · 跨午夜时段重叠', () => {
+  // eslint-disable-next-line global-require
+  const { findOverlap, spansMidnight } = require('../src/lib/sessionRules.js');
+  const row = (id, d, s, e) => ({ id, session_date: d, start_time: s, end_time: e });
+  const mine = { session_date: '2026-10-25', start_time: '23:35:00', end_time: '00:20:00' };
+
+  test('spansMidnight：结束 <= 开始', () => {
+    expect(spansMidnight('23:35:00', '00:20:00')).toBe(true);
+    expect(spansMidnight('09:00:00', '10:00:00')).toBe(false);
+  });
+
+  test('同一晚已有 23:00–23:50：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-25', '23:00:00', '23:50:00')], mine).id).toBe('a');
+  });
+
+  test('次日凌晨已有 00:00–00:30：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-26', '00:00:00', '00:30:00')], mine).id).toBe('a');
+  });
+
+  test('已有同样的跨午夜记录：重叠', () => {
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], mine).id).toBe('a');
+  });
+
+  test('前一晚的跨午夜记录延伸到当天凌晨：与当天 00:10 开始的记录重叠', () => {
+    const cur = { session_date: '2026-10-26', start_time: '00:10:00', end_time: '00:50:00' };
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], cur).id).toBe('a');
+  });
+
+  test('不重叠、首尾相接、排除自身', () => {
+    expect(findOverlap([row('a', '2026-10-25', '22:00:00', '23:35:00')], mine)).toBeNull();
+    expect(findOverlap([row('a', '2026-10-26', '00:20:00', '01:00:00')], mine)).toBeNull();
+    expect(findOverlap([row('a', '2026-10-25', '23:35:00', '00:20:00')], mine, 'a')).toBeNull();
+  });
+
+  test('缺时间的旧行跳过', () => {
+    expect(findOverlap([row('a', '2026-10-25', null, null)], mine)).toBeNull();
+  });
+});

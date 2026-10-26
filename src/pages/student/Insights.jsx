@@ -29,6 +29,11 @@ function dayLabel(str) {
   return `${m}月${d}日`;
 }
 
+// 分数可以不填（只记等第）：null / '' 都不算有分数，避免被当成 0 分
+function hasScore(e) {
+  return e.score !== null && e.score !== undefined && e.score !== '' && Number.isFinite(Number(e.score));
+}
+
 function weeksBetween(mondayA, mondayB) {
   const [y1, m1, d1] = mondayA.split('-').map(Number);
   const [y2, m2, d2] = mondayB.split('-').map(Number);
@@ -142,7 +147,7 @@ export default function Insights({ today: todayProp } = {}) {
     const courseExams = examCourses
       .map((c) => {
         const rows = exams
-          .filter((e) => e.course_id === c.id && Number.isFinite(Number(e.score)) && e.score !== null)
+          .filter((e) => e.course_id === c.id && (hasScore(e) || e.grade_label))
           .sort((a, b) => String(a.exam_date).localeCompare(String(b.exam_date)));
         return { course: c, rows };
       })
@@ -296,6 +301,7 @@ export default function Insights({ today: todayProp } = {}) {
         ) : (
           courseExams.map(({ course, rows }) => {
             const latest = rows[rows.length - 1];
+            const scored = rows.filter(hasScore);
             return (
               <div className="sh-exam" key={course.id}>
                 <div className="sh-exam-head">
@@ -304,11 +310,11 @@ export default function Insights({ today: todayProp } = {}) {
                     <p className="sh-note">{rows.length} 次考试 · 最近 {dayLabel(String(latest.exam_date).slice(0, 10))}</p>
                   </div>
                   <div className="sh-exam-score">
-                    {Number(latest.score)}
-                    {latest.grade_label && <small>{latest.grade_label}</small>}
+                    {hasScore(latest) ? Number(latest.score) : latest.grade_label}
+                    {hasScore(latest) && latest.grade_label && <small>{latest.grade_label}</small>}
                   </div>
                 </div>
-                <Sparkline points={rows.map((r) => Number(r.score))} />
+                <Sparkline points={scored.map((r) => Number(r.score))} />
               </div>
             );
           })

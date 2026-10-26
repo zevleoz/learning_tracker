@@ -182,6 +182,19 @@ describe('洞察', () => {
     expect(sec).not.toHaveTextContent('AP 物理 C');           // 校外课程不进校内趋势
   });
 
+  it('考试趋势：只有等第或只有分数的考试都能显示，空分数不当成 0', async () => {
+    supabase.__setTableData('exam_scores', [
+      { id: 'g1', student_id: 'u1', course_id: 'c-calc', exam_name: '月考', exam_date: '2026-10-01', score: null, grade_label: 'B+', deleted_at: null },
+      { id: 'g2', student_id: 'u1', course_id: 'c-calc', exam_name: '期中', exam_date: '2026-10-22', score: '', grade_label: 'A-', deleted_at: null },
+    ]);
+    renderInsights();
+    const sec = await screen.findByRole('region', { name: '考试趋势' });
+    expect(sec).toHaveTextContent('2 次考试 · 最近 10月22日');
+    expect(sec.querySelector('.sh-exam-score')).toHaveTextContent('A-');
+    expect(sec.querySelector('.sh-exam-score')).not.toHaveTextContent('0');
+    expect(sec.querySelector('.sh-spark')).toBeNull();
+  });
+
   it('没有任何记录：各块给出平实的空状态', async () => {
     supabase.__setTableData('learning_sessions', []);
     supabase.__setTableData('exam_scores', []);

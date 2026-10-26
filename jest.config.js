@@ -26,7 +26,7 @@ export default {
     '^./useAuth.js$': '<rootDir>/src/__mocks__/useAuth.js',
   },
   setupFiles: ['<rootDir>/src/__mocks__/setupEnv.js'],
-  setupFilesAfterEnv: ['@testing-library/jest-dom'],
+  setupFilesAfterEnv: ['@testing-library/jest-dom', '<rootDir>/src/__mocks__/setupCache.js'],
   testMatch: [
     '**/__tests__/**/*.test.js',
     '**/__tests__/**/*.test.jsx',

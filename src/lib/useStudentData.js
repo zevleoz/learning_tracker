@@ -1,116 +1,68 @@
 // 学生端「今天」「洞察」共用的数据 hook：只读，不改任何记录。
 // 统计口径全部来自 studentStats.js，这里只负责把行取回来。
+//
+// 数据放在按用户隔离的内存缓存里（studentCache.js，stale-while-revalidate）：
+//  - 切回来时立即显示缓存，后台刷新，不再整页转圈；
+//  - 首次先取最近 91 天就出结果，更早的历史在后台补齐（historyReady 为 false 期间只影响连续天数 / 学习日历）；
+//  - 学生自己的保存 / 删除 / 补填会直接修补缓存（见 studentResources.js 的 afterXxx）。
 
-import { useCallback, useEffect, useState } from 'react';
-import { supabase } from './supabase.js';
+import { useCallback, useEffect } from 'react';
 import { useAuth } from './useAuth.js';
-import { logger } from './logger.js';
 import { toLocalDateStr } from './date.js';
-import { pendingObjective } from './studentStats.js';
-import { setAppBadge } from './push.js';
+import { useCached } from './useCached.js';
+import { invalidate } from './studentCache.js';
+import {
+  KEYS, fetchStudent, fetchExams, fetchExamCourses, fetchInviteCount,
+} from './studentResources.js';
 
-const HISTORY_DAYS = 730;     // 连续天数要看得足够远：至少 2 年
-const WINDOW_DAYS = 91;       // 分成一个季度一段并行取，避免撞到单次 1000 行上限
-const WINDOW_LIMIT = 1000;
-
-const SESSION_COLUMNS = 'id, session_date, start_time, duration_minutes, category, form, '
-  + 'self_rating, grade_label, score, deleted_at, course_id, chapter_id, unit_id, '
-  + 'course:courses(id, name, course_type)';
-
-function addDaysStr(dateStr, n) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return toLocalDateStr(new Date(y, m - 1, d + n));
-}
-
-/** 最近一个周期内的 learning_sessions（未删除），按日期、开始时间倒序。 */
-async function fetchSessions(userId, todayStr) {
-  const first = addDaysStr(todayStr, -HISTORY_DAYS);
-  const end = addDaysStr(todayStr, 1);
-  const windows = [];
-  for (let from = first; from < end; from = addDaysStr(from, WINDOW_DAYS)) {
-    const to = addDaysStr(from, WINDOW_DAYS);
-    windows.push([from, to < end ? to : end]);
-  }
-  const results = await Promise.all(windows.map(([from, to]) => supabase
-    .from('learning_sessions')
-    .select(SESSION_COLUMNS)
-    .eq('student_id', userId)
-    .is('deleted_at', null)
-    .gte('session_date', from)
-    .lt('session_date', to)
-    .order('session_date', { ascending: false })
-    .limit(WINDOW_LIMIT)));
-  const failed = results.find((r) => r.error);
-  if (failed) throw failed.error;
-  return results
-    .flatMap((r) => r.data || [])
-    .filter((s) => s && !s.deleted_at)
-    .sort((a, b) => {
-      if (a.session_date !== b.session_date) return a.session_date < b.session_date ? 1 : -1;
-      return String(b.start_time || '') < String(a.start_time || '') ? -1 : 1;
-    });
-}
-
-/** 附加数据（考试、校内课程、邀请数）失败不影响主体：返回 fallback 并记录日志。 */
-async function soft(promise, fallback, label) {
-  try {
-    const res = await promise;
-    if (res.error) { logger.warn(`${label} 加载失败`, res.error); return fallback; }
-    return res.data ?? fallback;
-  } catch (e) {
-    logger.warn(`${label} 加载失败`, e);
-    return fallback;
-  }
-}
+const NO_ROWS = [];
 
 /**
  * @param {{ today?: Date }} [opts] today 仅供测试注入
- * @returns {{ loading, error, reload, today, profile, sessions, exams, examCourses, pendingInvites }}
+ * @returns {{ loading, error, reload, today, profile, sessions, exams, examCourses, pendingInvites, historyReady, windowStart }}
  *  sessions       近 2 年未删除记录（倒序），每行带 course { id, name, course_type }
  *  exams          exam_scores（未删除，日期倒序）
  *  examCourses    校内课程（course_type = 1）
  *  pendingInvites 待处理导师邀请数（teacher_student_connections.status = 0，与 Layout 同一查询）
+ *  historyReady   更早的历史是否已补齐（false 时 sessions 只含最近 91 天，windowStart 是已取到的最早日期）
  */
 export function useStudentData({ today } = {}) {
   const { user, profile } = useAuth();
   const userId = user?.id;
-  const [state, setState] = useState({
-    loading: true, error: null, sessions: [], exams: [], examCourses: [], pendingInvites: 0,
-  });
-  const [nonce, setNonce] = useState(0);
   const todayStr = toLocalDateStr(today || new Date());
 
-  useEffect(() => {
-    if (!userId) return undefined;
-    let alive = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
-    (async () => {
-      try {
-        const [sessions, exams, examCourses, invites] = await Promise.all([
-          fetchSessions(userId, todayStr),
-          soft(supabase.from('exam_scores').select('*').eq('student_id', userId)
-            .is('deleted_at', null).order('exam_date', { ascending: false }), [], '考试成绩'),
-          soft(supabase.from('courses').select('id, name, subject, course_type')
-            .eq('created_by', userId).eq('course_type', 1).is('deleted_at', null), [], '校内课程'),
-          soft(supabase.from('teacher_student_connections').select('id')
-            .eq('student_id', userId).eq('status', 0), [], '导师邀请'),
-        ]);
-        if (!alive) return;
-        setAppBadge(pendingObjective(sessions).length); // 图标角标 = 待补填数量
-        setState({
-          loading: false, error: null, sessions, exams, examCourses, pendingInvites: invites.length,
-        });
-      } catch (e) {
-        if (!alive) return;
-        logger.error('学生数据加载失败', e);
-        setState((s) => ({ ...s, loading: false, error: e }));
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId, todayStr, nonce]);
+  const main = useCached(userId, KEYS.student, (ctx) => fetchStudent(userId, todayStr, ctx));
+  const examsRes = useCached(userId, KEYS.exams, () => fetchExams(userId));
+  const coursesRes = useCached(userId, KEYS.examCourses, () => fetchExamCourses(userId));
+  const invitesRes = useCached(userId, KEYS.invites, () => fetchInviteCount(userId));
 
-  const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { ...state, reload, today: today || new Date(), userId, profile };
+  // 跨零点：缓存里是昨天算的窗口，丢掉重取
+  const wrongDay = Boolean(main.data) && main.data.todayStr !== todayStr;
+  useEffect(() => {
+    if (wrongDay) {
+      invalidate(userId, KEYS.student, { drop: true });
+      main.refresh();
+    }
+  }, [wrongDay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const data = wrongDay ? undefined : main.data;
+  const reload = useCallback(() => { main.refresh(); }, [main.refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return {
+    loading: !data && !main.error,
+    error: data ? null : main.error,
+    reload,
+    today: today || new Date(),
+    userId,
+    profile,
+    sessions: data ? data.sessions : NO_ROWS,
+    exams: examsRes.data ?? NO_ROWS,
+    examCourses: coursesRes.data ?? NO_ROWS,
+    pendingInvites: invitesRes.data ?? 0,
+    // 后台补历史失败时不再卡在「补齐中」：用已有数据照常显示
+    historyReady: data ? (data.historyReady || Boolean(main.backgroundError)) : false,
+    windowStart: data ? data.windowStart : null,
+  };
 }
 
 /**

@@ -368,12 +368,16 @@ export default defineConfig(async ({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            supabase: ['@supabase/supabase-js'],
-            recharts: ['recharts'],
-            framer: ['framer-motion'],
-            lucide: ['lucide-react']
+          // 函数形式（等价于原来的 vendor / supabase / framer / lucide 分组）：
+          // react/jsx-runtime 属于 react，必须归 vendor——对象形式会把它顺手并进 framer 块，
+          // 学生首屏就被迫下载 130 KB 的动画库（只有记录页的 sheet 等才用得到）。
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom|react-router|scheduler|@remix-run[\\/]router)[\\/]/.test(id)) return 'vendor';
+            if (/[\\/]node_modules[\\/]@supabase[\\/]/.test(id)) return 'supabase';
+            if (/[\\/]node_modules[\\/](framer-motion|motion-dom|motion-utils)[\\/]/.test(id)) return 'framer';
+            if (/[\\/]node_modules[\\/]lucide-react[\\/]/.test(id)) return 'lucide';
+            return undefined;
           }
         }
       },

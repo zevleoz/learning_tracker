@@ -19,8 +19,9 @@ function fakeSessionsQuery(rows, ranges) {
     lt: (_c, v) => { q.f.lt = v; return chain; },
     limit: (n) => { q.f.limit = n; return chain; },
     then: (resolve) => {
-      ranges.push([q.f.gte, q.f.lt]);
-      const data = rows.filter(r => r.session_date >= q.f.gte && r.session_date < q.f.lt).slice(0, q.f.limit);
+      // 「更早是否还有记录」的探测查询只有 lt，没有 gte：不算分段，只看有没有行
+      if (q.f.gte !== undefined) ranges.push([q.f.gte, q.f.lt]);
+      const data = rows.filter(r => (q.f.gte === undefined || r.session_date >= q.f.gte) && r.session_date < q.f.lt).slice(0, q.f.limit);
       return Promise.resolve({ data, error: null }).then(resolve);
     },
   };
@@ -41,6 +42,8 @@ test('分段取数：每个日期只出现一次，今天和 730 天前的边界
   try {
     const { result } = renderHook(() => useStudentData({ today }));
     await waitFor(() => expect(result.current.loading).toBe(false));
+    // 先出最近一段，更早的历史在后台补齐
+    await waitFor(() => expect(result.current.historyReady).toBe(true));
     expect(result.current.error).toBeNull();
     const dates = result.current.sessions.map(s => s.session_date);
     expect(new Set(dates).size).toBe(dates.length);          // 无重复

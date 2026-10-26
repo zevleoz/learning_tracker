@@ -12,7 +12,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="一表人才" />
     <link rel="preconnect" href="https://rsms.me/" />
-    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <!-- Inter 只是备选字体（系统字体优先）：异步加载，绝不阻塞首屏（境内访问 rsms.me 可能很慢甚至不通） -->
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://rsms.me/inter/inter.css" /></noscript>
     <title>一表人才</title>
   </head>
   <body>

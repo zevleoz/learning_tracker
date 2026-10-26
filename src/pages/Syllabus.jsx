@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
+import { getSessionUser } from '../lib/currentUser.js';
+import { useAuth } from '../lib/useAuth.js';
+import { peek, put, invalidate } from '../lib/studentCache.js';
+import { KEYS } from '../lib/studentResources.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
@@ -24,6 +28,33 @@ export function formatHM(minutes) {
   const m = Math.round(Number(minutes) || 0);
   if (m <= 0) return '—';
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// 覆盖度所需的记录汇总；失败不影响课程树本身（返回 null）
+async function loadUsage(userId) {
+  try {
+    // PostgREST 单次最多 1000 行：记录多的学生按 id 分页取完，否则覆盖度会少算
+    const PAGE = 1000;
+    const all = [];
+    let lastId = null;
+    for (;;) {
+      let q = supabase
+        .from('learning_sessions')
+        .select('id, course_id, unit_id, duration_minutes')
+        .eq('student_id', userId)
+        .is('deleted_at', null);
+      if (lastId !== null) q = q.gt('id', lastId);
+      const { data: rows, error } = await q.order('id', { ascending: true }).limit(PAGE);
+      if (error) return null;
+      all.push(...(rows || []));
+      if (!rows || rows.length < PAGE) break;
+      lastId = rows[rows.length - 1].id;
+    }
+    return summarizeUsage(all);
+  } catch (usageEx) {
+    logger.warn('Syllabus usage load failed:', usageEx);
+    return null;
+  }
 }
 
 /**
@@ -51,6 +82,7 @@ export function summarizeUsage(rows) {
  * /me/courses 传 false：先读后改，点「编辑」才出现增删改。
  */
 export default function Syllabus({ defaultEditing = true }) {
+  const { user: authUser } = useAuth();   // 应用已确认的登录用户（没有时再读本地 session）
   const [editing, setEditing] = useState(defaultEditing);
   const [usage, setUsage] = useState({ byUnit: {}, byCourse: {} });
   const [courses, setCourses] = useState([]);
@@ -68,29 +100,44 @@ export default function Syllabus({ defaultEditing = true }) {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // 课程树 + 覆盖度汇总：登录用户取本地 session（不再 getUser() 多一次往返），
+  // 资料 / 课程 / 记录汇总三个查询并行（以前是串行三步），切回来先显示缓存再后台刷新。
+  const [schoolId, setSchoolId] = useState(null);
+  const syncedRef = useRef(null);   // 最近一次来自取数（而非本页编辑）的 courses 引用
+  const userIdRef = useRef(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const user = authUser || await getSessionUser();
         if (!user) { if (!cancelled) setLoading(false); return; }
+        userIdRef.current = user.id;
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('school_name')
-          .eq('id', user.id)
-          .maybeSingle();
-        const mySchool = profile?.school_name;
-        if (mySchool) setSchoolName(mySchool);
+        const cached = peek(user.id, KEYS.syllabus);
+        if (cached && !cancelled) {
+          syncedRef.current = cached.courses;
+          setCourses(cached.courses);
+          setUsage(cached.usage);
+          if (cached.schoolName) setSchoolName(cached.schoolName);
+          setSchoolId(cached.schoolId ?? null);
+          setLoadError(null);
+          setLoading(false);
+        }
 
-        const { data: cs, error } = await supabase
-          .from('courses')
-          .select(`
-            id, name, subject, source, course_type, created_by,
-            chapters:chapters(id, name, order_idx, deleted_at, units(id, name, order_idx, deleted_at))
-          `)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
+        const [profileRes, coursesRes, usageResult] = await Promise.all([
+          supabase.from('profiles').select('school_name, school_id').eq('id', user.id).maybeSingle(),
+          supabase
+            .from('courses')
+            .select(`
+              id, name, subject, source, course_type, created_by,
+              chapters:chapters(id, name, order_idx, deleted_at, units(id, name, order_idx, deleted_at))
+            `)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false }),
+          loadUsage(user.id),
+        ]);
+        const mySchool = profileRes.data?.school_name;
+        const { data: cs, error } = coursesRes;
 
         if (error) throw error;
 
@@ -112,33 +159,18 @@ export default function Syllabus({ defaultEditing = true }) {
             }))
         }));
         if (!cancelled) {
+          if (mySchool) setSchoolName(mySchool);
+          setSchoolId(profileRes.data?.school_id ?? null);
+          syncedRef.current = sorted;
           setCourses(sorted);
+          if (usageResult) setUsage(usageResult);
           setLoadError(null);
-        }
-
-        // 覆盖度所需的记录汇总；失败不影响课程树本身
-        try {
-          // PostgREST 单次最多 1000 行：记录多的学生按 id 分页取完，否则覆盖度会少算
-          const PAGE = 1000;
-          const all = [];
-          let usageErr = null;
-          let lastId = null;
-          for (;;) {
-            let q = supabase
-              .from('learning_sessions')
-              .select('id, course_id, unit_id, duration_minutes')
-              .eq('student_id', user.id)
-              .is('deleted_at', null);
-            if (lastId !== null) q = q.gt('id', lastId);
-            const { data: rows, error } = await q.order('id', { ascending: true }).limit(PAGE);
-            if (error) { usageErr = error; break; }
-            all.push(...(rows || []));
-            if (!rows || rows.length < PAGE) break;
-            lastId = rows[rows.length - 1].id;
-          }
-          if (!usageErr && !cancelled) setUsage(summarizeUsage(all));
-        } catch (usageEx) {
-          logger.warn('Syllabus usage load failed:', usageEx);
+          put(user.id, KEYS.syllabus, {
+            courses: sorted,
+            usage: usageResult || cached?.usage || { byUnit: {}, byCourse: {} },
+            schoolName: mySchool || cached?.schoolName || null,
+            schoolId: profileRes.data?.school_id ?? null,
+          });
         }
       } catch (err) {
         logger.error('Syllabus load failed:', err);
@@ -150,11 +182,22 @@ export default function Syllabus({ defaultEditing = true }) {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 本页的增删改直接改 courses：同步给缓存（再次打开不会先看到改之前的），并让别处（记录页的课程选择等）重取
+  useEffect(() => {
+    const uid = userIdRef.current;
+    if (!uid || loading || syncedRef.current === null || courses === syncedRef.current) return;
+    syncedRef.current = courses;
+    invalidate(uid, KEYS.courseTree);
+    invalidate(uid, KEYS.examCourses);
+    invalidate(uid, KEYS.me);
+    put(uid, KEYS.syllabus, { courses, usage, schoolName, schoolId });
+  }, [courses]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ===== 添加课程 ===== */
   async function createCourse({ name, courseType }) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = authUser || await getSessionUser();
     if (!user) return toast('请先登录', { kind: 'error' });
 
     const trimmedName = name.trim();
@@ -163,11 +206,16 @@ export default function Syllabus({ defaultEditing = true }) {
     const existing = courses.find(c => c.name === trimmedName);
     if (existing) return toast('该课程名称已存在', { kind: 'error' });
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('school_id')
-      .eq('id', user.id)
-      .maybeSingle();
+    // school_id 打开本页时已随资料取到；没取到（或为空）时再单独查一次，口径与之前一致
+    let profile = schoolId ? { school_id: schoolId } : null;
+    if (!profile) {
+      const res = await supabase
+        .from('profiles')
+        .select('school_id')
+        .eq('id', user.id)
+        .maybeSingle();
+      profile = res.data;
+    }
 
     const { error, data: created } = await supabase
       .from('courses')

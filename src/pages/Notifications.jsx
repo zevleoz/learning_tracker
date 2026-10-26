@@ -3,6 +3,9 @@ import { ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
+import { useAuth } from '../lib/useAuth.js';
+import { peek, put } from '../lib/studentCache.js';
+import { KEYS, afterInvitesChanged } from '../lib/studentResources.js';
 import { Sheet } from '../components/student/LogSheet.jsx';
 
 /* ================================================================
@@ -78,9 +81,11 @@ function AccessList({ withMayDo = true }) {
 }
 
 export default function Notifications({ onPendingChange }) {
-  const [user, setUser] = useState(null);
-  const [invites, setInvites] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const userId = user?.id;
+  // 邀请列表走缓存：切回「我的」立即显示上次的，后台再刷新（没有缓存时才显示「加载中」）
+  const [invites, setInvites] = useState(() => peek(userId, KEYS.invitesList) ?? []);
+  const [loading, setLoading] = useState(() => peek(userId, KEYS.invitesList) === undefined);
   const [busyId, setBusyId] = useState(null);
   const [openId, setOpenId] = useState(null);          // 当前打开的 sheet 对应的连接
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -118,10 +123,12 @@ export default function Notifications({ onPendingChange }) {
         }
       }
 
-      setInvites((connData || []).map((c) => ({
+      const list = (connData || []).map((c) => ({
         ...c,
         teacher_name: names[c.teacher_id] || '未命名老师',
-      })));
+      }));
+      setInvites(list);
+      put(studentId, KEYS.invitesList, list);
     } catch (err) {
       logger.error('loadInvites error:', err);
       toast(friendlyError(err, '加载邀请失败，请稍后重试'), { kind: 'error' });
@@ -132,10 +139,12 @@ export default function Notifications({ onPendingChange }) {
 
   useEffect(() => {
     let cancelled = false;
+    // 登录态在本地（useAuth），不再 getUser() 多一次往返
+    if (!userId) { setLoading(false); return undefined; }
+    const u = { id: userId };
+    const cached = peek(userId, KEYS.invitesList);
+    if (cached !== undefined) { setInvites(cached); setLoading(false); }
     (async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      if (!u || cancelled) { setLoading(false); return; }
-      setUser(u);
       await loadInvites(u.id);
       if (cancelled) return;
 
@@ -165,7 +174,7 @@ export default function Notifications({ onPendingChange }) {
         subRef.current = null;
       }
     };
-  }, [loadInvites]);
+  }, [loadInvites, userId]);
 
   const pending = invites.filter((i) => i.status === 0);
   const accepted = invites.filter((i) => i.status === 1);
@@ -193,9 +202,12 @@ export default function Notifications({ onPendingChange }) {
         return;
       }
       // 乐观更新本地状态，避免完全依赖 realtime 回流
-      setInvites((prev) => prev.map((c) => (c.id === id ? { ...c, status, updated_at: new Date().toISOString() } : c)));
+      const nextList = invites.map((c) => (c.id === id ? { ...c, status, updated_at: new Date().toISOString() } : c));
+      setInvites(nextList);
+      put(user.id, KEYS.invitesList, nextList);
       toast(okMsg, { kind: 'success' });
       closeSheet();
+      afterInvitesChanged(user.id);   // 「我的」角标 / 今天待办里的邀请数同步更新
     } finally {
       setBusyId(null);
     }

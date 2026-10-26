@@ -17,6 +17,11 @@ function addDays(str, n) {
   const [y, m, d] = str.split('-').map(Number);
   return toLocalDateStr(new Date(y, m - 1, d + n));
 }
+function daysBetweenStr(a, b) {
+  const [y1, m1, d1] = a.split('-').map(Number);
+  const [y2, m2, d2] = b.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / 86400000);
+}
 function mondayIndex(str) {
   const [y, m, d] = str.split('-').map(Number);
   return (new Date(y, m - 1, d).getDay() + 6) % 7;
@@ -135,7 +140,7 @@ export default function Insights({ today: todayProp } = {}) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const {
-    loading, error, reload, sessions, exams, examCourses, today,
+    loading, error, reload, sessions, exams, examCourses, today, historyReady, windowStart,
   } = useStudentData({ today: todayProp });
   const todayStr = toLocalDateStr(today);
 
@@ -168,6 +173,10 @@ export default function Insights({ today: todayProp } = {}) {
   if (loading || error) return <PageState loading={loading} error={error} onRetry={reload} />;
 
   const { cat, streak, daysIn, avg, pending, headline, activity, subjects, calib, courseExams } = view;
+  // 更早的历史还在后台补：学习日历（从第一条记录起算）与连续天数要等补齐才准，先放骨架 / 占位
+  const historyPending = !historyReady;
+  const streakUnsure = historyPending && windowStart != null && streak.current > 0
+    && streak.current >= daysBetweenStr(windowStart, todayStr) - 1;
   const activeDays = activity.days.filter((d) => !d.future && d.minutes > 0).length;
   const maxSubject = Math.max(1, ...subjects.map((s) => s.total));
 
@@ -196,7 +205,7 @@ export default function Insights({ today: todayProp } = {}) {
         <section className="sh-card sh-stats" aria-label="统计">
           <div className="sh-stat"><span className="sh-note">本周总时长</span><b>{fmtHM(cat.total)}</b></div>
           <div className="sh-stat"><span className="sh-note">日均（本周 {daysIn} 天）</span><b>{avg}′</b></div>
-          <div className="sh-stat streak"><span className="sh-note">连续记录</span><b>{streak.current} 天</b></div>
+          <div className="sh-stat streak"><span className="sh-note">连续记录</span><b>{streakUnsure ? '…' : `${streak.current} 天`}</b></div>
           <div className="sh-stat">
             <span className="sh-note">待补填</span>
             <b>{pending > 0 ? <Link to="/records?tab=pending">{pending}</Link> : 0}</b>
@@ -204,14 +213,15 @@ export default function Insights({ today: todayProp } = {}) {
         </section>
       </div>
 
-      <section className="sh-card" aria-label="学习日历">
-        {activity.mode === 'empty' && (
+      <section className="sh-card" aria-label="学习日历" aria-busy={historyPending || undefined}>
+        {historyPending && <div className="sh-skel" />}
+        {!historyPending && activity.mode === 'empty' && (
           <>
             <h2 className="sh-h2">学习日历</h2>
             <p className="sh-empty">记下第一条后，这里会出现你的学习日历。</p>
           </>
         )}
-        {activity.mode === 'calendar' && (
+        {!historyPending && activity.mode === 'calendar' && (
           <>
             <h2 className="sh-h2">学习日历 <small>从你的第一条记录开始，已记录 {activeDays} 天</small></h2>
             <div className="sh-cal" role="img" aria-label={`从第一条记录起有 ${activeDays} 天记录`}>
@@ -225,7 +235,7 @@ export default function Insights({ today: todayProp } = {}) {
             </div>
           </>
         )}
-        {activity.mode === 'heat' && (
+        {!historyPending && activity.mode === 'heat' && (
           <>
             <h2 className="sh-h2">{activity.weeks} 周 <small>每格一天，颜色越深记录越多</small></h2>
             <div className="sh-heat-scroll">
@@ -237,7 +247,7 @@ export default function Insights({ today: todayProp } = {}) {
             </div>
           </>
         )}
-        {activity.mode !== 'empty' && <div className="sh-heat-leg">
+        {!historyPending && activity.mode !== 'empty' && <div className="sh-heat-leg">
           少<i /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" />多
           <i className="rest" />休息日
         </div>}

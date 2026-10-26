@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Learning from '../src/pages/Learning';
 import { supabase } from '../src/__mocks__/supabase';
 import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
+import { clearAllCaches } from '../src/lib/studentCache.js';
 import { computeDuration } from '../src/lib/sessionRules.js';
 
 // 记一笔 sheet、再记一次、待补填行内补填、编辑回显。断言的都是保存口径（主观/客观/eval_type/待补填），
@@ -409,6 +410,7 @@ describe('编辑记录 · 不动没改的字段', () => {
     const p = await editAndSave(session({ id: 'e-4', category: 1, form: '自主预习', grade_label: null }));
     expect(p).toMatchObject({ session_date: PAST, start_time: '19:00:00', end_time: '19:45:00', duration_minutes: 45 });
     cleanup();
+    clearAllCaches(); // 重新打开应用：上一轮的内存缓存不能带过来
     const q = await editAndSave(session({ id: 'e-5', category: 1, form: '自主预习', grade_label: null, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 }));
     expect(q).toMatchObject({ session_date: PAST, start_time: '23:30:00', end_time: '00:15:00', duration_minutes: 45 });
   });

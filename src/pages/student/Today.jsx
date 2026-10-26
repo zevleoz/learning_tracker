@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toLocalDateStr } from '../../lib/date.js';
 import {
@@ -10,12 +10,21 @@ import {
 } from '../../lib/useStudentData.js';
 import { getPermission, isIOSNeedsInstall, isPushSupported, subscribe } from '../../lib/push.js';
 import { loadPrefs, dismissPushCard, isCardDismissedLocally } from '../../lib/notifyPrefs.js';
+import { useCached } from '../../lib/useCached.js';
+import { patch } from '../../lib/studentCache.js';
+import { KEYS } from '../../lib/studentResources.js';
 import { toast } from '../../lib/toast.js';
 import '../../styles/student-home.css';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const CIRC = 2 * Math.PI * 45;
 const CAT_CLASS = { 1: 'd-study', 2: 'd-review', 3: 'd-practice' };
+
+function daysBetweenStr(a, b) {
+  const [y1, m1, d1] = a.split('-').map(Number);
+  const [y2, m2, d2] = b.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / 86400000);
+}
 
 function greeting(now) {
   const h = now.getHours();
@@ -76,23 +85,17 @@ export default function Today({ today: todayProp } = {}) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const {
-    loading, error, reload, sessions, pendingInvites, today, profile, userId,
+    loading, error, reload, sessions, pendingInvites, today, profile, userId, historyReady, windowStart,
   } = useStudentData({ today: todayProp });
   const todayStr = toLocalDateStr(today);
 
   // 提醒权限小卡片：第 3 条记录之后才出现，点「开启」才弹系统授权，「不用」永久收起
-  const [pushPrefs, setPushPrefs] = useState(null);       // 读到 notification_prefs 之后才可能显示
+  // notification_prefs 走缓存：切回来立即有，后台刷新；与「我的 › 提醒」共用同一份
+  const prefsRes = useCached(userId, KEYS.prefs, () => loadPrefs(userId));
+  const pushPrefs = prefsRes.data ? prefsRes.data.prefs : null;   // 读到 notification_prefs 之后才可能显示
   const [cardHidden, setCardHidden] = useState(() => isCardDismissedLocally());
   const [permission, setPermission] = useState(() => getPermission());
   const [cardBusy, setCardBusy] = useState(false);
-  useEffect(() => {
-    if (!userId) return undefined;
-    let alive = true;
-    loadPrefs(userId)
-      .then((res) => { if (alive) setPushPrefs(res.prefs); })
-      .catch(() => { if (alive) setPushPrefs(null); });
-    return () => { alive = false; };
-  }, [userId]);
 
   const view = useMemo(() => {
     const week = weekRange(todayStr);
@@ -138,7 +141,12 @@ export default function Today({ today: todayProp } = {}) {
   function declinePush() {
     setCardHidden(true);
     dismissPushCard(userId, pushPrefs);
+    patch(userId, KEYS.prefs, (v) => (v ? { ...v, prefs: { ...v.prefs, push_card_dismissed: true } } : v));
   }
+
+  // 更早的历史还在后台补：连续天数若已经顶到已取到的最早一天，数字还会往上涨，补齐前先不显示
+  const streakUnsure = !historyReady && windowStart != null && streak.current > 0
+    && streak.current >= daysBetweenStr(windowStart, todayStr) - 1;
 
   const compare = !hasLast && cat.total === 0
     ? '上周也没有记录，从今天开始。'
@@ -186,7 +194,9 @@ export default function Today({ today: todayProp } = {}) {
             </div>
           </div>
           <div className="sh-streak">
-            {streak.current > 0 ? (
+            {streakUnsure ? (
+              <span style={{ marginLeft: 0, color: 'var(--sh-ink-3)' }} aria-busy="true">…</span>
+            ) : streak.current > 0 ? (
               <>
                 <b>{streak.current}</b> 天连续
               </>

@@ -31,9 +31,9 @@ function renderLearning() {
   );
 }
 
-// 打开「记一笔」并等待表单就绪（课程加载完成，提交按钮出现）
+// 打开「记一下」并等待表单就绪（课程加载完成，提交按钮出现）
 async function waitForForm() {
-  fireEvent.click(await screen.findByRole('button', { name: '记一笔' }));
+  fireEvent.click(await screen.findByRole('button', { name: '记一下' }));
   await waitFor(() => {
     expect(screen.getByRole('button', { name: /^保存记录/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();

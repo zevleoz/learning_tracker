@@ -6,7 +6,7 @@ import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 import { clearAllCaches } from '../src/lib/studentCache.js';
 import { computeDuration } from '../src/lib/sessionRules.js';
 
-// 记一笔 sheet、再记一次、待补填行内补填、编辑回显。断言的都是保存口径（主观/客观/eval_type/待补填），
+// 记一下 sheet、再记一次、待补填行内补填、编辑回显。断言的都是保存口径（主观/客观/eval_type/待补填），
 // 与 sessionRules.test.js 的规则一致。
 
 const COURSE_ROW = {
@@ -49,8 +49,8 @@ const SAVE = { name: /^保存(记录|修改)/ };
 const lastCall = (method) => supabase.__getCallHistory().filter(c => c.method === method && c.table === 'learning_sessions').pop();
 
 async function openSheet() {
-  fireEvent.click(await screen.findByRole('button', { name: '记一笔' }));
-  await screen.findByRole('dialog', { name: '记一笔' });
+  fireEvent.click(await screen.findByRole('button', { name: '记一下' }));
+  await screen.findByRole('dialog', { name: '记一下' });
   await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
 }
 function setTimes(start, end) {
@@ -69,7 +69,7 @@ beforeEach(() => {
   setAuthProfile({ id: 'test-user-1', email: 'test@example.com', role: 1, full_name: '测试用户' });
 });
 
-describe('记一笔 · 客观评价三种方式', () => {
+describe('记一下 · 客观评价三种方式', () => {
   async function savePractice(mode) {
     seed();
     renderLearning();
@@ -132,7 +132,7 @@ describe('记一笔 · 客观评价三种方式', () => {
   });
 });
 
-describe('记一笔 · 时长优先', () => {
+describe('记一下 · 时长优先', () => {
   test('点时长 chip：按现在往前推开始时间，仍写入 start/end/duration', async () => {
     seed();
     renderLearning();
@@ -161,7 +161,7 @@ describe('记一笔 · 时长优先', () => {
   });
 });
 
-describe('记一笔 · 午夜前后的时长优先', () => {
+describe('记一下 · 午夜前后的时长优先', () => {
   afterEach(() => { jest.useRealTimers(); });
 
   test('现在 00:20 点 45 分钟：开始 23:35 记在前一天，start/end/duration 一致', async () => {
@@ -202,7 +202,7 @@ describe('再记一次', () => {
     renderLearning();
     const chip = await screen.findByRole('button', { name: '再记一次：数学 · 练习 · 自主练习 · 45 分钟' });
     fireEvent.click(chip);
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     expect(screen.getByRole('radio', { name: '练习' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('button', { name: '自主练习' })).toHaveAttribute('aria-pressed', 'true');
     // 等第回到默认 B+，不沿用上次的 B
@@ -218,7 +218,7 @@ describe('再记一次', () => {
   test('没有记录时不显示，也不再有固定的「自主预习」快速记录', async () => {
     seed();
     renderLearning();
-    await screen.findByRole('button', { name: '记一笔' });
+    await screen.findByRole('button', { name: '记一下' });
     expect(screen.queryByText('再记一次')).not.toBeInTheDocument();
     expect(screen.queryByText('快速记录')).not.toBeInTheDocument();
   });
@@ -228,12 +228,12 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
   test('事件 detail 预填课程/类别/形式/时长', async () => {
     seed();
     renderLearning();
-    await screen.findByRole('button', { name: '记一笔' });
+    await screen.findByRole('button', { name: '记一下' });
     await waitFor(() => expect(supabase.__getCallHistory().some(c => c.table === 'courses')).toBe(true));
     act(() => {
       window.dispatchEvent(new CustomEvent('yb:open-log', { detail: { courseId: 'course-2', category: 3, form: '学校作业', durationMinutes: 90 } }));
     });
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '物理' })).toHaveAttribute('aria-pressed', 'true'));
     expect(screen.getByRole('radio', { name: '练习' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('button', { name: '学校作业' })).toHaveAttribute('aria-pressed', 'true');
@@ -244,21 +244,21 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
   test('无 detail 的事件也能打开', async () => {
     seed();
     renderLearning();
-    await screen.findByRole('button', { name: '记一笔' });
+    await screen.findByRole('button', { name: '记一下' });
     act(() => { window.dispatchEvent(new CustomEvent('yb:open-log')); });
-    expect(await screen.findByRole('dialog', { name: '记一笔' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: '记一下' })).toBeInTheDocument();
   });
 
   test('/learning?log=1 进入即打开', async () => {
     seed();
     renderLearning('/learning?log=1');
-    expect(await screen.findByRole('dialog', { name: '记一笔' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: '记一下' })).toBeInTheDocument();
   });
 
   test('提醒推送的链接 ?log=1&course&category&form&minutes：打开即预填，与 yb:open-log 一致', async () => {
     seed();
     renderLearning(`/records?log=1&course=course-2&category=3&form=${encodeURIComponent('学校作业')}&minutes=90`);
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '物理' })).toHaveAttribute('aria-pressed', 'true'));
     expect(screen.getByRole('radio', { name: '练习' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('button', { name: '学校作业' })).toHaveAttribute('aria-pressed', 'true');
@@ -271,7 +271,7 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
   test('链接里的参数不合法时忽略：类别回到默认、课程不存在则用默认课程', async () => {
     seed();
     renderLearning('/records?log=1&course=nope&category=9&minutes=abc');
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     expect(screen.getByRole('radio', { name: '学习' })).toHaveAttribute('aria-checked', 'true');
   });
@@ -279,7 +279,7 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
   test('链接里的 minutes 无穷大 / 过大时忽略，不会写出 NaN:NaN 的时间', async () => {
     seed();
     renderLearning('/records?log=1&minutes=Infinity');
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     const t = document.querySelectorAll('input[type="time"]');
     expect(t[0].value).toBe('');
@@ -289,7 +289,7 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
   test('链接里的 form 不属于该类别的预设 / 自定义形式时忽略（不能借链接写入任意形式）', async () => {
     seed();
     renderLearning('/records?log=1&category=1&form=' + encodeURIComponent('学校作业'));
-    await screen.findByRole('dialog', { name: '记一笔' });
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: '学校作业' })).toBeNull();
     expect(screen.getByRole('button', { name: '自主预习' })).toHaveAttribute('aria-pressed', 'false');
@@ -300,7 +300,7 @@ describe('打开方式：yb:open-log 事件与 ?log=1', () => {
     renderLearning();
     await openSheet();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一笔' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一下' })).not.toBeInTheDocument());
   });
 });
 
@@ -433,7 +433,7 @@ describe('待补填 · 补填后「全部」列表同步', () => {
   });
 });
 
-describe('记一笔 · 跨午夜时段的冲突检测', () => {
+describe('记一下 · 跨午夜时段的冲突检测', () => {
   test('已有 23:00–23:50 的记录，再记 23:35–00:20 被拒绝，不写库', async () => {
     const today = new Date();
     const d = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

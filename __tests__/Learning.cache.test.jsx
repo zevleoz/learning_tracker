@@ -91,8 +91,8 @@ test('保存：写入确认后马上关 sheet、新记录马上进列表和缓�
   const net = holdListRefresh();
   try {
     net.hold();
-    fireEvent.click(screen.getByRole('button', { name: '记一笔' }));
-    await screen.findByRole('dialog', { name: '记一笔' });
+    fireEvent.click(screen.getByRole('button', { name: '记一下' }));
+    await screen.findByRole('dialog', { name: '记一下' });
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     const t = document.querySelectorAll('input[type="time"]');
     fireEvent.change(t[0], { target: { value: '08:00' } });
@@ -104,7 +104,7 @@ test('保存：写入确认后马上关 sheet、新记录马上进列表和缓�
 
     // 列表刷新被卡住的情况下：已经写入、sheet 已关、新行已在最近记录里
     await waitFor(() => expect(supabase.__getCallHistory().some((c) => c.method === 'insert' && c.table === 'learning_sessions')).toBe(true));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一笔' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一下' })).toBeNull());
     expect(await screen.findByText('客观：待补充')).toBeInTheDocument();
     const added = peek(UID, KEYS.recent).find((r) => r.id !== 'old');
     expect(added).toBeDefined();
@@ -124,8 +124,8 @@ test('保存失败（写库报错）：不显示成功，不进缓存，仍进�
   supabase.__setInsertError('learning_sessions', { message: 'network down' });
   renderLearning();
   await screen.findByText('最近记录');
-  fireEvent.click(screen.getByRole('button', { name: '记一笔' }));
-  await screen.findByRole('dialog', { name: '记一笔' });
+  fireEvent.click(screen.getByRole('button', { name: '记一下' }));
+  await screen.findByRole('dialog', { name: '记一下' });
   await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
   const t = document.querySelectorAll('input[type="time"]');
   fireEvent.change(t[0], { target: { value: '08:00' } });

@@ -29,7 +29,7 @@ function renderLearning() {
 }
 
 async function waitForForm() {
-  fireEvent.click(await screen.findByRole('button', { name: '记一笔' }));
+  fireEvent.click(await screen.findByRole('button', { name: '记一下' }));
   await waitFor(() => {
     expect(screen.getByRole('button', { name: /^保存记录/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();

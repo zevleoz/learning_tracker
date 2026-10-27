@@ -726,7 +726,7 @@ export default function LearningPage() {
           <p>记下每一次学习，数据会帮你看清自己</p>
         </div>
         <button type="button" className="yb-btn sm" aria-haspopup="dialog" onClick={() => openNew(null)}>
-          <Plus size={16} strokeWidth={2.4} aria-hidden="true" />记一笔
+          <Plus size={16} strokeWidth={2.4} aria-hidden="true" />记一下
         </button>
       </div>
 
@@ -922,7 +922,7 @@ export default function LearningPage() {
             courses.length > 0 && (
               <div className="yb-empty">
                 <b>还没有记录</b>
-                点「记一笔」记下第一次学习。
+                点「记一下」记下第一次学习。
               </div>
             )
           ) : days.map(day => (

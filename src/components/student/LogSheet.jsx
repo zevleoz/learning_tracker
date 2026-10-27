@@ -484,7 +484,7 @@ export default function LogSheet({
   ) : null;
 
   return (
-    <Sheet open={open} onClose={onClose} title={editing ? '编辑记录' : '记一笔'} footer={footer}>
+    <Sheet open={open} onClose={onClose} title={editing ? '编辑记录' : '记一下'} footer={footer}>
       {loadingCourses && !courses.length ? (
         <p className="yb-note">加载课程中…</p>
       ) : courses.length === 0 ? (

@@ -266,9 +266,9 @@ export default function Layout() {
           <b>一表人才</b>
         </div>
 
-        <button type="button" className="yb-add" onClick={openLog} aria-label="记一笔">
+        <button type="button" className="yb-add" onClick={openLog} aria-label="记一下">
           <IconPlus />
-          <span className="yb-add-label">记一笔</span>
+          <span className="yb-add-label">记一下</span>
           <kbd className="yb-kbd" aria-hidden="true">N</kbd>
         </button>
 

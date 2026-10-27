@@ -94,7 +94,7 @@ describe('更新提示覆盖新的学生端页面', () => {
       return null;
     },
   };
-  test('今天 / 洞察 / 我的 / 记一笔 都计入学生端版本', async () => {
+  test('今天 / 洞察 / 我的 / 记一下 都计入学生端版本', async () => {
     const files = await reachableFiles(SURFACE_SEEDS.student, deps);
     for (const f of ['src/pages/student/Today.jsx', 'src/pages/student/Insights.jsx', 'src/pages/student/Me.jsx', 'src/components/student/LogSheet.jsx']) {
       expect(files.has(f)).toBe(true);

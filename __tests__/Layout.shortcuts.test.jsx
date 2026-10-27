@@ -57,7 +57,7 @@ describe('Layout · 导航', () => {
     const links = Array.from(nav.querySelectorAll('a.yb-tab'));
     expect(links.map((a) => a.querySelector('.yb-tab-label').textContent)).toEqual(['今天', '记录', '洞察', '我的']);
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['/today', '/records', '/insights', '/me']);
-    expect(screen.getByRole('button', { name: '记一笔' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '记一下' })).toBeInTheDocument();
   });
 
   it('高亮：/learning 算记录，/me/courses 算我的', () => {
@@ -82,20 +82,20 @@ describe('Layout · 导航', () => {
 
   it('＋ 在记录页发出 yb:open-log，在其它页跳转到 /records?log=1', () => {
     const { unmount } = renderShell('/records');
-    fireEvent.click(screen.getByRole('button', { name: '记一笔' }));
+    fireEvent.click(screen.getByRole('button', { name: '记一下' }));
     expect(openLog).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('where')).toHaveTextContent('/records');
     unmount();
 
     renderShell('/today');
-    fireEvent.click(screen.getByRole('button', { name: '记一笔' }));
+    fireEvent.click(screen.getByRole('button', { name: '记一下' }));
     expect(openLog).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('where')).toHaveTextContent('/records?log=1');
   });
 });
 
 describe('Layout · 桌面快捷键', () => {
-  it('N：在记录页打开记一笔，在其它页跳转到 /records?log=1', () => {
+  it('N：在记录页打开记一下，在其它页跳转到 /records?log=1', () => {
     const { unmount } = renderShell('/learning');
     press('n');
     expect(openLog).toHaveBeenCalledTimes(1);

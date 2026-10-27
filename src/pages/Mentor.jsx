@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { supabase, timeoutSignal, getAccessToken } from '../lib/supabase.js';
 import { updateWorkspace } from '../lib/e4Store.js';
@@ -10,37 +10,44 @@ import MentorLayout from '../components/MentorLayout.jsx';
 import ProfileEditor from '../components/ProfileEditor.jsx';
 import WorkspacePreference from '../components/WorkspacePreference.jsx';
 import WeekReviewDashboard from '../components/WeekReviewDashboard.jsx';
-import { AnimatedNumber, Skeleton } from '../components/animations';
-import { subjectColor } from '../components/DeepDivePanels.jsx';
-import { scoreColor } from '../components/WeekGrid.jsx';
-import { objectiveOf, hasObjectiveValue } from '../lib/objective.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Button } from '../components/ui/button.jsx';
-import { Badge } from '../components/ui/badge.jsx';
-import { Sheet, SheetContent, SheetHeader } from '../components/ui/sheet.jsx';
 import { consultantColor, consultantKey, groupByConsultant, parseConsultant } from '../utils/consultant.js';
 import { evaluateInactivity, formatInactivity } from '../utils/inactivity.js';
-import { toLocalDateStr } from '../lib/date.js';
+import { toLocalDateStr, todayISO } from '../lib/date.js';
 import { useAuth } from '../lib/useAuth.js';
-import { applyPendingFilter, isPendingObjective } from '../lib/sessionRules.js';
-import { fillSummary } from '../lib/supervision.js';
+import { applyPendingFilter } from '../lib/sessionRules.js';
+import { rememberWorkspacePath } from '../lib/workspaceNav.js';
 import StudentTable from '../components/mentor/StudentTable.jsx';
 import StudentCards from '../components/mentor/StudentCards.jsx';
-import TodayFeedback from '../components/mentor/TodayFeedback.jsx';
-import { SheetRecords } from '../components/mentor/SheetRecordRow.jsx';
+import MessageQueue from '../components/mentor/MessageQueue.jsx';
+import WeekBoard from '../components/mentor/WeekBoard.jsx';
+import StudentMessagesPanel from '../components/mentor/StudentMessagesPanel.jsx';
 import { AttentionText, FillStrip, StageTag, StudentLink } from '../components/mentor/FillStrip.jsx';
-import { useDrafts, copyText, draftText } from '../components/mentor/useDrafts.js';
+import { useDrafts } from '../components/mentor/useDrafts.js';
 import {
-  buildFillInfo, formatMD, gapLabel, sortGroupStudents, draftKindLabel,
+  buildFillInfo, sortGroupStudents, weekBoardRow,
 } from '../components/mentor/fillInfo.js';
 
-function fmtMinutes(mins) {
-  if (!mins) return '0 分钟';
-  if (mins < 60) return mins + ' 分钟';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m ? `${h}h ${m}min` : `${h} 小时`;
+const VIEWS = ['students', 'analytics', 'syllabus', 'settings'];
+const WEEK_LABEL = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 今天 tab 的日期行：10 月 26 日 周一 */
+function dateLineCN(iso) {
+  const d = new Date(`${String(iso || '').slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 周${WEEK_LABEL[d.getDay()]}`;
 }
+
+const TAB_BTN = {
+  appearance: 'none',
+  border: 0,
+  background: 'none',
+  padding: '9px 14px 10px',
+  fontFamily: 'inherit',
+  fontSize: 14,
+  cursor: 'pointer',
+};
 
 const STATUS_META = {
   1: { key: 'connected', label: '已连接' },
@@ -77,6 +84,7 @@ function isTypingTarget(el) {
 
 export default function Mentor() {
   const nav = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   // 角色与账号信息统一来自 useAuth（数据库 profile 为权威来源），
   // 不在本页重复实现认证，避免与 ProtectedRoute 逻辑漂移（MEN-2）
@@ -86,7 +94,7 @@ export default function Mentor() {
   const bootstrappedRef = useRef(false);
   const [students, setStudents] = useState([]);
   const [connections, setConnections] = useState([]);
-  const [picked, setPicked] = useState(null);
+  const [teacherNames, setTeacherNames] = useState({}); // 导师 id → 姓名（管理员看「导师」列）
   const [sessions, setSessions] = useState([]);
   const [sessionsTruncated, setSessionsTruncated] = useState(false); // 命中 2000 条上限时提示
   const [busy, setBusy] = useState(false);
@@ -96,7 +104,6 @@ export default function Mentor() {
   const [filterSchool, setFilterSchool] = useState('all');
   const [filterConsultant, setFilterConsultant] = useState('all'); // 顾问筛选：'all' | consultantKey
   const [collapsedGroups, setCollapsedGroups] = useState(() => new Set()); // 折叠的顾问分区
-  const [activeView, setActiveView] = useState('students');
   const [syllabusCourses, setSyllabusCourses] = useState([]);
   const [syllabusLoading, setSyllabusLoading] = useState(false);
   const [studentScores, setStudentScores] = useState([]);
@@ -115,21 +122,67 @@ export default function Mentor() {
   const [fill, setFill] = useState({ loaded: false, today: null, datesByStudent: {}, pendingByStudent: null });
   const [viewMode, setViewMode] = useState(readViewMode); // 'list' | 'cards'
   const [selectedId, setSelectedId] = useState(null);      // 键盘游标 / 当前高亮学生
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [recordsExpanded, setRecordsExpanded] = useState(false);
   const searchRef = useRef(null);
   const statsArgsRef = useRef(null);
   const statsAtRef = useRef(0);
   // 确认对话框状态（替代原生 confirm()）
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', confirmLabel: '确认', variant: 'danger', onConfirm: null });
 
-  // 按提交时间（created_at）排序的记录——学生补填旧日期记录时，
-  // 按 session_date 排序的列表会把它埋进历史里，老师端"最近记录"永远看不到。
-  // 这里单独维护一份按提交时间倒序的副本，供「最新提交」类列表使用。
-  const recentSubmitted = useMemo(
-    () => [...sessions].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
-    [sessions],
+  // ── URL 是页面状态的唯一来源（decision 10）──
+  // ?view=students|analytics|syllabus|settings（默认 students）
+  // &tab=today|all（只对 students 有效，默认 today）
+  // &student=<id>（数据分析 / 课表选中的学生）
+  const viewParam = searchParams.get('view');
+  const activeView = VIEWS.includes(viewParam) ? viewParam : 'students';
+  const tab = activeView === 'students' && searchParams.get('tab') === 'all' ? 'all' : 'today';
+  const studentParam = searchParams.get('student') || '';
+  // 选中的学生由 URL 决定；对象引用保持稳定，下面的拉记录 effect 才不会反复重跑
+  const picked = useMemo(
+    () => (studentParam ? students.find((s) => s.id === studentParam) || null : null),
+    [students, studentParam],
   );
+
+  const buildParams = (next) => {
+    const p = new URLSearchParams();
+    const view = next.view || 'students';
+    if (view !== 'students') p.set('view', view);
+    if (view === 'students' && next.tab === 'all') p.set('tab', 'all');
+    if (next.student && (view === 'analytics' || view === 'syllabus')) p.set('student', next.student);
+    return p;
+  };
+
+  /** 同一个 URL 不重复入栈；点击入栈，选择 / 筛选只替换当前这条 */
+  const goUrl = (next, { replace = false } = {}) => {
+    const params = buildParams(next);
+    if (params.toString() === searchParams.toString()) return;
+    setSearchParams(params, { replace });
+  };
+
+  const setActiveView = (view, { replace = false } = {}) => {
+    if (!VIEWS.includes(view)) return;
+    const keepStudent = view === 'analytics' || view === 'syllabus' ? studentParam || null : null;
+    goUrl({ view, tab, student: keepStudent }, { replace });
+  };
+
+  function goTab(nextTab) {
+    goUrl({ view: 'students', tab: nextTab });
+  }
+
+  function pickStudent(id) {
+    goUrl({ view: activeView === 'syllabus' ? 'syllabus' : 'analytics', student: id || null }, { replace: true });
+  }
+
+  // /mentor?student=<id>（E4 详情、旧的 FillStrip 链接）：没有 view 时落到数据分析。
+  // 用 replace，别让这条修正本身多占一格历史。
+  useEffect(() => {
+    if (!searchParams.get('student') || searchParams.get('view')) return;
+    goUrl({ view: 'analytics', student: searchParams.get('student') }, { replace: true });
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 记住本平台最后停留的页面，切去 E4 再回来时原样返回。
+  useEffect(() => {
+    rememberWorkspacePath('tracker', location.pathname + location.search);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     // 导师端：仅真实手机（触屏 + 无 hover + ≤480px）才走移动版
@@ -197,6 +250,7 @@ export default function Mentor() {
         }
         const admin = role >= 3;
         setIsAdmin(admin);
+        setTeacherNames({ [authUser.id]: authProfile?.full_name || '老师' });
         await loadData(authUser.id, admin);
       } catch (err) {
         logger.error('Mentor init failed:', err);
@@ -209,23 +263,29 @@ export default function Mentor() {
     logger.log('===== 老师端加载数据 =====');
     logger.log('teacherId:', teacherId, 'isAdmin:', admin);
 
-    const [pRes, cRes, sRes] = await Promise.all([
+    // 管理员看全部学生的连接（「导师」列要显示实际归属人）；导师只看自己的连接
+    let connQuery = supabase
+      .from('teacher_student_connections')
+      .select('id, student_id, teacher_id, status, note, mentor_alias, created_at, updated_at');
+    if (!admin) connQuery = connQuery.eq('teacher_id', teacherId);
+
+    const [pRes, cRes, sRes, tRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('id, role, full_name, school_name, created_at')
         .in('role', [1])
         .order('created_at', { ascending: false })
         .limit(500),
-      supabase
-        .from('teacher_student_connections')
-        .select('id, student_id, status, note, mentor_alias, created_at, updated_at')
-        .eq('teacher_id', teacherId),
+      connQuery,
       supabase
         .from('profiles')
         .select('school_name')
         .in('role', [1])
         .not('school_name', 'is', null)
         .not('school_name', 'eq', ''),
+      admin
+        ? supabase.from('profiles').select('id, full_name').in('role', [2, 3])
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     logger.log('profiles 查询结果:', pRes);
@@ -258,8 +318,15 @@ export default function Mentor() {
     }
 
     setStudents(pRes.data || []);
+    if (tRes?.data) {
+      setTeacherNames(Object.fromEntries(tRes.data.map((t) => [t.id, t.full_name || ''])));
+    }
     const map = {};
-    for (const c of (cRes.data || [])) map[c.student_id] = c;
+    const rank = { 1: 0, 0: 1, 2: 2 };
+    for (const c of (cRes.data || [])) {
+      const cur = map[c.student_id];
+      if (!cur || (rank[c.status] ?? 9) <= (rank[cur.status] ?? 9)) map[c.student_id] = c;
+    }
 
     // admin 自动与所有未连接学生建立真实连接（status=1），跳过邀请流程
     if (admin) {
@@ -276,14 +343,14 @@ export default function Mentor() {
           .insert(rows);
         if (!insErr) {
           for (const s of needConnect) {
-            map[s.id] = { student_id: s.id, status: 1, note: 'auto-admin' };
+            map[s.id] = { student_id: s.id, teacher_id: teacherId, status: 1, note: 'auto-admin' };
           }
         } else {
           // 插入失败时退回虚拟连接，保证前端仍可显示学生列表。
           // 注意：虚拟连接不满足 learning_sessions 的 RLS（需要真实 status=1 连接行），
           // 这些学生的记录会读不到——必须显式告警，不能静默。
           for (const s of needConnect) {
-            map[s.id] = { student_id: s.id, status: 1, note: 'admin', virtual: true };
+            map[s.id] = { student_id: s.id, teacher_id: teacherId, status: 1, note: 'admin', virtual: true };
           }
           setDeployCheck({
             ok: false,
@@ -713,7 +780,6 @@ export default function Mentor() {
         throw error;
       }
       setConnections((m) => ({ ...m, [studentId]: { ...c, status: 2, updated_at: new Date().toISOString() } }));
-      if (picked?.id === studentId) setPicked(null);
       toast('已断开连接', { kind: 'success' });
     } catch (err) {
       logger.error('disconnectStudent failed:', err);
@@ -807,7 +873,7 @@ export default function Mentor() {
         delete next[studentId];
         return next;
       });
-      if (picked?.id === studentId) setPicked(null);
+      if (studentParam === studentId) setActiveView('analytics', { replace: true });
       toast('学生已永久删除', { kind: 'success' });
       // 重拉一次，刷新统计与左侧列表
       try { await loadData(user.id, isAdmin); } catch (_) {}
@@ -845,6 +911,12 @@ export default function Mentor() {
   const consultantGroups = useMemo(
     () => groupByConsultant(filteredStudents, connections),
     [filteredStudents, connections],
+  );
+
+  // 顾问下拉的选项：全部学生，不随搜索 / 学校 / 连接筛选变化
+  const consultantOptions = useMemo(
+    () => groupByConsultant(students, connections),
+    [students, connections],
   );
 
   // 顾问数：全部学生里的顾问数量（不受筛选影响）
@@ -895,7 +967,7 @@ export default function Mentor() {
 
   const studentById = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students]);
 
-  // 组内排序：已连接在前 → 新生在前 → 没填天数多的在前 → 原顺序
+  // 组内排序：已连接在前 → 首月在前 → 没填天数多的在前 → 原顺序
   const displayGroups = useMemo(
     () => visibleGroups.map((g) => ({ ...g, students: sortGroupStudents(g.students, (id) => infoById[id]) })),
     [visibleGroups, infoById],
@@ -907,41 +979,28 @@ export default function Mentor() {
     [displayGroups, collapsedGroups],
   );
 
+  const mentorNameOf = (id) => {
+    const c = connections[id];
+    return (c?.teacher_id && teacherNames[c.teacher_id]) || '';
+  };
+
   const personOf = (id) => {
     const s = studentById[id];
     const alias = connections[id]?.mentor_alias || '';
     const { consultant, cleanName } = parseConsultant(alias);
+    const info = infoById[id];
     return {
+      id,
       name: cleanName || alias || s?.full_name || '(未命名)',
       advisor: consultant,
+      consultant,
       color: consultantColor(consultant),
-      info: infoById[id],
+      stageText: info?.connected ? info.stage : '',
+      school: s?.school_name || '',
+      mentorName: mentorNameOf(id),
+      info,
     };
   };
-
-  // 今日反馈的两份没填名单：用 attentionOf 在浏览器里实时算，学生补填后立刻消失
-  const attention = useMemo(() => {
-    const newMissed = [];
-    const gapList = [];
-    for (const s of students) {
-      const info = infoById[s.id];
-      if (!info?.connected || !info.attention) continue;
-      const alias = connections[s.id]?.mentor_alias || '';
-      const { consultant, cleanName } = parseConsultant(alias);
-      const base = {
-        id: s.id,
-        name: cleanName || alias || s.full_name || '(未命名)',
-        advisor: consultant,
-        color: consultantColor(consultant),
-        lastText: info.summary.lastDate ? `${formatMD(info.summary.lastDate)} · ${gapLabel(info.summary.gap)}` : '还没有记录',
-      };
-      if (info.attention === 'new-missed-yesterday') newMissed.push({ ...base, day: info.day, detail: `新生 · 第 ${info.day} 天` });
-      else gapList.push({ ...base, gap: info.summary.gap, detail: info.summary.gap == null ? '还没有记录' : `${info.summary.gap} 天没填` });
-    }
-    newMissed.sort((a, b) => a.day - b.day);
-    gapList.sort((a, b) => (b.gap ?? Infinity) - (a.gap ?? Infinity));
-    return { newMissed, gapList };
-  }, [students, connections, infoById]);
 
   // 草稿：只看已连接（读得到记录）的学生
   const draftStudentIds = useMemo(
@@ -950,34 +1009,71 @@ export default function Mentor() {
   );
   const dr = useDrafts({ supabase, getAccessToken, userId: user?.id, studentIds: draftStudentIds });
 
-  function openStudent(s) {
-    if (!s) return;
-    setPicked(s);
-    setSelectedId(s.id);
-    setRecordsExpanded(false);
-  }
-  const openStudentById = (id) => openStudent(studentById[id]);
+  const openDrafts = useMemo(() => dr.drafts.filter((d) => d.status === 'draft'), [dr.drafts]);
 
-  async function copyDraft(d) {
-    const r = await copyText(draftText(d), null);
-    toast(r === 'copied' ? '已复制' : '复制失败，请手动选中文字', { kind: r === 'copied' ? 'success' : 'error' });
+  // 一位学生今天最终落在「今天的消息」里的那一条：待发优先，其次今天处理过的
+  const draftByStudent = useMemo(() => {
+    const m = {};
+    for (const d of dr.drafts) {
+      if (d.status === 'dropped') continue;
+      const cur = m[d.student_id];
+      if (!cur || (d.status === 'draft' && cur.status !== 'draft')) m[d.student_id] = d;
+    }
+    return m;
+  }, [dr.drafts]);
+
+  const todayIso = fill.today || todayISO();
+  const todayDateLine = dateLineCN(todayIso);
+
+  // 今天 tab 的「这周谁记了」：已连接、符合搜索和顾问筛选的学生
+  const todayRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return draftStudentIds
+      .map((id) => studentById[id])
+      .filter(Boolean)
+      .filter((s) => {
+        const alias = connections[s.id]?.mentor_alias || '';
+        const { consultant, cleanName } = parseConsultant(alias);
+        if (filterConsultant !== 'all' && consultantKey(consultant) !== filterConsultant) return false;
+        if (!q) return true;
+        return (cleanName || '').toLowerCase().includes(q)
+          || alias.toLowerCase().includes(q)
+          || (s.full_name || '').toLowerCase().includes(q)
+          || (s.school_name || '').toLowerCase().includes(q);
+      })
+      .map((s) => weekBoardRow({
+        ...s,
+        mentorName: teacherNames[connections[s.id]?.teacher_id] || '',
+      }, infoById[s.id], draftByStudent[s.id], todayIso));
+  }, [draftStudentIds, studentById, connections, infoById, draftByStudent, todayIso, filterConsultant, searchQuery, teacherNames]);
+
+  // 今天 tab 的抬头数字：几条表扬、几条提醒、今天已经发了多少
+  const praiseCount = openDrafts.filter((d) => d.kind !== 'nudge' && !(d.kind === 'weekly' && d.meta?.nudge)).length;
+  const reminderCount = openDrafts.length - praiseCount;
+  const sentTodayCount = dr.drafts.filter((d) => d.status === 'sent').length;
+
+  /** 「今天的消息」列：滚动到对应卡片，闪一下引起注意（不跳页） */
+  function jumpToDraft(studentId) {
+    const draft = draftByStudent[studentId];
+    if (!draft) return;
+    const el = document.getElementById(`md-msg-${draft.id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'box-shadow .25s';
+    el.style.boxShadow = '0 0 0 3px rgba(28, 28, 30, 0.16)';
+    setTimeout(() => { el.style.boxShadow = ''; }, 1200);
+  }
+
+  function openStudentById(id) {
+    if (!id) return;
+    setSelectedId(id);
+    goUrl({ view: 'analytics', student: id });
   }
 
   function switchViewMode(mode) {
     setViewMode(mode);
     try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch (_) { /* 隐私模式等：不记住也不影响使用 */ }
   }
-
-  // /mentor?student=<id>：E4 详情页等地方直接打开这位学生的侧栏
-  useEffect(() => {
-    const sid = searchParams.get('student');
-    if (!sid || students.length === 0) return;
-    const s = students.find((x) => x.id === sid);
-    if (s) { setActiveView('students'); openStudent(s); }
-    const next = new URLSearchParams(searchParams);
-    next.delete('student');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, students]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 切回标签页时（且距上次超过 2 分钟）重算填写情况，保证「昨天没填」「3 天以上没填」不过期
   useEffect(() => {
@@ -991,13 +1087,19 @@ export default function Mentor() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 键盘：J/K 移动、Enter 打开、/ 搜索、T 今日反馈（在输入框里不触发；C / E 由今日反馈自己处理）
+  // 键盘：J/K 移动、Enter 打开、/ 搜索（在输入框里不触发；只作用在「全部学生」列表）
   useEffect(() => {
     if (isMobile || activeView !== 'students') return undefined;
     function onKey(e) {
       if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
       if (isTypingTarget(e.target) || confirmState.open) return;
       const k = e.key;
+      if (k === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (tab !== 'all') return;
       if (k === 'j' || k === 'J' || k === 'k' || k === 'K') {
         if (orderedIds.length === 0) return;
         e.preventDefault();
@@ -1006,27 +1108,20 @@ export default function Mentor() {
         const idx = cur < 0 ? (down ? 0 : orderedIds.length - 1) : Math.min(orderedIds.length - 1, Math.max(0, cur + (down ? 1 : -1)));
         const id = orderedIds[idx];
         setSelectedId(id);
-        if (picked && studentById[id]) { setPicked(studentById[id]); setRecordsExpanded(false); }
         requestAnimationFrame(() => {
           document.querySelector(`[data-sid="${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
         });
       } else if (k === 'Enter') {
         // 焦点在按钮 / 链接上时，让它自己处理 Enter
         const tag = e.target?.tagName;
-        if (tag === 'BUTTON' || tag === 'A' || picked || !selectedId) return;
+        if (tag === 'BUTTON' || tag === 'A' || !selectedId) return;
         e.preventDefault();
-        openStudent(studentById[selectedId]);
-      } else if (k === '/') {
-        e.preventDefault();
-        searchRef.current?.focus();
-      } else if (k === 't' || k === 'T') {
-        e.preventDefault();
-        setFeedbackOpen((v) => !v);
+        openStudentById(selectedId);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isMobile, activeView, orderedIds, selectedId, picked, studentById, confirmState.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMobile, activeView, tab, orderedIds, selectedId, confirmState.open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 列表 / 卡片共用的行内操作与编辑状态
   const rowActions = {
@@ -1037,6 +1132,7 @@ export default function Mentor() {
     editingAliasId, editingAliasValue, setEditingAliasId, setEditingAliasValue, saveStudentAlias,
     editingSchoolId, editingSchoolValue, setEditingSchoolId, setEditingSchoolValue, saveSchoolName,
     sendInvite, withdrawInvite, disconnectStudent, deleteStudent,
+    mentorNameOf,
     onOpen: openStudentById,
   };
 
@@ -1072,92 +1168,158 @@ export default function Mentor() {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
             >
-              {/* 今日反馈：折叠成一行计数，T 展开；没有内容时整块隐藏 */}
-              <TodayFeedback
-                open={feedbackOpen}
-                onToggle={() => setFeedbackOpen((v) => !v)}
-                dr={dr}
-                newMissed={attention.newMissed}
-                gapList={attention.gapList}
-                personOf={personOf}
-                onOpenStudent={openStudentById}
-                todayIso={fill.today}
-              />
-
-              {/* 一行筛选：搜索 + 学校 + 连接 + 顾问 chip + 列表/卡片 */}
-              <div className="mt-filterbar">
-                <div className="mentor-search-field mt-search">
-                  <Search className="mentor-search-icon" aria-hidden="true" />
-                  <input
-                    ref={searchRef}
-                    type="text"
-                    placeholder="搜索学生、备注、学校"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur(); }}
-                    className="mentor-search-input"
-                  />
-                  <kbd className="mt-kbd" aria-hidden="true">/</kbd>
-                </div>
-                <label className="mt-sel">
-                  <span>学校</span>
-                  <select value={filterSchool} onChange={(e) => setFilterSchool(e.target.value)}>
-                    <option value="all">全部</option>
-                    {schools.map((school) => (
-                      <option key={school} value={school}>{school}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="mt-sel">
-                  <span>连接</span>
-                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                    <option value="all">全部</option>
-                    <option value="connected">已连接</option>
-                    <option value="invited">邀请中</option>
-                    <option value="rejected">已拒绝</option>
-                    <option value="uninvited">未邀请</option>
-                  </select>
-                </label>
-                <div className="mt-chips">
+              {/* 页内标签：今天 / 全部学生；右侧是共用的顾问筛选和搜索 */}
+              <div style={{
+                display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap',
+                borderBottom: '1px solid rgba(15, 23, 42, 0.08)', marginBottom: 16,
+              }}>
+                <div role="tablist" aria-label="学生管理标签" style={{ display: 'flex', gap: 2 }}>
                   <button
                     type="button"
-                    className={`mentor-chip ${filterConsultant === 'all' ? 'mentor-chip--active' : ''}`}
-                    onClick={() => setFilterConsultant('all')}
+                    role="tab"
+                    aria-selected={tab === 'today'}
+                    onClick={() => goTab('today')}
+                    style={{
+                      ...TAB_BTN,
+                      fontWeight: tab === 'today' ? 600 : 500,
+                      color: tab === 'today' ? '#1C1C1E' : '#6E6E73',
+                      borderBottom: tab === 'today' ? '2px solid #1C1C1E' : '2px solid transparent',
+                      marginBottom: -1,
+                    }}
                   >
-                    全部
-                    <span className="mentor-chip-count">{filteredStudents.length}</span>
+                    今天
+                    {openDrafts.length > 0 && (
+                      <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{openDrafts.length}</span>
+                    )}
                   </button>
-                  {consultantGroups.map((g) => {
-                    const key = consultantKey(g.consultant);
-                    const active = filterConsultant === key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`mentor-chip ${active ? 'mentor-chip--active' : ''}`}
-                        onClick={() => setFilterConsultant(active ? 'all' : key)}
-                      >
-                        {g.consultant || '未分配'}
-                        <span className="mentor-chip-count">{g.students.length}</span>
-                      </button>
-                    );
-                  })}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === 'all'}
+                    onClick={() => goTab('all')}
+                    style={{
+                      ...TAB_BTN,
+                      fontWeight: tab === 'all' ? 600 : 500,
+                      color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
+                      borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
+                      marginBottom: -1,
+                    }}
+                  >
+                    全部学生
+                    <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
+                  </button>
                 </div>
-                <div className="mt-switch" role="group" aria-label="显示方式">
-                  <button
-                    type="button"
-                    className={viewMode === 'list' ? 'is-active' : ''}
-                    aria-pressed={viewMode === 'list'}
-                    onClick={() => switchViewMode('list')}
-                  >列表</button>
-                  <button
-                    type="button"
-                    className={viewMode === 'cards' ? 'is-active' : ''}
-                    aria-pressed={viewMode === 'cards'}
-                    onClick={() => switchViewMode('cards')}
-                  >卡片</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', paddingBottom: 8 }}>
+                  <label className="mt-sel">
+                    <span>顾问</span>
+                    <select value={filterConsultant} onChange={(e) => setFilterConsultant(e.target.value)}>
+                      <option value="all">全部</option>
+                      {consultantOptions.map((g) => (
+                        <option key={consultantKey(g.consultant)} value={consultantKey(g.consultant)}>
+                          {g.consultant || '未分配'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="mentor-search-field mt-search">
+                    <Search className="mentor-search-icon" aria-hidden="true" />
+                    <input
+                      ref={searchRef}
+                      type="text"
+                      placeholder="搜索学生、备注、学校"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur(); }}
+                      className="mentor-search-input"
+                    />
+                    <kbd className="mt-kbd" aria-hidden="true">/</kbd>
+                  </div>
                 </div>
               </div>
+
+              {tab === 'today' ? (
+                <>
+                  <header style={{ margin: '8px 2px 20px' }}>
+                    <div style={{ fontSize: 12.5, color: '#6E6E73' }}>{todayDateLine}</div>
+                    <h1 style={{ fontSize: 22, fontWeight: 600, color: '#1C1C1E', margin: '5px 0 6px' }}>
+                      {dr.status === 'loading'
+                        ? '正在加载今天的消息…'
+                        : openDrafts.length > 0
+                          ? `今天有 ${openDrafts.length} 条消息要发`
+                          : '今天的消息都处理完了'}
+                    </h1>
+                    <p style={{ fontSize: 13.5, color: '#48484A', lineHeight: 1.65, margin: 0 }}>
+                      {dr.status === 'loading'
+                        ? '稍等，正在整理学生昨天的记录。'
+                        : openDrafts.length > 0
+                          ? `${praiseCount} 条表扬，${reminderCount} 条提醒。都是根据学生自己的记录写的，复制后去微信发，看着不对就改一下。`
+                          : `今天发了 ${sentTodayCount} 条。下面是这周的填写情况。`}
+                    </p>
+                  </header>
+
+                  <MessageQueue
+                    drafts={dr.drafts}
+                    persons={personOf}
+                    dr={dr}
+                    todayIso={todayIso}
+                    showMentor={isAdmin}
+                    onOpenStudent={openStudentById}
+                  />
+
+                  <WeekBoard
+                    rows={todayRows}
+                    showMentor={isAdmin}
+                    onOpenStudent={openStudentById}
+                    onJumpToDraft={jumpToDraft}
+                  />
+                  <a
+                    href="/mentor?tab=all"
+                    onClick={(e) => { e.preventDefault(); goTab('all'); }}
+                    style={{
+                      display: 'inline-block', marginTop: 14, fontSize: 13, color: '#6E6E73',
+                      textDecoration: 'underline', textDecorationColor: '#C7C7CC', textUnderlineOffset: 3,
+                    }}
+                  >
+                    邀请学生、看未连接的学生 → 全部学生
+                  </a>
+                </>
+              ) : (
+                <>
+                  <div className="mt-filterbar">
+                    <label className="mt-sel">
+                      <span>学校</span>
+                      <select value={filterSchool} onChange={(e) => setFilterSchool(e.target.value)}>
+                        <option value="all">全部</option>
+                        {schools.map((school) => (
+                          <option key={school} value={school}>{school}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="mt-sel">
+                      <span>连接</span>
+                      <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                        <option value="all">全部</option>
+                        <option value="connected">已连接</option>
+                        <option value="invited">邀请中</option>
+                        <option value="rejected">已拒绝</option>
+                        <option value="uninvited">未邀请</option>
+                      </select>
+                    </label>
+                    <div className="mt-switch" role="group" aria-label="显示方式">
+                      <button
+                        type="button"
+                        className={viewMode === 'list' ? 'is-active' : ''}
+                        aria-pressed={viewMode === 'list'}
+                        onClick={() => switchViewMode('list')}
+                      >列表</button>
+                      <button
+                        type="button"
+                        className={viewMode === 'cards' ? 'is-active' : ''}
+                        aria-pressed={viewMode === 'cards'}
+                        onClick={() => switchViewMode('cards')}
+                      >卡片</button>
+                    </div>
+                  </div>
 
               {viewMode === 'list' ? (
                 <StudentTable
@@ -1195,150 +1357,10 @@ export default function Mentor() {
                 <span><kbd>J</kbd><kbd>K</kbd> 上下移动</span>
                 <span><kbd>Enter</kbd> 打开学生</span>
                 <span><kbd>/</kbd> 搜索</span>
-                <span><kbd>T</kbd> 今日反馈</span>
-                <span className="mt-hints-note">新生 = 注册 30 天内，每天看；之后每周看</span>
+                <span className="mt-hints-note">首月 = 注册 30 天内，每天看；之后每周看</span>
               </div>
-
-              {/* 学生详情：右侧滑出 Sheet（J/K 可在打开时切换学生） */}
-              <Sheet open={!!picked} onOpenChange={(open) => { if (!open) setPicked(null); }}>
-                {picked && (() => {
-                  const alias = connections[picked.id]?.mentor_alias || '';
-                  const { consultant, cleanName } = parseConsultant(alias);
-                  const consultantTone = consultantColor(consultant);
-                  const title = cleanName || alias || picked.full_name || '学生';
-                  const summary = fill.today ? fillSummary(sessions.map((r) => r.date), fill.today) : null;
-                  const pendingCount = sessions.filter((r) => isPendingObjective({ ...r, deleted_at: null })).length;
-                  const pickedDraft = dr.drafts.find((d) => d.student_id === picked.id && d.status === 'draft');
-                  return (
-                  <SheetContent onClose={() => setPicked(null)}>
-                    <SheetHeader>
-                      <div className="mentor-sheet-eyebrow">学习数据</div>
-                      {editingAliasId === picked.id ? (
-                        <div className="mentor-sheet-alias-edit">
-                          <input
-                            type="text"
-                            placeholder="姓名(顾问)，如 Cathryn(Angela)"
-                            value={editingAliasValue}
-                            onChange={(e) => setEditingAliasValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); saveStudentAlias(picked.id, editingAliasValue); }
-                              if (e.key === 'Escape') {
-                                e.stopPropagation();
-                                setEditingAliasId(null);
-                                setEditingAliasValue('');
-                              }
-                            }}
-                            autoFocus
-                            className="mentor-alias-input"
-                          />
-                          <Button
-                            size="sm" variant="ghost"
-                            onClick={() => { setEditingAliasId(null); setEditingAliasValue(''); }}
-                          >取消</Button>
-                          <Button
-                            size="sm"
-                            onClick={() => saveStudentAlias(picked.id, editingAliasValue)}
-                          >保存</Button>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="mentor-sheet-title-row">
-                            <h2 className="mentor-sheet-title">{title}</h2>
-                            {alias && <span className="mentor-student-card__tag">备注</span>}
-                            {consultant && (
-                              <Badge
-                                variant="outline"
-                                className="mentor-sheet-consultant"
-                                style={{ borderColor: `${consultantTone}40`, color: consultantTone }}
-                              >
-                                <span className="mentor-chip-dot" style={{ background: consultantTone }} />
-                                {consultant}
-                              </Badge>
-                            )}
-                            <Button
-                              size="sm" variant="outline"
-                              onClick={() => {
-                                setEditingAliasId(picked.id);
-                                setEditingAliasValue(alias);
-                              }}
-                            >{alias ? '改备注' : '备注名'}</Button>
-                          </div>
-                          {alias && picked.full_name && (
-                            <div className="mentor-sheet-sub">本名：{picked.full_name}</div>
-                          )}
-                        </>
-                      )}
-                    </SheetHeader>
-                    <div className="mentor-sheet-body">
-                      {busy ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 40 }}>
-                          <Skeleton height={20} width="40%" />
-                          <Skeleton height={16} width="60%" />
-                          <Skeleton height={16} width="40%" />
-                        </div>
-                      ) : (
-                        <>
-                          <div className="mentor-sheet-stats">
-                            {[
-                              { label: '近 7 天有记录', value: summary ? `${summary.count}/7` : '—', suffix: summary ? ' 天' : '' },
-                              { label: '待补填', value: pendingCount, suffix: '', warn: pendingCount > 0 },
-                              { label: '最后记录', value: summary?.lastDate ? formatMD(summary.lastDate) : '—', suffix: '' },
-                            ].map((stat) => (
-                              <div key={stat.label} className="mentor-sheet-stat">
-                                <div className={`mentor-sheet-stat__value ${stat.warn ? 'is-warn' : ''}`}>{stat.value}{stat.suffix}</div>
-                                <div className="mentor-sheet-stat__label">{stat.label}</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {pickedDraft && (
-                            <div className="mt-sheet-draft">
-                              <div className="mt-sheet-draft-head">
-                                <span>待发反馈</span>
-                                <span>{draftKindLabel(pickedDraft, infoOf(picked.id), fill.today)}</span>
-                              </div>
-                              <div className="mt-sheet-draft-text">{draftText(pickedDraft)}</div>
-                              <div className="mt-sheet-draft-acts">
-                                <Button size="sm" onClick={() => copyDraft(pickedDraft)}>复制</Button>
-                                <Button size="sm" variant="outline" onClick={() => dr.markSent(pickedDraft)}>已发</Button>
-                              </div>
-                            </div>
-                          )}
-
-                          {sessions.length > 0 ? (
-                            <>
-                              <div className="mentor-sheet-section-label">
-                                最近记录（按日期，学生填写的全部内容）
-                                {sessionsTruncated && ' · 仅显示最新 2000 条'}
-                              </div>
-                              <SheetRecords
-                                sessions={sessions}
-                                expanded={recordsExpanded}
-                                onExpand={() => setRecordsExpanded(true)}
-                              />
-
-                              <div className="mentor-sheet-actions">
-                                <Button
-                                  className="mentor-sheet-action"
-                                  onClick={() => setActiveView('analytics')}
-                                >前往数据分析</Button>
-                                <Button
-                                  variant="outline"
-                                  className="mentor-sheet-action"
-                                  onClick={() => setActiveView('syllabus')}
-                                >前往课表</Button>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mentor-sheet-empty">该学生暂无学习记录</div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </SheetContent>
-                  );
-                })()}
-              </Sheet>
+                </>
+              )}
             </motion.div>
           )}
 
@@ -1361,10 +1383,7 @@ export default function Mentor() {
                 </span>
                 <select
                   value={picked?.id || ''}
-                  onChange={(e) => {
-                    const s = students.find(st => st.id === e.target.value);
-                    setPicked(s || null);
-                  }}
+                  onChange={(e) => pickStudent(e.target.value)}
                   style={{
                     flex: 1, padding: '8px 12px', borderRadius: 8,
                     border: '1px solid var(--mentor-color-border)',
@@ -1388,8 +1407,19 @@ export default function Mentor() {
               </div>
 
               {picked ? (
-                sessions.length > 0 ? (
-                  <>
+                <>
+                  <div style={{ marginBottom: 24 }}>
+                    <StudentMessagesPanel
+                      student={picked}
+                      person={personOf(picked.id)}
+                      draft={draftByStudent[picked.id]?.status === 'draft' ? draftByStudent[picked.id] : null}
+                      dr={dr}
+                      todayIso={todayIso}
+                      showMentor={isAdmin}
+                    />
+                  </div>
+                  {sessions.length > 0 ? (
+                    <>
                     {sessionsTruncated && (
                       <div style={{ fontSize: 12, color: '#b45309', marginBottom: 10 }}>
                         该学生记录较多，这里只显示最近 2000 条，更早的记录未纳入统计。
@@ -1540,7 +1570,8 @@ export default function Mentor() {
                     <div className="mentor-empty-state" style={{ padding: 40 }}>
                       <div>{busy ? '加载中…' : '该学生暂无学习记录'}</div>
                     </div>
-                  )
+                  )}
+                </>
               ) : (
                 <div className="mentor-empty-state" style={{ padding: 60 }}>
                   <div style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
@@ -1573,10 +1604,7 @@ export default function Mentor() {
                 </span>
                 <select
                   value={picked?.id || ''}
-                  onChange={(e) => {
-                    const s = students.find(st => st.id === e.target.value);
-                    setPicked(s || null);
-                  }}
+                  onChange={(e) => pickStudent(e.target.value)}
                   style={{
                     flex: 1, padding: '8px 12px', borderRadius: 8,
                     border: '1px solid var(--mentor-color-border)',
@@ -1793,28 +1821,124 @@ export default function Mentor() {
             </motion.div>
           )}
 
-          <TodayFeedback
-            open={feedbackOpen}
-            onToggle={() => setFeedbackOpen((v) => !v)}
-            dr={dr}
-            newMissed={attention.newMissed}
-            gapList={attention.gapList}
-            personOf={personOf}
-            onOpenStudent={openStudentById}
-            todayIso={fill.today}
-            hideShortcuts
-          />
+          <div
+            role="tablist"
+            aria-label="学生管理标签"
+            style={{ display: 'flex', gap: 2, borderBottom: '1px solid rgba(15, 23, 42, 0.08)', marginBottom: 12 }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'today'}
+              onClick={() => goTab('today')}
+              style={{
+                ...TAB_BTN,
+                padding: '9px 10px 10px',
+                fontWeight: tab === 'today' ? 600 : 500,
+                color: tab === 'today' ? '#1C1C1E' : '#6E6E73',
+                borderBottom: tab === 'today' ? '2px solid #1C1C1E' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              今天
+              {openDrafts.length > 0 && (
+                <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{openDrafts.length}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'all'}
+              onClick={() => goTab('all')}
+              style={{
+                ...TAB_BTN,
+                padding: '9px 10px 10px',
+                fontWeight: tab === 'all' ? 600 : 500,
+                color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
+                borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              全部学生
+              <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
+            </button>
+          </div>
 
-          <section className="m-filter-bar">
-            <div className="m-search-wrap">
-              <input
-                type="text"
-                placeholder="搜索学生…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="m-search-input"
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <input
+              type="text"
+              placeholder="搜索学生…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="m-search-input"
+              style={{ flex: 1 }}
+            />
+            <select
+              value={filterConsultant}
+              onChange={(e) => setFilterConsultant(e.target.value)}
+              aria-label="顾问"
+              style={{
+                padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(15, 23, 42, 0.1)',
+                background: '#fff', fontSize: 13, color: '#1C1C1E',
+              }}
+            >
+              <option value="all">全部顾问</option>
+              {consultantOptions.map((g) => (
+                <option key={consultantKey(g.consultant)} value={consultantKey(g.consultant)}>
+                  {g.consultant || '未分配'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {tab === 'today' ? (
+            <>
+              <header style={{ margin: '4px 2px 18px' }}>
+                <div style={{ fontSize: 12.5, color: '#6E6E73' }}>{todayDateLine}</div>
+                <h1 style={{ fontSize: 20, fontWeight: 600, color: '#1C1C1E', margin: '5px 0 6px' }}>
+                  {dr.status === 'loading'
+                    ? '正在加载今天的消息…'
+                    : openDrafts.length > 0
+                      ? `今天有 ${openDrafts.length} 条消息要发`
+                      : '今天的消息都处理完了'}
+                </h1>
+                <p style={{ fontSize: 13, color: '#48484A', lineHeight: 1.65, margin: 0 }}>
+                  {dr.status === 'loading'
+                    ? '稍等，正在整理学生昨天的记录。'
+                    : openDrafts.length > 0
+                      ? `${praiseCount} 条表扬，${reminderCount} 条提醒。复制后去微信发，看着不对就改一下。`
+                      : `今天发了 ${sentTodayCount} 条。下面是这周的填写情况。`}
+                </p>
+              </header>
+
+              <MessageQueue
+                drafts={dr.drafts}
+                persons={personOf}
+                dr={dr}
+                todayIso={todayIso}
+                showMentor={isAdmin}
+                onOpenStudent={openStudentById}
               />
-            </div>
+              <WeekBoard
+                rows={todayRows}
+                showMentor={isAdmin}
+                onOpenStudent={openStudentById}
+                onJumpToDraft={jumpToDraft}
+              />
+              <a
+                href="/mentor?tab=all"
+                onClick={(e) => { e.preventDefault(); goTab('all'); }}
+                style={{
+                  display: 'inline-block', marginTop: 14, fontSize: 13, color: '#6E6E73',
+                  textDecoration: 'underline', textDecorationColor: '#C7C7CC', textUnderlineOffset: 3,
+                }}
+              >
+                邀请学生、看未连接的学生 → 全部学生
+              </a>
+            </>
+          ) : (
+            <>
+          <section className="m-filter-bar">
             <div className="m-filter-chips">
               {[
                 { k: 'all', label: '全部' },
@@ -1875,7 +1999,11 @@ export default function Mentor() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3 }}
                 >
-                  <div className="m-student-card__header">
+                  <div
+                    className="m-student-card__header"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openStudentById(s.id)}
+                  >
                     <div className="m-student-card__avatar">
                       {(s.full_name || '?').charAt(0).toUpperCase()}
                     </div>
@@ -1893,7 +2021,7 @@ export default function Mentor() {
                           <FillStrip summary={infoOf(s.id).summary} />
                         </div>
                       )}
-                      {/* 新生的「昨天」说明已经覆盖了没填，不再重复「N 天未填写」 */}
+                      {/* 首月学生的「昨天」说明已经覆盖了没填，不再重复「N 天未填写」 */}
                       {!infoOf(s.id).isNew && classStats.inactiveByStudent?.[s.id] && (
                         <div className="m-inactive">
                           <span className="m-inactive-dot" />
@@ -1910,7 +2038,7 @@ export default function Mentor() {
                     {isAdmin && (
                       <button
                         className="m-action-btn m-action-btn--primary"
-                        onClick={() => setPicked(s)}
+                        onClick={() => openStudentById(s.id)}
                       >
                         查看数据
                       </button>
@@ -1919,7 +2047,7 @@ export default function Mentor() {
                       <>
                         <button
                           className="m-action-btn m-action-btn--primary"
-                          onClick={() => setPicked(s)}
+                          onClick={() => openStudentById(s.id)}
                         >
                           查看数据
                         </button>
@@ -2030,183 +2158,8 @@ export default function Mentor() {
               </div>
             )}
           </div>
-
-          <AnimatePresence>
-            {picked && (
-              <motion.div
-                className="m-detail-overlay"
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 40 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              >
-                <div className="m-detail-header">
-                  <button
-                    className="m-detail-close"
-                    onClick={() => setPicked(null)}
-                  >
-                    ✕
-                  </button>
-                  <div className="m-detail-title">{picked.full_name || '学生'} 的学习数据</div>
-                  <div className="m-detail-spacer" />
-                </div>
-                <div className="m-detail-body">
-                  {(() => {
-                    const totalMins = sessions.reduce((a, s) => a + (s.duration_minutes || 0), 0);
-                    const allDates = sessions.map(s => (s.date || '').split('T')[0]).filter(Boolean);
-                    const uniqueDates = [...new Set(allDates)].sort();
-                    const spanDays = uniqueDates.length > 0
-                      ? Math.max(1, Math.round((new Date(uniqueDates[uniqueDates.length - 1]) - new Date(uniqueDates[0])) / 86400000) + 1)
-                      : 1;
-                    const dailyAvg = uniqueDates.length > 0 ? Math.round(totalMins / spanDays) : 0;
-                    // 本周活跃
-                    const today = new Date();
-                    const dow = today.getDay();
-                    const mon = new Date(today);
-                    mon.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-                    const weekStartStr = toLocalDateStr(mon);
-                    const weekActive = uniqueDates.filter(d => d >= weekStartStr).length;
-                    // 学科分布
-                    const bySubj = {};
-                    for (const s of sessions) {
-                      const n = (s.subject || '未分类').trim();
-                      bySubj[n] = (bySubj[n] || 0) + (s.duration_minutes || 0);
-                    }
-                    const subjList = Object.entries(bySubj)
-                      .map(([name, total]) => ({ name, total, pct: totalMins > 0 ? Math.round(total / totalMins * 100) : 0 }))
-                      .sort((a, b) => b.total - a.total);
-                    // 有评估的
-                    // 客观评价只属于练习；字母等第（或旧数据的数字分）计入，N/A 不算
-                    const scored = sessions
-                      .filter(s => Number(s.category) === 3 && hasObjectiveValue(s))
-                      .slice(0, 5);
-                    const fmtD = (iso) => { const p = (iso || '').split('T')[0].split('-'); return p.length >= 3 ? `${p[1]}/${p[2]}` : ''; };
-
-                    return (
-                      <>
-                        {/* 4 stat grid */}
-                        <section className="glass m-detail-stats">
-                          <div className="m-detail-stat">
-                            <div className="m-detail-stat__value">{sessions.length}</div>
-                            <div className="m-detail-stat__label">学习记录</div>
-                          </div>
-                          <div className="m-detail-stat-divider" />
-                          <div className="m-detail-stat">
-                            <div className="m-detail-stat__value">{fmtMinutes(totalMins)}</div>
-                            <div className="m-detail-stat__label">累计时长</div>
-                          </div>
-                          <div className="m-detail-stat-divider" />
-                          <div className="m-detail-stat">
-                            <div className="m-detail-stat__value">{fmtMinutes(dailyAvg)}</div>
-                            <div className="m-detail-stat__label">日均</div>
-                          </div>
-                          <div className="m-detail-stat-divider" />
-                          <div className="m-detail-stat">
-                            <div className="m-detail-stat__value">{weekActive}<span style={{ fontSize: '0.6em', color: '#94a3b8' }}>/7</span></div>
-                            <div className="m-detail-stat__label">本周活跃</div>
-                          </div>
-                        </section>
-
-                        {busy ? (
-                          <div className="m-loading">加载中…</div>
-                        ) : sessions.length > 0 ? (
-                          <div className="m-detail-dashboard">
-                            {/* 学科分布 */}
-                            {subjList.length > 0 && (
-                              <div style={{ marginBottom: 16 }}>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>学科分布</div>
-                                {subjList.map((subj, i) => {
-                                  const color = subjectColor(subj.name);
-                                  return (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                                      <span style={{ fontSize: 12, fontWeight: 500, color: '#1e293b', minWidth: 50, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subj.name}</span>
-                                      <div style={{ flex: 1, height: 5, borderRadius: 3, background: '#f1f5f9', overflow: 'hidden' }}>
-                                        <motion.div
-                                          initial={{ width: 0 }}
-                                          animate={{ width: `${subj.pct}%` }}
-                                          transition={{ duration: 0.4, delay: 0.05 * i }}
-                                          style={{ height: '100%', borderRadius: 3, background: color }}
-                                        />
-                                      </div>
-                                      <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace', minWidth: 40, textAlign: 'right' }}>{fmtMinutes(subj.total)}</span>
-                                      <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 28, textAlign: 'right' }}>{subj.pct}%</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* 最近评估 */}
-                            {scored.length > 0 && (
-                              <div style={{ marginBottom: 16 }}>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最近评估</div>
-                                {scored.map((s, i) => {
-                                  const obj = objectiveOf(s);
-                                  const grade = obj.label;
-                                  const sColor = scoreColor(obj.value);
-                                  const subjC = subjectColor((s.subject || '未分类').trim());
-                                  return (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < scored.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC, flexShrink: 0 }} />
-                                      <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
-                                      {obj.kind === 'score' && <span style={{ fontSize: 14, fontWeight: 700, color: sColor, fontFamily: 'ui-monospace, monospace' }}>{s.score}</span>}
-                                      {grade && <span style={{ fontSize: obj.kind === 'score' ? 11 : 14, fontWeight: obj.kind === 'score' ? 600 : 700, color: sColor, minWidth: 20 }}>{grade}</span>}
-                                      <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 36, textAlign: 'right' }}>{fmtD(s.date)}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* 最近活动（按提交时间，含补填） */}
-                            <div style={{ marginBottom: 16 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.02em' }}>最新提交</div>
-                              {recentSubmitted.slice(0, 3).map((s, i) => {
-                                const subjC = subjectColor((s.subject || '未分类').trim());
-                                const isBackfill = s.created_at && s.date && toLocalDateStr(new Date(s.created_at)) !== s.date;
-                                return (
-                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < 2 ? '1px solid #f1f5f9' : 'none' }}>
-                                    <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>{fmtD(s.date)}</span>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: subjC }} />
-                                    <span style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(s.subject || '未分类').trim()}</span>
-                                    {isBackfill && (
-                                      <span style={{
-                                        fontSize: 9, fontWeight: 700, color: '#b45309',
-                                        background: 'rgba(245,158,11,0.12)', borderRadius: 4,
-                                        padding: '1px 5px', flexShrink: 0,
-                                      }}>补填</span>
-                                    )}
-                                    <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>{fmtMinutes(s.duration_minutes || 0)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            <button
-                              onClick={() => { setActiveView('analytics'); setPicked(null); }}
-                              style={{
-                                width: '100%', padding: '10px',
-                                borderRadius: 8, border: 'none',
-                                background: 'var(--mentor-color-primary)', color: '#fff',
-                                fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              }}
-                            >
-                              前往深度分析 →
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="m-empty-state">
-                            <div className="m-empty-state__text">该学生暂无学习记录</div>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            </>
+          )}
         </div>
       ) : activeView === 'analytics' ? (
         <div className="m-mentor-content">
@@ -2215,10 +2168,7 @@ export default function Mentor() {
               <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>选择学生</span>
               <select
                 value={picked?.id || ''}
-                onChange={(e) => {
-                  const s = students.find(st => st.id === e.target.value);
-                  setPicked(s || null);
-                }}
+                onChange={(e) => pickStudent(e.target.value)}
                 style={{
                   flex: 1, padding: '6px 10px', borderRadius: 6,
                   border: '1px solid var(--mentor-color-border)',
@@ -2241,7 +2191,18 @@ export default function Mentor() {
             </div>
           </section>
           {picked ? (
-              sessions.length > 0 ? (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <StudentMessagesPanel
+                  student={picked}
+                  person={personOf(picked.id)}
+                  draft={draftByStudent[picked.id]?.status === 'draft' ? draftByStudent[picked.id] : null}
+                  dr={dr}
+                  todayIso={todayIso}
+                  showMentor={isAdmin}
+                />
+              </div>
+              {sessions.length > 0 ? (
                 <>
                   {sessionsTruncated && (
                     <div className="m-empty-state__text" style={{ color: '#b45309', marginBottom: 8 }}>
@@ -2254,8 +2215,9 @@ export default function Mentor() {
                 <div className="m-empty-state">
                   <div className="m-empty-state__text">{busy ? '加载中…' : '该学生暂无学习记录'}</div>
                 </div>
-              )
-            ) : (
+              )}
+            </>
+          ) : (
             <div className="m-empty-state">
               <div className="m-empty-state__text">请选择一位学生</div>
             </div>
@@ -2274,10 +2236,7 @@ export default function Mentor() {
             </span>
             <select
               value={picked?.id || ''}
-              onChange={(e) => {
-                const s = students.find(st => st.id === e.target.value);
-                setPicked(s || null);
-              }}
+              onChange={(e) => pickStudent(e.target.value)}
               style={{
                 flex: 1, padding: '6px 10px', borderRadius: 8,
                 border: '1px solid #e2e8f0', background: '#fff',

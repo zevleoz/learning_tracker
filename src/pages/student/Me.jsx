@@ -14,6 +14,7 @@ import { logger } from '../../lib/logger.js';
 import {
   getPermission, hasDeviceSubscription, isIOSNeedsInstall, isPushSupported, sendTestNotification, subscribe, syncSubscription, unsubscribe,
 } from '../../lib/push.js';
+import { uploadAvatar, avatarSignedUrl } from '../../lib/avatar.js';
 import ProfileEditor from '../../components/ProfileEditor.jsx';
 import Notifications from '../Notifications.jsx';
 import { Sheet } from '../../components/student/LogSheet.jsx';
@@ -26,22 +27,27 @@ import '../../styles/student-me.css';
 
 // 资料 + 课程数：两个查询并行（以前是 getUser → profiles → courses 三次串行往返）
 async function fetchMe(user) {
-  const [profileRes, coursesRes] = await Promise.all([
+  // avatar_path 单独查：补丁（010）未执行时只让头像缺席，不影响昵称与学校
+  const [profileRes, coursesRes, avatarRes] = await Promise.all([
     supabase.from('profiles').select('full_name, school_name').eq('id', user.id).maybeSingle(),
     supabase.from('courses').select('id').eq('created_by', user.id).is('deleted_at', null),
+    supabase.from('profiles').select('avatar_path').eq('id', user.id).maybeSingle(),
   ]);
   const p = profileRes.data;
   const cs = coursesRes.data;
+  const avatarPath = avatarRes.error ? null : avatarRes.data?.avatar_path || null;
   return {
     id: user.id,
     name: p?.full_name || user.user_metadata?.full_name || '',
     school: p?.school_name || '',
     email: user.email || '',
     courseCount: cs ? cs.length : null,
+    avatarPath,
+    avatarUrl: await avatarSignedUrl(avatarPath),
   };
 }
 
-const EMPTY_ME = { id: null, name: '', school: '', email: '', courseCount: null };
+const EMPTY_ME = { id: null, name: '', school: '', email: '', courseCount: null, avatarPath: null, avatarUrl: '' };
 
 export default function Me() {
   const nav = useNavigate();
@@ -52,10 +58,28 @@ export default function Me() {
   const courseCount = me.courseCount;
   const [editingProfile, setEditingProfile] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   async function handleSignOut() {
     await signOut();
     nav('/login', { replace: true });
+  }
+
+  async function handlePickAvatar(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !userId) return;
+    setAvatarBusy(true);
+    try {
+      await uploadAvatar(userId, file, me.avatarPath);
+      invalidate(userId, KEYS.me);
+      toast('头像已更新');
+    } catch (err) {
+      logger.error('upload avatar failed:', err);
+      toast('头像上传失败，请稍后再试', { kind: 'error' });
+    } finally {
+      setAvatarBusy(false);
+    }
   }
 
   const initial = (me.name || '').trim().slice(0, 1) || '我';
@@ -64,7 +88,12 @@ export default function Me() {
   return (
     <div className="yb-lg mep-page">
       <header className="mep-profile">
-        <span className="mep-avatar lg" aria-hidden="true">{initial}</span>
+        <label className="mep-avatar-edit" aria-label="更换头像">
+          {me.avatarUrl
+            ? <img className="mep-avatar lg" src={me.avatarUrl} alt="" />
+            : <span className="mep-avatar lg" aria-hidden="true">{initial}</span>}
+          <input type="file" accept="image/*" hidden disabled={avatarBusy} onChange={handlePickAvatar} />
+        </label>
         <div className="mep-profile-t">
           <h1>{me.name || '未设置昵称'}</h1>
           <p>{[me.school, me.email].filter(Boolean).join(' · ') || ' '}</p>

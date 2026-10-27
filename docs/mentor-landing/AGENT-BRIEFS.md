@@ -159,7 +159,7 @@ Then merge `ml-ws6` into `mentor-landing` the same way.
 
 ## 6. Before deploying
 
-1. Dry-run the AI on the sample records and read the output. It needs `LLM_API_KEY` (and `LLM_BASE_URL` / `LLM_MODEL` if not the default) in your shell. It prints the facts, the message, the alternatives and any problems for each sample.
+1. Dry-run the AI on the sample records and read the output. It reads `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` from `.env.local`, and doesn't touch the database. It prints the facts, the message, the alternatives and any problems for each sample.
 
 ```bash
 node scripts/supervision-dry-run.mjs --kind nudge

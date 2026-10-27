@@ -209,7 +209,7 @@ Constants go in `src/lib/supervision.js` (WS-2 owns the file and adds them first
 ```js
 export const SNOOZE_DAYS = [3, 5, 7];
 export const NUDGE_MIN_INTERVAL_DAYS = 3;
-export const NUDGE_GAP_FIRST_MONTH = 2;   // 首月：昨天和前天都没记
+export const NUDGE_GAP_FIRST_MONTH = 2;   // 首月：gap = 今天 − 最后记录日；2 = 昨天没记
 export const NUDGE_GAP_WEEKLY = 3;        // = GAP_ALERT_DAYS
 export const NUDGE_NEVER_FROM_DAY = 3;    // 首月从没记过：注册第 3 天起
 export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合适'];

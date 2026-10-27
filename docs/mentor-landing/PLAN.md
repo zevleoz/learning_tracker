@@ -3,7 +3,9 @@
 Visual spec: `docs/mentor-landing/design.html`. Open it through the harness at http://127.0.0.1:5199/docs/mentor-landing/design.html. The top bar switches between the mentor and admin views. The notes at the bottom of the page are part of the spec.
 Background: `docs/MENTOR-SIDE-CONTEXT.md` and `docs/mentor-e4-audit/PLAN.md` (WS-C built the current supervision backend).
 
-Scope: the 学生管理 view of the mentor tracker (`/mentor`) and the supervision draft pipeline (`api-lib/supervision*.mjs`, `api/supervision`). The sidebar, 数据分析, 课表, 系统设置, E4 and the student side are out of scope.
+**Status (2026-10-27):** WS-1 and WS-2 are done and merged into the local branch `mentor-landing`. WS-3, WS-4, WS-5, WS-6 and WS-7 are still to do. Copy-paste briefs for those agents are in `docs/mentor-landing/AGENT-BRIEFS.md`.
+
+Scope: the 学生管理 view of the mentor tracker (`/mentor`) and the supervision draft pipeline (`api-lib/supervision*.mjs`, `api/supervision`). Also in scope: one panel at the top of 数据分析 (WS-5), and the Back/Forward navigation between 一表人才 and E4 (WS-7). The sidebar's look, the rest of 数据分析, 课表, 系统设置, the E4 pages themselves and the student side are out of scope.
 
 ## Decisions already made (user, 2026-10-26)
 
@@ -15,8 +17,14 @@ Scope: the 学生管理 view of the mentor tracker (`/mentor`) and the supervisi
 6. **Gentle reminders also get AI drafts** in the same queue as praise. **One message per student per day:** on a Monday, a weekly summary and a reminder for the same student become a single message.
 7. **Tabs and pages (proposed in the mock; confirmed by "go ahead with the plan"):**
    - 学生管理 gets two in-page tabs: **今天** (default) and **全部学生**. The sidebar does not change.
-   - Student detail becomes **its own page** inside 学生管理, replacing the right-hand Sheet.
+   - ~~Student detail becomes its own page~~ **Replaced by decision 9.**
 8. **顾问 vs 导师.** 顾问 (Angela, Jason) is parsed from the bracket in `mentor_alias` (`src/utils/consultant.js`) and is not an account. 导师 is the logged-in teacher account.
+9. **Clicking a student opens 数据分析 for that student** (user, 2026-10-27). This applies everywhere a student name or row is clicked: the 今天 queue, the board, the 全部学生 table and cards, and Enter on the keyboard cursor. **No pop-up:** the right-hand Sheet is removed and there is no separate student page. Today's message for that student, and the messages already sent, sit in a small panel at the top of the 数据分析 page (WS-5). Alias editing and disconnecting stay as row actions in 全部学生. The student page drawn in `design.html` is superseded; only its 「今天的消息」 and 「发过的消息」 blocks are still used, as the visual reference for that panel.
+10. **Back and Forward must never jump to the wrong platform** (user, 2026-10-27). E4 and 一表人才 are separate platforms.
+    - Every view change inside 一表人才 (sidebar view, 今天/全部学生 tab, selected student) gets its own URL and history entry. Back and Forward then step through 一表人才's own pages before leaving it.
+    - Switching platforms returns you to where you last were on the other platform.
+    - Visiting `/` lands on the platform you used last in this browser tab.
+    - See WS-6 step 4 and WS-7.
 
 ## Rules for every workstream
 
@@ -215,7 +223,7 @@ export const NUDGE_NEVER_FROM_DAY = 3;    // 首月从没记过：注册第 3 �
 export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合适'];
 ```
 
-### C4 · Component props (WS-4/WS-5 export, WS-6 wires)
+### C4 · Component props (WS-4/WS-5 export, WS-6 wires; C5 is WS-7's helper module)
 
 ```jsx
 <MessageCard
@@ -227,17 +235,27 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
 />
 <MessageQueue drafts persons dr todayIso showMentor onOpenStudent />  // the 「待发」 panel incl. empty states
 <WeekBoard rows showMentor onOpenStudent onJumpToDraft />           // 「这周谁记了」
-<StudentPage
+<StudentMessagesPanel                    // top of 数据分析 for the selected student (WS-5)
   student person draft dr todayIso showMentor
-  sessions sessionsTruncated fillDates   // Set of 'YYYY-MM-DD' with records (≥28 days back)
-  backLabel onBack onPrev onNext          // J / K keep working on this page
-  onEditAlias onDisconnect onOpenAnalytics
 />
 ```
 
 `WeekBoard` rows: `{ id, name, stageText, school, mentorName, days: [{ date, state: 'f'|'e'|'t'|'n' }] (7, oldest first), stateText, warn, subText, lastText, draft }`.
 - State codes: `f` = recorded; `e` = empty; `t` = today, not recorded yet; `n` = before signup.
 - Grouping is 要跟进 (`warn`) first, then 正常.
+- `onOpenStudent(id)` in all three components means "go to 数据分析 for this student" (decision 9). The components only call it; WS-6 decides what it does.
+
+### C5 · `src/lib/workspaceNav.js` (WS-7 creates; WS-6 and E4 call it)
+
+```js
+export const WORKSPACES = { tracker: '/mentor', e4: '/e4' };
+export function rememberWorkspacePath(workspace, pathWithSearch) // sessionStorage, per browser tab; ignores paths outside the workspace
+export function lastWorkspacePath(workspace)                     // last remembered path, else WORKSPACES[workspace]
+export function lastWorkspace()                                  // 'tracker' | 'e4' | null: the platform last used in this tab
+export function workspaceOfPath(pathname)                        // 'tracker' for /mentor*, 'e4' for /e4*, else null
+```
+
+All storage access is wrapped in try/catch, because private mode can throw.
 
 ---
 
@@ -382,6 +400,8 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
    - **Optimistic updates** with rollback on error, as `markSent` does today.
    - **`undo`** writes `status 'draft', handled_by null, handled_at null, snooze_until null, skip_reason null`.
    - **If the v2 columns are missing** (PostgREST 42703 / PGRST204), set `status = 'unavailable'` instead of crashing, as `isMissingTable` does now.
+   - **`regenerate` on a draft the server has already dropped** returns HTTP 409. Remove that draft from the list quietly; don't show an error.
+   - **Ignore unknown `meta` keys.** WS-2 also writes `meta.records_from`.
 2. **Wording:**
    - every user-facing 新生 becomes 首月; `stage` becomes `首月 · 第 ${day} 天` or `每周看`
    - `draftKindLabel` returns 每日表扬 / 周小结 / 周小结 + 提醒 / 提醒
@@ -407,7 +427,7 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
 **Risk:** medium.
 
 1. Build from `design.html` (classes there are a guide, not a contract). The card has:
-   - avatar, name (a link to the student page), meta line, and why top-right: kind label in green for praise, amber for reminders
+   - avatar, name (a link that calls `onOpenStudent`, which goes to 数据分析), meta line, and why top-right: kind label in green for praise, amber for reminders
    - the message bubble
    - the `meta.system_push_date` note in amber
    - `依据` toggle showing `meta.facts` plus the evidence records
@@ -425,27 +445,24 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
    - phone width: no horizontal page scroll (tables scroll inside their panel)
 5. Write the tests with a stubbed `dr`: each action calls the right method, the collapsed states render, the 建议 marker shows, and the lint line shows.
 
-## WS-5 · Student page
+## WS-5 · Student messages panel (top of 数据分析)
 
 **Owns:**
-- new `src/components/mentor/StudentPage.jsx`
-- new `src/styles/mentor-student-page.css` (prefix `sp-`)
-- new `__tests__/mentorStudentPage.test.jsx`
+- new `src/components/mentor/StudentMessagesPanel.jsx`
+- new `src/styles/mentor-student-panel.css` (prefix `smp-`)
+- new `__tests__/mentorStudentPanel.test.jsx`
 
-**Risk:** medium. It imports `MessageCard` from WS-4. Code against C4; if WS-4 isn't merged yet, stub the import in your test.
+**Risk:** low. It imports `MessageCard` from WS-4. Code against C4; if WS-4 isn't merged yet, stub the import in your test.
 
-1. **Layout as in the mock:**
-   - back link (`backLabel`)
-   - header: name, then 首月/每周看 · 学校 · 顾问 · (导师, admin only) · 连接状态, and 改备注 / 断开连接 on the right
-   - **left column:**
-     - 今天的消息: a `MessageCard` with `variant="detail"`, or 「今天没有要发的消息。」
-     - 最近的记录: reuse `SheetRecordRow` for each row; keep the existing 2000-row truncation note; link 在数据分析里看 → `onOpenAnalytics`
-   - **right column:**
-     - 四周填写: a Monday-first 4-week calendar from `fillDates`, with today striped and days before signup blank
-     - 发过的消息: from `dr.loadHistory(id)`, showing date · kind · who · status and the text; skipped rows show the reason. Under the list: 「上次提醒：…。同一个学生两次提醒至少隔 3 天。」
-   - collapses to one column under 1100px
-2. **J / K** call `onPrev` / `onNext` (ignored while typing). **Esc** calls `onBack`.
-3. Write the tests: render with and without a draft, history list states, and keyboard handlers.
+The visual reference is the 「今天的消息」 and 「发过的消息」 blocks on the student page in `design.html`. That student page itself is no longer built (decision 9).
+
+1. **One white panel with two parts side by side** (stacked below 900px):
+   - **今天的消息:** a `MessageCard` with `variant="detail"`, or one muted line 「今天没有要发的消息。」
+   - **发过的消息:** the latest 3 items from `dr.loadHistory(student.id)`, each showing date · kind · who · status and the text (skipped rows show the reason, no text), plus a 「全部 N 条」 toggle that shows the rest. Under the list: 「上次提醒：<date or 没有>。同一个学生两次提醒至少隔 3 天。」
+   - Re-load the history when `student.id` changes, and after the card's draft status changes.
+2. **When there is no draft and no history,** render a single muted line 「还没有给这位学生的消息。」 instead of the panel, so 数据分析 doesn't get a big empty box.
+3. **Contrast tokens:** the same values as WS-4 (`#1C1C1E` / `#48484A` / `#6E6E73`, 14px body), defined on the panel root. No changes to `src/index.css`.
+4. **Tests:** with a draft, without a draft, history states (sent, by someone else, skipped with a reason, snoozed), the 全部 toggle, and the empty single line.
 
 ## WS-6 · Integration in `Mentor.jsx` + harness
 
@@ -453,12 +470,12 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
 - `src/pages/Mentor.jsx`, `src/components/mentor/TodayFeedback.jsx` (delete), `__tests__/mentorTracker.test.jsx`, `__tests__/mentorR4.test.jsx`
 - `.harness/mentorData.js`, `scripts/harness-supervision-plugin.mjs`
 
-**Risk:** high, because of the size of the file. Starts **after WS-3, WS-4 and WS-5 are merged**.
+**Risk:** high, because of the size of the file. Starts **after WS-3, WS-4, WS-5 and WS-7 are merged**.
 
 1. **In-page tabs inside `activeView === 'students'`,** on desktop and the mobile branch:
    - 今天 (count of open drafts) | 全部学生 (count)
    - right side: the existing 顾问 filter (`filterConsultant`) as one select shared by both tabs, plus search
-   - the tab lives in the URL (`?tab=today|all`, default `today`), so reload and back work
+   - the tab lives in the URL (see step 4)
 2. **今天 tab:** page header (date, 「今天有 N 条消息要发」 or 「今天的消息都处理完了」, one-line subline), then `MessageQueue`, then `WeekBoard` with the footer link to 全部学生.
    - Remove `TodayFeedback`, its `T` shortcut and its collapsed strip.
    - Keep J/K and `/` on the list.
@@ -466,49 +483,97 @@ export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合
    - the existing list (`StudentTable` from WS-3) with the 学校 / 连接 filters and 邀请学生
    - the 列表 / 卡片 toggle stays
    - move the school/connection filters off the 今天 tab
-4. **Student page:**
-   - `?student=<id>` (already parsed at `Mentor.jsx:973`) now renders `StudentPage` in place of the tab content, instead of opening the Sheet
-   - back goes to the tab in `?tab`
-   - move the alias editing, disconnect and records loading that currently live in the Sheet block (~lines 1203–1340) into props and callbacks
-   - delete the desktop Sheet usage
-   - on mobile, `StudentPage` replaces the current detail view as a full screen
-5. **Admin:** pass `showMentor = isAdmin`. The mentor name for each student comes from the connection's `teacher_id`. Admins see every action, per decision 4.
-6. **Wording:** 新生 → 首月 everywhere in `Mentor.jsx`, including the hints line (`Mentor.jsx:1199`, which becomes 「首月 = 注册 30 天内，每天看；之后每周看」) and the `newMissed` detail at `:938`.
-7. **Harness data:**
+4. **URL is the source of truth (decision 10).** Today `activeView`, the tab and the picked student are React state only, so Back skips straight out of 一表人才.
+   - **URL scheme on `/mentor`:** `?view=students|analytics|syllabus|settings` (default `students`), `&tab=today|all` (default `today`, only for `students`), `&student=<id>` (for `analytics`).
+   - **Derive state from `useSearchParams`.** Derive `activeView`, the tab and the picked student from the URL instead of separate `useState`. Keep `setActiveView` as a thin wrapper that writes the URL, so `MentorLayout` and the mobile tab bar keep working unchanged.
+   - **Push vs replace:** clicking a sidebar item, a tab or a student **pushes** a history entry. The 数据分析 student `<select>`, search text and filters **replace**. Never push the same URL twice in a row.
+   - **Remove the effect at `Mentor.jsx:~973`** that deletes `?student=` and opens the Sheet. Old links (`/mentor?student=<id>` from `FillStrip` and from E4's student detail page) now resolve to 数据分析 for that student: treat `student` without `view` as `view=analytics`, using `replace`.
+   - **Call `rememberWorkspacePath('tracker', pathname + search)`** (C5) whenever the URL changes.
+   - **Keep the `default_workspace` write** in the bootstrap effect.
+5. **Clicking a student goes to 数据分析 (decision 9):**
+   - `openStudent(s)` navigates to `?view=analytics&student=<id>` (push) and no longer opens the Sheet. This covers `MessageQueue`/`MessageCard` names, `WeekBoard` rows, the 全部学生 table and cards, and Enter on the J/K cursor.
+   - Delete the desktop and mobile Sheet blocks (~lines 1203–1340, plus the mobile detail view) and their state (`recordsExpanded`, etc.).
+   - Keep alias editing and disconnecting as row actions in 全部学生 (`StudentTable` already has 改备注 / 断开).
+   - On 数据分析, render `StudentMessagesPanel` (WS-5) above the existing `WeekReviewDashboard` when a student is selected. Don't otherwise change the 数据分析 page.
+   - The 「今天的消息」 column on `WeekBoard` still scrolls to the card on 今天 (`onJumpToDraft`), and doesn't navigate.
+6. **Admin:** pass `showMentor = isAdmin`. The mentor name for each student comes from the connection's `teacher_id`. Admins see every action, per decision 4.
+7. **Wording:** 新生 → 首月 everywhere in `Mentor.jsx`, including the hints line (`Mentor.jsx:1199`, which becomes 「首月 = 注册 30 天内，每天看；之后每周看」) and the `newMissed` detail at `:938`.
+8. **Harness data:**
    - drafts for each case: daily, weekly, nudge, combined, one with `system_push_date` + `recommend_snooze`, one with `meta.lint`, one sent today by 李老师 (`handled_by: 't-2'`)
    - `meta.why`, `meta.facts` and `meta.alts` filled, with sample texts copied from `design.html`
    - a 李老师 connection for one student, so `?role=3` shows the 导师 column
    - plugin endpoints return the new fields
-8. **Tests:** update `mentorTracker.test.jsx` (the 今日反馈 describe block becomes 今天 tab tests, and the Sheet tests become StudentPage-route tests). Keep the alias/delete tests green.
-9. **Harness check:**
+9. **Tests:** update `mentorTracker.test.jsx`.
+   - The 今日反馈 describe block becomes 今天 tab tests.
+   - The Sheet tests become "click → `?view=analytics&student=`" tests.
+   - Add URL tests: a view or tab click pushes; Back (`MemoryRouter` history) restores the previous view and tab; the analytics `<select>` replaces; `/mentor?student=x` lands on analytics.
+   - Keep the alias/delete tests green.
+10. **Harness check:**
    - `/mentor` as admin and with `?role=2`, desktop and 375px wide
    - the four card actions, and undo for each
    - 换个说法
-   - opening a student from the card name, the board row and the 全部学生 table; back returns to the right tab
-   - J/K on the student page
+   - clicking a student from the card name, the board row and the 全部学生 table opens 数据分析 for that student with no pop-up
+   - the browser sequence in WS-7 step 5
    - `/e4` is unchanged
 
 ---
+
+## WS-7 · Platform navigation (E4 ⇄ 一表人才)
+
+**Owns:**
+- new `src/lib/workspaceNav.js`
+- `src/components/WorkspaceSwitch.jsx`
+- `src/App.jsx` (only `RootRedirect`)
+- `src/components/E4Layout.jsx` (only the workspace effect and the switch)
+- `src/pages/e4/E4StudentDetailPage.jsx` (only the link to 一表人才)
+- `__tests__/App.routes.test.jsx`
+- new `__tests__/workspaceNav.test.js`
+
+**Risk:** medium. This touches routing for every mentor.
+
+1. **Create `workspaceNav.js`** per C5, with tests.
+2. **`WorkspaceSwitch`** navigates to `lastWorkspacePath(target)` with a normal push, not to the bare `/e4` or `/mentor`. Back after switching therefore returns to the exact page you left.
+3. **`E4Layout`:**
+   - call `rememberWorkspacePath('e4', location.pathname + location.search)` on every location change
+   - keep the existing `default_workspace` write
+4. **`RootRedirect`** (`/`) resolves the platform in this order:
+   1. `lastWorkspace()` from this tab's session
+   2. otherwise `profile.default_workspace`, as now
+
+   Always use `replace`, as now, so `/` never stays in history. This stops a stale `default_workspace` (the profile can be cached from before the last switch) from sending you to the other platform.
+5. **E4's link to 一表人才** (`E4StudentDetailPage.jsx:~334`) becomes `/mentor?view=analytics&student=<tracker_profile_id>`. `FillStrip`'s `/mentor?student=` links keep working through WS-6's fallback.
+6. **Test in `App.routes.test.jsx`** with `MemoryRouter`:
+   - `/` goes to the last used platform in the session
+   - with no session, `/` follows `default_workspace`
+   - the switch goes to the remembered path
+7. **Browser sequence for the final check.** WS-6 runs it after merging; until then, check the E4 half.
+   1. Log in, land on E4, open a student.
+   2. 前往 一表人才 → 今天.
+   3. Click a student → 数据分析 for that student.
+   4. Back → 今天. Back → the E4 student page. Back → E4 待办.
+   5. Forward ×3 → back on 数据分析 with the same student.
+   6. Switch to E4 and back → still on that student's 数据分析.
+   7. Reload on any of these pages → same page.
+   8. Open `/` → the platform used last.
 
 ## Order of work
 
 | Wave | Workstreams | Notes |
 |---|---|---|
-| 1 | **WS-1**, **WS-2**, **WS-4**, **WS-5** in parallel | WS-2 commits the C3 constants first (one small commit). WS-4/WS-5 code against C3/C4 with a stub `dr`. |
-| 1b | **WS-3** | Starts from WS-2's constants commit; parallel with the rest of wave 1. |
-| 2 | **WS-6** | After WS-3, WS-4 and WS-5 are merged into the integration branch. |
-| 3 | Review | The user (or Claude) reviews WS-1's prompt output with `scripts/supervision-dry-run.mjs` on real data, then runs the SQL patch, then deploys. |
+| ✓ | **WS-1**, **WS-2** | Done and merged into `mentor-landing`. |
+| 1 | **WS-3**, **WS-4**, **WS-5**, **WS-7** in parallel | All branch from `mentor-landing`. WS-4/WS-5 code against C3/C4 with a stub `dr`. |
+| 2 | **WS-6** | After WS-3, WS-4, WS-5 and WS-7 are merged into `mentor-landing`. |
+| 3 | Review | Review WS-1's output with `scripts/supervision-dry-run.mjs` on real data, run the SQL patch, then deploy. |
 
-No two workstreams edit the same file. WS-1 and WS-2 meet only through C2: WS-2 calls `generateDraft`, and its tests inject a fake `generate`, so it never needs WS-1's code to pass.
+No two workstreams edit the same file.
 
 **Suggested models:**
-- WS-1 and WS-2: the strongest available model, or at least a careful review of the diff (prompt quality and production SQL).
-- WS-6: the strongest model, because of the large file and many call sites.
-- WS-3, WS-4, WS-5: flash models are fine.
+- WS-3, WS-4, WS-5 and WS-7: flash models with the standard context window are fine.
+- WS-6: a flash model with a **1M context window**, or a stronger model, because `Mentor.jsx` alone is about 110 KB. Review the diff before merging.
 
 ## Open questions (defaults used if nobody answers)
 
-1. **When the first reminder is drafted.** Default: 首月 after 2 empty days (yesterday and the day before), weekly-phase after 3, and a 首月 student who never recorded from day 3. These are the constants in C3.
+1. **When the first reminder is drafted.** Default: 首月 when yesterday was missed (`gap ≥ 2`), weekly-phase after 3, and a 首月 student who never recorded from day 3. These are the constants in C3.
 2. **Clashes with the system's inactive push.** The system already sends an inactive push at 3 and 7 empty days. Default: keep it and only show the note on the card. Alternative, not in this plan: skip the system's push for students whose mentor sent a reminder in the last 3 days (a change to `api-lib/notify.mjs`; fewer pushes to students).
-3. **J / K on the student page:** kept by default.
+3. ~~J / K on the student page~~: there is no student page any more (decision 9).
 4. **Cost:** reminders add roughly 30–50% more model calls per night. Asking for 2 alternatives in the same call keeps 「换个说法」 free in most cases.

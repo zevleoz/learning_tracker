@@ -1,0 +1,127 @@
+/* 数据分析页顶部 · 学生消息面板（WS-5）。
+   扁平白底、细线分隔；颜色只用中性墨色，无描边卡片堆叠、无药丸、无发光。 */
+
+.smp-root {
+  --smp-surface: #FFFFFF;
+  --smp-line: #E3E3E8;
+  --smp-line-soft: #F0F0F3;
+  --smp-ink: #1C1C1E;
+  --smp-ink-2: #48484A;
+  --smp-ink-3: #6E6E73;
+  margin: 0 0 18px;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--smp-ink);
+}
+
+.smp-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 0;
+  padding: 22px 24px;
+  background: var(--smp-surface);
+  border: 1px solid var(--smp-line);
+  border-radius: 6px;
+}
+
+.smp-col { min-width: 0; }
+
+.smp-col + .smp-col {
+  padding-left: 28px;
+  border-left: 1px solid var(--smp-line-soft);
+}
+
+.smp-h {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--smp-ink-2);
+}
+
+.smp-quiet {
+  margin: 0;
+  font-size: 14px;
+  color: var(--smp-ink-3);
+}
+
+.smp-root--quiet {
+  padding: 16px 24px;
+  background: var(--smp-surface);
+  border: 1px solid var(--smp-line);
+  border-radius: 6px;
+}
+
+/* ── 发过的消息 ── */
+.smp-hist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.smp-item { padding: 10px 0; }
+.smp-item:first-child { padding-top: 0; }
+.smp-item + .smp-item { border-top: 1px solid var(--smp-line-soft); }
+
+.smp-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 13px;
+  color: var(--smp-ink-3);
+}
+
+.smp-date { font-variant-numeric: tabular-nums; }
+.smp-kind { color: var(--smp-ink-2); }
+.smp-status { margin-left: auto; }
+
+.smp-text {
+  margin: 6px 0 0;
+  color: var(--smp-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.smp-toggle {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--smp-ink-2);
+  cursor: pointer;
+}
+
+.smp-toggle:hover {
+  color: var(--smp-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.smp-toggle:focus-visible {
+  outline: 2px solid var(--smp-ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.smp-rule {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--smp-line-soft);
+  font-size: 12px;
+  color: var(--smp-ink-3);
+}
+
+@media (max-width: 900px) {
+  .smp-panel { grid-template-columns: minmax(0, 1fr); }
+
+  .smp-col + .smp-col {
+    padding-left: 0;
+    padding-top: 20px;
+    border-left: 0;
+    border-top: 1px solid var(--smp-line-soft);
+  }
+}

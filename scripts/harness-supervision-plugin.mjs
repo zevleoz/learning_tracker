@@ -10,6 +10,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// 「换个说法」用完之后的重新生成：本地只返回带 C2 字段的示例，不调模型。
+const MOCK_REGEN = [
+  '昨天那份记录里，物理和数学各一条。牛顿定律那节先复习，再做斜面练习。',
+  '斜面那题受力图改过之后，第二天又记了一次牛顿定律的复习，节奏接得比较紧。',
+];
+let regenCount = 0;
+
 export function loadEnvFile(file) {
   const env = {};
   if (!fs.existsSync(file)) return env;
@@ -43,6 +50,23 @@ export function supervisionHarness({ envFile = path.join(root, '.env.local') } =
           body = raw ? JSON.parse(raw) : {};
         } catch {
           return send(400, { ok: false, error: '请求体不是合法 JSON' });
+        }
+        if (body.type === 'regenerate') {
+          const bodyText = MOCK_REGEN[regenCount++ % MOCK_REGEN.length];
+          return send(200, {
+            ok: true,
+            draft: {
+              id: body.draft_id,
+              body: bodyText,
+              edited_body: null,
+              meta: {
+                why: '本地示例 · 按最新记录重写',
+                facts: ['本地 harness 示例，不是真实模型输出'],
+                alts: [MOCK_REGEN[regenCount % MOCK_REGEN.length]],
+                lint: [],
+              },
+            },
+          });
         }
         try {
           const { createHandler } = await import(path.join(root, 'api/supervision/index.js'));

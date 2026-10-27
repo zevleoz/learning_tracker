@@ -11,6 +11,7 @@ import RouteFallback from './components/RouteFallback.jsx';
 import { useAuth, readRoleHint } from './lib/useAuth.js';
 import { lazyWithRetry } from './lib/lazyWithRetry.js';
 import { SurfaceTracker } from './lib/useAppUpdate.js';
+import { WORKSPACES, rootWorkspace } from './lib/workspaceNav.js';
 
 // 新版本提示横幅：用到 framer-motion（约 130 KB），不阻塞首屏，首屏渲染后再加载
 const UpdatePrompt = lazyWithRetry(() => import('./components/UpdatePrompt.jsx'));
@@ -25,7 +26,8 @@ const E4PrintPreview = import.meta.env.DEV
   : null;
 
 // 登录后的根路由：
-//   导师/管理员 → 按 default_workspace 偏好（即上次打开的工作区，默认 E4）；学生一律落到「今天」
+//   导师/管理员 → 本标签页上次用过的平台；没有记录时按 default_workspace（默认 E4）
+//   学生一律落到「今天」
 function RootRedirect() {
   const { user, profile, loading } = useAuth();
   // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /syllabus。
@@ -36,8 +38,8 @@ function RootRedirect() {
   }
   const role = Number(profile?.role) || 1;
   if (role >= 2) {
-    // 导师只落两个工作区之一：一表人才（/mentor）或 E4，default_workspace 记录上次打开的页面
-    return <Navigate to={profile?.default_workspace === 'tracker' ? '/mentor' : '/e4'} replace />;
+    // 只落两个平台之一。先看这个标签页最后一次在哪边操作，避免缓存的 default_workspace 把人送去另一边
+    return <Navigate to={WORKSPACES[rootWorkspace(profile)]} replace />;
   }
   return <Navigate to="/today" replace />;
 }

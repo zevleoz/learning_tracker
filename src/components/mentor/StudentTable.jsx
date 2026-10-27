@@ -1,14 +1,20 @@
-// 学生管理 · 列表视图：每位学生一行（约 42px），顾问分组，列在各组之间对齐（table-layout: fixed）。
-// 行内操作只在悬停 / 键盘聚焦时出现；删除、编辑学校放在 ··· 菜单里（仅 admin）。
+// 学生管理 · 全部学生：按顾问分组，一行一位学生（约 42px）。
+// 行内操作只在悬停 / 键盘聚焦时出现；删除、编辑学校放在 ··· 菜单里（仅管理员）。
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { Button } from '../ui/button.jsx';
 import { consultantColor, consultantKey, parseConsultant } from '../../utils/consultant.js';
-import { AttentionText, Avatar, FillStrip, StageTag, StudentLink } from './FillStrip.jsx';
-import { groupCounts } from './fillInfo.js';
+import { Avatar, FillStrip, StageTag, StudentLink } from './FillStrip.jsx';
 
-const COLS = ['学生', '学校', '阶段', '近 7 天', '需关注', '最后记录', '待补填', '连接', ''];
+const INK = '#1C1C1E';
+const INK_2 = '#48484A';
+const INK_3 = '#6E6E73';
+const CELL = { color: INK_2, fontSize: 14 };
+const HEAD = { color: INK_3, fontSize: 12.5, fontWeight: 500 };
+// 学校列不再吃掉剩余宽度；「最后一次记录」要放得下「10/24 · 13 天前」，不截断
+const SCHOOL_W = 200;
+const LAST_W = 150;
 
 /** ··· 菜单：点按钮展开；点外面或按 Esc 收起。菜单内容始终在 DOM 里，用样式显隐。 */
 function RowMenu({ children }) {
@@ -41,7 +47,7 @@ function RowMenu({ children }) {
   );
 }
 
-export function GroupHead({ group, counts, collapsed, onToggle }) {
+export function GroupHead({ group, total, collapsed, onToggle }) {
   const color = consultantColor(group.consultant);
   return (
     <header className="mt-group-head">
@@ -51,10 +57,8 @@ export function GroupHead({ group, counts, collapsed, onToggle }) {
         </span>
         <span className="mentor-group-name">{group.consultant || '未分配'}</span>
         <span className="mt-group-meta">
-          <span>{counts.total} 人</span>
-          {counts.newCount > 0 && <span>新生 {counts.newCount}</span>}
-          {counts.newMissed > 0 && <span className="is-bad">新生昨天没填 {counts.newMissed}</span>}
-          {counts.gapCount > 0 && <span className="is-bad">3 天以上没填 {counts.gapCount}</span>}
+          <span>{total} 人</span>
+          {!group.consultant && <span>备注名里没写顾问</span>}
         </span>
         <ChevronDown className={`mentor-group-chevron ${collapsed ? 'is-collapsed' : ''}`} />
       </button>
@@ -106,15 +110,16 @@ function RowActions({ s, status, a }) {
   );
 }
 
-function StudentRow({ s, info, selected, a }) {
+function StudentRow({ s, info, selected, isAdmin, a }) {
   const conn = a.connections[s.id];
   const status = conn?.status ?? -1;
   const meta = a.statusMeta(status);
   const alias = conn?.mentor_alias || '';
   const { consultant, cleanName } = parseConsultant(alias);
   const displayName = cleanName || alias || s.full_name || '(未命名)';
+  const showRealName = !!(s.full_name && displayName !== s.full_name);
   const isDeleting = a.deleteBusyId === s.id;
-  const pending = info.pending;
+  const mentorName = a.mentorNameOf?.(s.id) || s.mentorName || '—';
 
   return (
     <>
@@ -123,19 +128,23 @@ function StudentRow({ s, info, selected, a }) {
         className={`mt-row ${selected ? 'is-selected' : ''} ${isDeleting ? 'is-busy' : ''}`}
         onClick={() => a.onOpen(s.id)}
       >
-        <td className="mt-c-name">
+        <td className="mt-c-name" style={CELL}>
           <span className="mt-name-cell">
             <Avatar name={displayName} color={consultantColor(consultant)} />
-            <StudentLink id={s.id} onOpen={a.onOpen} className="mt-name" title={alias ? `本名：${s.full_name || '-'}` : undefined}>{displayName}</StudentLink>
+            <span style={{ display: 'block', minWidth: 0 }}>
+              <StudentLink id={s.id} onOpen={a.onOpen} className="mt-name">{displayName}</StudentLink>
+              {showRealName && (
+                <small style={{ display: 'block', color: INK_3, fontSize: 12, marginTop: 1 }}>本名 {s.full_name}</small>
+              )}
+            </span>
           </span>
         </td>
-        <td className="mt-c-school"><span className={s.school_name ? '' : 'is-muted'}>{s.school_name || '未设置学校'}</span></td>
-        <td><StageTag info={info} /></td>
-        <td><FillStrip summary={info.connected ? info.summary : null} /></td>
-        <td><AttentionText info={info} /></td>
-        <td className="mt-c-last">{info.connected ? info.lastText : '—'}</td>
-        <td className={`mt-c-pending ${pending > 0 ? 'is-warn' : ''}`}>{pending == null ? '—' : pending}</td>
-        <td>
+        {isAdmin && <td style={CELL}>{mentorName}</td>}
+        <td style={CELL}><span style={{ color: s.school_name ? INK_2 : INK_3 }}>{s.school_name || '未设置学校'}</span></td>
+        <td style={CELL}><StageTag info={info} /></td>
+        <td style={CELL}><FillStrip summary={info.connected ? info.summary : null} /></td>
+        <td className="mt-c-last" style={CELL}>{info.connected ? info.lastText : '—'}</td>
+        <td style={CELL}>
           <span className={`mentor-status mentor-status--${meta.key}`}>
             <span className="mentor-status-dot" />
             {meta.label}
@@ -145,7 +154,7 @@ function StudentRow({ s, info, selected, a }) {
       </tr>
       {a.editingAliasId === s.id && (
         <tr className="mt-edit-row">
-          <td colSpan={COLS.length}>
+          <td colSpan={isAdmin ? 8 : 7}>
             <div className="mentor-alias-editor" onClick={(e) => e.stopPropagation()}>
               <input
                 type="text"
@@ -169,7 +178,7 @@ function StudentRow({ s, info, selected, a }) {
       )}
       {a.editingSchoolId === s.id && (
         <tr className="mt-edit-row">
-          <td colSpan={COLS.length}>
+          <td colSpan={isAdmin ? 8 : 7}>
             <div className="mentor-alias-editor" onClick={(e) => e.stopPropagation()}>
               <input
                 type="text"
@@ -205,34 +214,59 @@ function StudentRow({ s, info, selected, a }) {
  * @param {object} props.actions 行内操作与编辑状态（来自 Mentor.jsx）
  */
 export default function StudentTable({ groups, infoOf, selectedId, collapsedGroups, onToggleGroup, actions }) {
+  const isAdmin = !!actions.isAdmin;
+  const cols = isAdmin
+    ? ['学生', '导师', '学校', '阶段', '近 7 天', '最后一次记录', '连接', '']
+    : ['学生', '学校', '阶段', '近 7 天', '最后一次记录', '连接', ''];
+  const colWidths = isAdmin
+    ? [
+      { key: 'name', className: 'mt-col-name' },
+      { key: 'mentor', width: 96 },
+      { key: 'school', width: SCHOOL_W },
+      { key: 'stage', className: 'mt-col-stage' },
+      { key: 'strip', className: 'mt-col-strip' },
+      { key: 'last', width: LAST_W },
+      { key: 'conn', className: 'mt-col-conn' },
+      { key: 'act', className: 'mt-col-act' },
+    ]
+    : [
+      { key: 'name', className: 'mt-col-name' },
+      { key: 'school', width: SCHOOL_W },
+      { key: 'stage', className: 'mt-col-stage' },
+      { key: 'strip', className: 'mt-col-strip' },
+      { key: 'last', width: LAST_W },
+      { key: 'conn', className: 'mt-col-conn' },
+      { key: 'act', className: 'mt-col-act' },
+    ];
+
   return (
     <div className="mt-groups">
       {groups.map((group) => {
         const key = consultantKey(group.consultant);
         const collapsed = collapsedGroups.has(key);
-        const counts = groupCounts(group.students, infoOf);
         return (
           <section key={key} className="mt-group">
-            <GroupHead group={group} counts={counts} collapsed={collapsed} onToggle={() => onToggleGroup(key)} />
+            <GroupHead group={group} total={group.students.length} collapsed={collapsed} onToggle={() => onToggleGroup(key)} />
             {!collapsed && (
               <table className="mt-table">
                 <colgroup>
-                  <col className="mt-col-name" />
-                  <col className="mt-col-school" />
-                  <col className="mt-col-stage" />
-                  <col className="mt-col-strip" />
-                  <col className="mt-col-attn" />
-                  <col className="mt-col-last" />
-                  <col className="mt-col-pending" />
-                  <col className="mt-col-conn" />
-                  <col className="mt-col-act" />
+                  {colWidths.map((c) => (
+                    <col key={c.key} className={c.className} style={c.width ? { width: c.width } : undefined} />
+                  ))}
                 </colgroup>
                 <thead>
-                  <tr>{COLS.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr>
+                  <tr>{cols.map((c, i) => <th key={i} scope="col" style={HEAD}>{c}</th>)}</tr>
                 </thead>
                 <tbody>
                   {group.students.map((s) => (
-                    <StudentRow key={s.id} s={s} info={infoOf(s.id)} selected={selectedId === s.id} a={actions} />
+                    <StudentRow
+                      key={s.id}
+                      s={s}
+                      info={infoOf(s.id)}
+                      selected={selectedId === s.id}
+                      isAdmin={isAdmin}
+                      a={actions}
+                    />
                   ))}
                 </tbody>
               </table>

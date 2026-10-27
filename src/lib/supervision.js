@@ -1,11 +1,19 @@
 // AI 监督流程的共用规则（纯函数，浏览器 / 服务端 / 测试共用）
 //
-// 新生：注册当天算第 1 天，第 1–30 天每天看（daily）；第 31 天起每周看（weekly）。
+// 首月：注册当天算第 1 天，第 1–30 天每天看（daily）；第 31 天起每周看（weekly）。
 // 「填了」：那一天至少有一条未删除的 learning_sessions（待补填的练习也算填了）。
 // 日期一律用 'YYYY-MM-DD' 字符串，按 UTC 计算差值，避开时区和夏令时。
 
 export const NEW_STUDENT_DAYS = 30;
 export const GAP_ALERT_DAYS = 3;
+
+// 消息草稿 v2（docs/mentor-landing/PLAN.md · C3）
+export const SNOOZE_DAYS = [3, 5, 7];          // 「过几天再说」只给这三个选项
+export const NUDGE_MIN_INTERVAL_DAYS = 3;     // 同一个学生两次提醒至少隔 3 天
+export const NUDGE_GAP_FIRST_MONTH = 2;       // 首月：gap = 今天 − 最后记录日；2 = 昨天没记（前天记了）
+export const NUDGE_GAP_WEEKLY = GAP_ALERT_DAYS;
+export const NUDGE_NEVER_FROM_DAY = 3;        // 首月从没记过：注册第 3 天起
+export const SKIP_REASONS = ['当面说过了', '请假了', '这条写得不合适'];
 
 const SHANGHAI_OFFSET_MS = 8 * 3600 * 1000;
 
@@ -90,8 +98,8 @@ export function fillSummary(sessionDates, todayIso) {
 /**
  * 今日反馈里两份名单的归类（只看已连接的学生）。
  * @returns {'new-missed-yesterday' | 'gap' | null}
- *   new-missed-yesterday：新生，昨天没填（注册当天不算，第 2 天起才有「昨天」）
- *   gap：非新生，连续 GAP_ALERT_DAYS 天以上没填（从没记录过的也算）
+ *   new-missed-yesterday：首月，昨天没填（注册当天不算，第 2 天起才有「昨天」）
+ *   gap：首月之后，连续 GAP_ALERT_DAYS 天以上没填（从没记录过的也算）
  */
 export function attentionOf({ signupIso, summary, todayIso }) {
   const n = dayNumber(signupIso, todayIso);

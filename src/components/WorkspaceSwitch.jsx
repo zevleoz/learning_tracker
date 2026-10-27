@@ -1,14 +1,16 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { lastWorkspacePath } from '../lib/workspaceNav.js';
 
-// 一表人才 ⇄ E4 一键切换（仅导师/管理员侧使用）
+// 一表人才 ⇄ E4 一键切换（仅导师/管理员侧使用）。
+// 切到对方平台后回到上次停留的页面，Back 也就退回切换前的页面。
 export default function WorkspaceSwitch({ target = 'e4', className = '' }) {
   const nav = useNavigate();
   const toE4 = target === 'e4';
   return (
     <motion.button
       type="button"
-      onClick={() => nav(toE4 ? '/e4' : '/mentor')}
+      onClick={() => nav(lastWorkspacePath(toE4 ? 'e4' : 'tracker'))}
       className={`workspace-switch ${className}`}
       whileHover={{ x: 3 }}
       whileTap={{ scale: 0.98 }}

@@ -33,7 +33,7 @@ function captureToasts() {
 }
 
 async function clickDisconnect() {
-  render(<MemoryRouter initialEntries={['/mentor']}><Mentor /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
   await waitFor(() => expect(screen.getAllByText('小林').length).toBeGreaterThan(0));
   fireEvent.click(screen.getByRole('button', { name: '断开' }));
   await screen.findByText(/确定断开与这位学生的连接吗/);

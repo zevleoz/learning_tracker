@@ -76,7 +76,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('shows delete button on each student card for admin', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     // Admin sees all students; both cards get a 删除 button.
     const deleteBtns = screen.getAllByRole('button', { name: '删除' });
@@ -85,7 +85,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('does NOT show delete button for non-admin mentor', async () => {
     setupMentor();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     // Mentor (role=2) has no 删除 button anywhere.
     expect(screen.queryAllByRole('button', { name: '删除' }).length).toBe(0);
@@ -93,7 +93,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('clicking delete opens confirm dialog with student name + warning', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     const deleteBtns = screen.getAllByRole('button', { name: '删除' });
     fireEvent.click(deleteBtns[0]);
@@ -109,7 +109,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('canceling delete does not call delete_student RPC', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     const deleteBtns = screen.getAllByRole('button', { name: '删除' });
     fireEvent.click(deleteBtns[0]);
@@ -124,7 +124,7 @@ describe('Mentor desktop — delete + alias features', () => {
   it('confirming delete calls delete_student RPC with the student id', async () => {
     setupAdmin();
     supabase.__setRpcResponse('delete_student', { data: 'student-1', error: null });
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     const deleteBtns = screen.getAllByRole('button', { name: '删除' });
     // Grid is sorted created_at desc → student-2 (Jan 2) is first, student-1 second.
@@ -142,7 +142,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('shows 别名 button on connected student cards (status=1)', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     // Each connected student card has a 别名 button. Both students are status=1
     // for admin (auto-connect). But only the right-panel grid has these buttons,
@@ -153,7 +153,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('clicking 备注名 opens inline editor with placeholder', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     const aliasBtns = screen.getAllByRole('button', { name: '备注名' });
     fireEvent.click(aliasBtns[0]);
@@ -165,7 +165,7 @@ describe('Mentor desktop — delete + alias features', () => {
   it('saving alias calls update_student_alias RPC with the typed value', async () => {
     setupAdmin();
     supabase.__setRpcResponse('update_student_alias', { data: null, error: null });
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     // student-1's card is second in the grid (created_at asc order in our test data,
     // but grid is sorted desc → student-2 first, student-1 second).
@@ -186,12 +186,12 @@ describe('Mentor desktop — delete + alias features', () => {
   it('shows alias as primary name + real name as subtitle when alias is set', async () => {
     setupAdmin();
     setupAliasForStudent1('隔壁小王');
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitFor(() => {
-      // 列表视图（默认）：主名字 = 备注名，本名放在名字链接的 title 上
+      // 列表视图（默认）：主名字 = 备注名，本名作为名字下面的小字
       expect(screen.getAllByText('隔壁小王').length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('隔壁小王').getAttribute('title')).toBe('本名：王小明');
+    expect(screen.getByText('本名 王小明')).toBeInTheDocument();
     // 卡片视图：本名作为副标题，并带「备注」小标签
     fireEvent.click(screen.getByRole('button', { name: '卡片' }));
     await waitFor(() => {
@@ -205,7 +205,7 @@ describe('Mentor desktop — delete + alias features', () => {
   it('search input matches by alias when alias is set', async () => {
     setupAdmin();
     setupAliasForStudent1('隔壁小王');
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitFor(() => {
       expect(screen.getAllByText('隔壁小王').length).toBeGreaterThan(0);
     });
@@ -224,7 +224,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('search input still matches by real name when no alias', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     // Before search: 李小华 only in right grid.
     expect(screen.getAllByText('李小华').length).toBe(1);
@@ -240,7 +240,7 @@ describe('Mentor desktop — delete + alias features', () => {
 
   it('escape key closes alias editor without calling RPC', async () => {
     setupAdmin();
-    render(<MemoryRouter><Mentor /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/mentor?tab=all']}><Mentor /></MemoryRouter>);
     await waitForStudents();
     const aliasBtns = screen.getAllByRole('button', { name: '备注名' });
     fireEvent.click(aliasBtns[0]);

@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学生管理首页 · 设计稿</title>
+<style>
+/* ---------- 现有导师端变量（取自 src/index.css） ---------- */
+:root {
+  --mentor-color-border: #E5E5EA;
+  --mentor-color-primary: #B91C1C;
+  --mentor-color-primary-light: #FEF2F2;
+  --mentor-color-surface: #ffffff;
+  --mentor-color-surface-tertiary: #FAFAFA;
+  --mentor-color-text-primary: #000000;
+  --mentor-color-text-secondary: #525252;
+  --mentor-color-text-tertiary: #8E8E93;
+  --mentor-radius-sm: 8px;
+  --mentor-radius-md: 12px;
+
+  /* 改版新增：只用于主区域，提高对比度 */
+  --ink: #1C1C1E;      /* 正文 */
+  --ink-2: #48484A;    /* 次要文字（白底 9.4:1） */
+  --ink-3: #6E6E73;    /* 说明文字（白底 5.0:1） */
+  --line: #E5E5EA;
+  --soft: #F2F2F7;
+  --page: #F5F5F7;
+  --ok: #1F7A4D;
+  --fill: #2E8B57;
+  --warn: #9A5800;
+  font-family: -apple-system, "system-ui", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased; }
+button, select { font: inherit; }
+
+/* ---------- 现有侧栏（原样复制，未改） ---------- */
+.mentor-sidebar { width: 260px; min-width: 260px; background: var(--mentor-color-surface); border-right: 1px solid var(--mentor-color-border); display: flex; flex-direction: column; position: sticky; top: 41px; height: calc(100vh - 41px); }
+.mentor-sidebar-header { padding: 24px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--mentor-color-border); }
+.mentor-sidebar-logo { height: 36px; width: auto; object-fit: contain; }
+.mentor-sidebar-brand { display: flex; flex-direction: column; }
+.mentor-sidebar-title { font-size: 16px; font-weight: 600; color: var(--mentor-color-text-primary); letter-spacing: -0.01em; }
+.mentor-sidebar-subtitle { font-size: 11px; color: var(--mentor-color-text-tertiary); margin-top: 2px; }
+.mentor-sidebar-nav { flex: 1 1 0%; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.mentor-sidebar-nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--mentor-radius-md); border: none; background: transparent; color: var(--mentor-color-text-secondary); font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit; position: relative; overflow: hidden; }
+.mentor-sidebar-nav-item::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--mentor-color-primary); border-radius: 0 3px 3px 0; opacity: 0; }
+.mentor-sidebar-nav-item:hover { background: rgba(15,23,42,.03); color: var(--mentor-color-text-primary); }
+.mentor-sidebar-nav-item.active { background: var(--mentor-color-primary-light); color: var(--mentor-color-primary); font-weight: 600; }
+.mentor-sidebar-nav-item.active::before { opacity: 1; }
+.mentor-sidebar-footer { padding: 12px; border-top: 1px solid var(--mentor-color-border); }
+.mentor-sidebar-user { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--mentor-radius-md); background: rgba(15,23,42,.02); margin-bottom: 10px; }
+.mentor-sidebar-user-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--mentor-color-surface-tertiary); color: var(--mentor-color-text-primary); font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.mentor-sidebar-user-info { display: flex; flex-direction: column; }
+.mentor-sidebar-user-name { font-size: 13px; font-weight: 600; color: var(--mentor-color-text-primary); }
+.mentor-sidebar-user-role { font-size: 11px; color: var(--mentor-color-text-tertiary); margin-top: 1px; }
+.mentor-sidebar-signout { width: 100%; padding: 10px 14px; border-radius: var(--mentor-radius-sm); border: 1px solid var(--mentor-color-border); background: var(--mentor-color-surface); color: var(--mentor-color-text-secondary); font-size: 13px; cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.workspace-switch { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--mentor-color-border); border-radius: 10px; background: var(--mentor-color-surface); color: var(--mentor-color-text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; }
+.mentor-workspace-switch { margin-bottom: 12px; }
+
+/* ---------- 设计稿控制条（不属于页面） ---------- */
+.mock-bar { position: sticky; top: 0; z-index: 50; height: 41px; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #1C1C1E; color: #E5E5EA; font-size: 12.5px; }
+.mock-bar b { color: #fff; font-weight: 600; }
+.mock-bar .seg { display: inline-flex; background: #2C2C2E; border-radius: 7px; padding: 2px; }
+.mock-bar .seg button { border: 0; background: transparent; color: #AEAEB2; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.mock-bar .seg button.on { background: #48484A; color: #fff; }
+.mock-bar a { color: #AEAEB2; margin-left: auto; text-decoration: none; }
+.mock-bar a:hover { color: #fff; }
+
+.app { display: flex; min-height: calc(100vh - 41px); }
+.main { flex: 1; min-width: 0; padding: 20px 48px 64px; }
+.wrap { max-width: 1000px; }
+
+/* ---------- 页内标签：今天 / 全部学生（侧栏不加东西） ---------- */
+.tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+.tab { border: 0; background: none; padding: 12px 4px; margin-right: 20px; font-size: 15px; font-weight: 500; color: var(--ink-3); cursor: pointer; position: relative; }
+.tab .c { font-size: 13px; color: var(--ink-3); margin-left: 4px; font-weight: 400; }
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--ink); font-weight: 650; }
+.tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); border-radius: 1px; }
+.tabs .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.pick { height: 32px; border: 0; border-radius: 8px; background: #fff; box-shadow: 0 0 0 1px var(--line); padding: 0 28px 0 10px; color: var(--ink); font-size: 13px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%); background-position: right 13px center, right 9px center; background-size: 4px 4px; background-repeat: no-repeat; cursor: pointer; }
+.search { display: flex; align-items: center; gap: 8px; width: 200px; height: 32px; padding: 0 10px; background: #fff; border-radius: 8px; color: var(--ink-3); font-size: 13px; box-shadow: 0 0 0 1px var(--line); }
+.search kbd { margin-left: auto; font: 11px ui-monospace, Menlo, monospace; color: var(--ink-3); background: var(--soft); border-radius: 4px; padding: 1px 5px; }
+
+/* ---------- 页头 ---------- */
+.pg-head { margin-bottom: 28px; }
+.pg-date { font-size: 13px; color: var(--ink-3); margin-bottom: 6px; }
+.pg-head h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+.pg-sub { margin: 8px 0 0; font-size: 14.5px; color: var(--ink-2); line-height: 1.6; }
+
+/* ---------- 区块标题 ---------- */
+.sec-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+.sec-h h2 { margin: 0; font-size: 17px; font-weight: 650; }
+.sec-h .n { color: var(--ink-3); font-size: 14px; }
+.sec-h .aside { margin-left: auto; font-size: 13px; color: var(--ink-3); }
+.panel { background: #fff; border-radius: 16px; margin-bottom: 40px; }
+
+/* ---------- 待发消息 ---------- */
+.msg { padding: 22px 24px 18px; border-top: 1px solid var(--soft); }
+.msg:first-child { border-top: 0; }
+.msg-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.av { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex: none; background: var(--soft); color: var(--ink-2); }
+.who b { font-size: 15.5px; font-weight: 650; }
+.who .meta { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+.link { border: 0; background: none; padding: 0; color: inherit; cursor: pointer; font: inherit; }
+.link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.why { margin-left: auto; text-align: right; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.kind { font-weight: 600; }
+.kind.praise { color: var(--ok); }
+.kind.nudge { color: var(--warn); }
+
+.bubble { margin-left: 46px; background: var(--soft); border-radius: 4px 14px 14px 14px; padding: 14px 16px; font-size: 15px; line-height: 1.75; color: var(--ink); white-space: pre-wrap; }
+.bubble.alt-in { animation: fade .25s ease; }
+@keyframes fade { from { opacity: .3; } to { opacity: 1; } }
+.edit { margin-left: 46px; }
+.edit textarea { width: 100%; min-height: 96px; border: 0; border-radius: 4px 14px 14px 14px; padding: 14px 16px; font: inherit; font-size: 15px; line-height: 1.75; color: var(--ink); background: #fff; box-shadow: 0 0 0 1.5px var(--ink); resize: vertical; outline: none; }
+.note { margin: 10px 0 0 46px; font-size: 13px; color: var(--warn); line-height: 1.55; }
+.evi { margin: 10px 0 0 46px; font-size: 12.5px; color: var(--ink-3); line-height: 1.7; display: none; }
+.evi.on { display: block; }
+
+.acts { display: flex; align-items: center; gap: 8px; margin: 14px 0 0 46px; flex-wrap: wrap; position: relative; }
+.btn { height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--soft); color: var(--ink); font-size: 13.5px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: #E5E5EA; }
+.btn.primary { background: var(--ink); color: #fff; }
+.btn.primary:hover { background: #000; }
+.btn.plain { background: none; color: var(--ink-2); padding: 0 8px; }
+.btn.plain:hover { color: var(--ink); background: var(--soft); }
+.acts .sp { flex: 1; }
+.menu { position: absolute; top: 38px; z-index: 10; background: #fff; border-radius: 12px; padding: 6px; min-width: 230px; box-shadow: 0 0 0 1px var(--line), 0 12px 28px rgba(0,0,0,.12); display: none; }
+.menu.on { display: block; }
+.menu button { display: flex; width: 100%; justify-content: space-between; gap: 16px; border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 7px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.menu button:hover { background: var(--soft); }
+.menu button small { color: var(--ink-3); font-size: 12.5px; }
+.menu button .rec { color: var(--warn); }
+.menu .lbl { padding: 6px 10px 4px; font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+
+/* 处理后折叠成一行 */
+.done { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-top: 1px solid var(--soft); font-size: 14px; color: var(--ink-2); }
+.done:first-child { border-top: 0; }
+.done .av { width: 26px; height: 26px; font-size: 12px; }
+.done b { color: var(--ink); font-weight: 600; }
+.done .reasons { display: flex; gap: 4px; margin-left: 8px; }
+.done .reasons button { border: 0; background: none; color: var(--ink-3); font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 5px; }
+.done .reasons button:hover { background: var(--soft); color: var(--ink); }
+.done .reasons button.on { color: var(--ink); background: var(--soft); }
+.done .undo { margin-left: auto; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.empty { padding: 24px; color: var(--ink-2); font-size: 14.5px; }
+
+/* ---------- 表格（今天的填写情况 / 全部学生） ---------- */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { text-align: left; font-size: 12.5px; font-weight: 500; color: var(--ink-3); padding: 14px 12px 10px; white-space: nowrap; }
+.tbl td { padding: 13px 12px; font-size: 14px; color: var(--ink-2); border-top: 1px solid var(--soft); vertical-align: middle; }
+.tbl th:first-child, .tbl td:first-child { padding-left: 24px; }
+.tbl th:last-child, .tbl td:last-child { padding-right: 24px; }
+.tbl tbody tr.row { cursor: pointer; }
+.tbl tbody tr.row:hover td { background: #FAFAFC; }
+.tbl .grp td { border-top: 0; padding: 18px 24px 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .02em; cursor: default; }
+.tbl .grp td span { font-weight: 400; margin-left: 6px; }
+.nm { display: flex; align-items: center; gap: 10px; }
+.nm .av { width: 28px; height: 28px; font-size: 12.5px; }
+.nm b { color: var(--ink); font-weight: 600; font-size: 14.5px; }
+.nm small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
+.col-mentor { display: none; }
+.is-admin .col-mentor { display: table-cell; }
+.days, .dayh { display: grid; grid-template-columns: repeat(7, 18px); gap: 5px; }
+.dayh span { font-size: 11.5px; color: var(--ink-3); text-align: center; }
+.dayh span.t { color: var(--ink); font-weight: 600; }
+.d { display: inline-block; width: 18px; height: 18px; border-radius: 5px; background: #fff; box-shadow: inset 0 0 0 1.5px #D1D1D6; }
+.d.f { background: var(--fill); box-shadow: none; }
+.d.t { background: repeating-linear-gradient(45deg, #fff 0 3px, #F2F2F7 3px 6px); }
+.d.n { background: none; box-shadow: none; position: relative; }
+.d.n::after { content: ""; position: absolute; left: 6px; right: 6px; top: 8px; height: 2px; background: #E5E5EA; border-radius: 1px; }
+.state { color: var(--ink); }
+.state.warn { color: var(--warn); font-weight: 600; }
+.state small { display: block; font-weight: 400; color: var(--ink-3); font-size: 12.5px; margin-top: 2px; }
+.today-msg { border: 0; background: none; padding: 0; font-size: 13.5px; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: #C7C7CC; text-underline-offset: 3px; }
+.today-msg.quiet { color: var(--ink-3); text-decoration: none; cursor: inherit; }
+.conn { white-space: nowrap; }
+.conn i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 2px; background: var(--fill); }
+.conn.wait i { background: #C7C7CC; }
+.conn.no i { background: #fff; box-shadow: inset 0 0 0 1.5px #C7C7CC; }
+.legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--ink-3); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .d { width: 12px; height: 12px; border-radius: 3px; }
+.legend .d.n::after { left: 3px; right: 3px; top: 5px; }
+.more td { padding: 12px 24px; }
+.more button { border: 0; background: none; color: var(--ink-2); font-size: 13.5px; cursor: pointer; padding: 0; }
+
+/* 全部学生 */
+.all-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
+.all-head h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+.all-head p { margin: 8px 0 0; color: var(--ink-2); font-size: 14.5px; }
+.all-head .btn { margin-left: auto; }
+.filters { display: flex; gap: 8px; margin-bottom: 12px; }
+
+/* ---------- 学生详情页 ---------- */
+.back { border: 0; background: none; padding: 0; color: var(--ink-2); font-size: 13.5px; cursor: pointer; margin-bottom: 18px; }
+.back:hover { color: var(--ink); }
+.det-head { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+.det-head .av { width: 52px; height: 52px; font-size: 20px; }
+.det-head h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+.det-head .meta { margin-top: 6px; font-size: 14px; color: var(--ink-2); }
+.det-head .meta span + span::before { content: " · "; color: var(--ink-3); }
+.det-head .acts2 { margin-left: auto; display: flex; gap: 8px; }
+.grid2 { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+.grid2 .panel { margin-bottom: 24px; }
+.grid2 > div { min-width: 0; }
+.cal { padding: 18px 20px 20px; }
+.cal-h, .cal-w { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-h span { font-size: 12px; color: var(--ink-3); text-align: center; padding-bottom: 6px; }
+.cal-w { margin-top: 6px; }
+.cal-w i { aspect-ratio: 1; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 12px; color: var(--ink-3); background: #fff; box-shadow: inset 0 0 0 1.5px #E5E5EA; }
+.cal-w i.f { background: var(--fill); color: #fff; box-shadow: none; }
+.cal-w i.t { background: repeating-linear-gradient(45deg, #fff 0 3px, #F2F2F7 3px 6px); color: var(--ink); font-weight: 600; }
+.cal-w i.x { background: none; box-shadow: none; color: #D1D1D6; }
+.cal-sum { margin-top: 14px; font-size: 13.5px; color: var(--ink-2); line-height: 1.6; }
+.facts { padding: 6px 20px; }
+.facts div { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--soft); font-size: 13.5px; }
+.facts div:first-child { border-top: 0; }
+.facts dt { color: var(--ink-3); }
+.facts dd { margin: 0; color: var(--ink); text-align: right; }
+.hist { padding: 6px 20px; }
+.hist li { list-style: none; padding: 12px 0; border-top: 1px solid var(--soft); }
+.hist li:first-child { border-top: 0; }
+.hist ul { margin: 0; padding: 0; }
+.hist .top { display: flex; gap: 8px; font-size: 12.5px; color: var(--ink-3); }
+.hist .top b { color: var(--ink-2); font-weight: 600; }
+.hist .top .st { margin-left: auto; }
+.hist p { margin: 4px 0 0; font-size: 13.5px; color: var(--ink); line-height: 1.6; }
+.hist p.skip { color: var(--ink-3); }
+.rule { padding: 12px 20px 16px; font-size: 12.5px; color: var(--ink-3); line-height: 1.6; border-top: 1px solid var(--soft); }
+.recs td { vertical-align: top; white-space: nowrap; }
+.recs td:nth-child(2), .recs td.note { white-space: normal; }
+.recs th, .recs td { padding-left: 8px; padding-right: 8px; }
+.in-detail .bubble, .in-detail .edit, .in-detail .acts, .in-detail .note, .in-detail .evi { margin-left: 0; }
+.recs td.note { color: var(--ink); max-width: 260px; }
+.recs .g { color: var(--ink); font-weight: 600; }
+.foot-link { display: block; padding: 14px 24px; border-top: 1px solid var(--soft); color: var(--ink-2); font-size: 13.5px; text-decoration: none; }
+.foot-link:hover { color: var(--ink); }
+
+.flash { animation: flash 1.2s ease; }
+@keyframes flash { 0%, 40% { background: #FFF7E6; } 100% { background: transparent; } }
+.toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 13.5px; opacity: 0; transition: .2s; pointer-events: none; z-index: 100; }
+.toast.on { opacity: 1; transform: translateX(-50%); }
+
+/* ---------- 说明 ---------- */
+.notes { max-width: 1000px; margin: 56px 0 0; padding-top: 32px; border-top: 1px dashed #C7C7CC; color: var(--ink-2); font-size: 14px; line-height: 1.75; }
+.notes h3 { color: var(--ink); font-size: 16px; margin: 28px 0 8px; }
+.notes h3:first-child { margin-top: 0; }
+.notes ol, .notes ul { margin: 0; padding-left: 20px; }
+.notes li { margin: 4px 0; }
+.notes b { color: var(--ink); }
+.notes .ok { color: var(--ok); font-weight: 600; }
+
+@media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .app .mentor-sidebar { display: none; }
+  .main { padding: 8px 16px 48px; }
+  .tabs { flex-wrap: wrap; }
+  .tabs .right { width: 100%; padding-bottom: 10px; }
+  .search { flex: 1; width: auto; }
+  .msg { padding: 18px 16px; }
+  .msg-head { flex-wrap: wrap; }
+  .why { margin-left: 46px; text-align: left; width: 100%; }
+  .bubble, .edit, .acts, .note, .evi { margin-left: 0; }
+  .panel.scroll { overflow-x: auto; }
+  .panel.scroll .tbl { min-width: 640px; }
+  .sec-h { flex-wrap: wrap; }
+  .sec-h .aside { margin-left: 0; width: 100%; }
+  .det-head { flex-wrap: wrap; }
+  .det-head .acts2 { margin-left: 0; width: 100%; }
+  .all-head { flex-wrap: wrap; }
+  .all-head .btn { margin-left: 0; }
+  .mock-bar > span:not(.seg), .mock-bar a { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="mock-bar">
+  <b>设计稿</b><span>学生管理 · 测试数据 · 今天按 10/26 周一算</span>
+  <span class="seg" aria-label="视角">
+    <button class="on" data-view="mentor">导师（陈老师）</button>
+    <button data-view="admin">管理员</button>
+  </span>
+  <a href="#notes">这版改了什么 ↓</a>
+</div>
+
+<div class="app" id="app">
+  <aside class="mentor-sidebar">
+    <div class="mentor-sidebar-header"><img src="../../src/logo/logo_color.png" alt="" class="mentor-sidebar-logo"><div class="mentor-sidebar-brand"><span class="mentor-sidebar-title">一表人才</span><span class="mentor-sidebar-subtitle">导师管理系统</span></div></div>
+    <nav class="mentor-sidebar-nav">
+      <button class="mentor-sidebar-nav-item active" data-act="nav-home"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>学生管理</span></button>
+      <button class="mentor-sidebar-nav-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M7 12h2M10 8h2M13 16h2M16 11h2"/></svg><span>数据分析</span></button>
+      <button class="mentor-sidebar-nav-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>课表</span></button>
+      <button class="mentor-sidebar-nav-item"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>系统设置</span></button>
+    </nav>
+    <div class="mentor-sidebar-footer">
+      <button type="button" class="workspace-switch mentor-workspace-switch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg><span>前往 E4 学习力平台</span></button>
+      <div class="mentor-sidebar-user"><div class="mentor-sidebar-user-avatar">陈</div><div class="mentor-sidebar-user-info"><div class="mentor-sidebar-user-name">陈老师</div><div class="mentor-sidebar-user-role" id="role">教师账号</div></div></div>
+      <button class="mentor-sidebar-signout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>退出登录</span></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="wrap" id="page"></div>
+
+    <section class="notes" id="notes">
+      <h3>已经定下来的</h3>
+      <ul>
+        <li><span class="ok">✓</span> <b>复制就算已发。</b>不再有单独的「已发」按钮，复制后这条折叠成一行，可撤销。</li>
+        <li><span class="ok">✓</span> <b>「过几天再说」到期后按最新的记录重新写一条</b>，不是把旧的放回来。期间学生记了，提醒就自动撤掉。</li>
+        <li><span class="ok">✓</span> <b>同一个学生的两次提醒至少隔 3 天。</b>「过几天再说」只给 3 天后 / 5 天后 / 7 天后三个选项；表扬不受这个限制。</li>
+        <li><span class="ok">✓</span> <b>管理员能做导师能做的一切。</b>两个人都能处理同一条消息，所以已发的那行会写「谁、几点发的」，避免学生收到两遍。以后学生分配给某位导师后，管理员对这些学生的消息只能看、不能处理（这版先不做）。</li>
+        <li><span class="ok">✓</span> <b>不再用「新生」。</b>注册 30 天内统一叫「首月」，写成「首月 · 第 13 天」；之后叫「每周看」。现有代码里的「新生昨天没填」「新生 = 注册 30 天内」等文字都要跟着改。</li>
+      </ul>
+
+      <h3>AI 只能看到学生填的记录</h3>
+      <ul>
+        <li>看得到：科目 / 章节 / 单元、学习·复习·练习、时长、自评、练习的实测、备注。看不到作业、题目和试卷本身。</li>
+        <li>所以只说记录里有的事：备注原话可以引用；不说「写得清楚」「弄懂了」「很认真」，不编备注里没写的动作和数量，不推因果，不说「很稳」「扎实」。</li>
+        <li>看全局：代码先把一段时间的规律算出来（同一章学了又复习、实测从 B- 到 B+、第一次记某科），AI 挑最能说明情况的一件说。</li>
+        <li>最多问一个问题，要具体、一句话能答。生成后由代码检查等第、数字、引号里的原话是否都能在记录里找到；对不上的会提示导师发之前看一眼。</li>
+      </ul>
+
+      <h3>建议：「今天」「全部学生」做成学生管理里的两个标签，学生详情做成单独一页</h3>
+      <ol>
+        <li><b>侧栏不加东西。</b>上次在侧栏加「今日」被否了，这次两个视图都放在「学生管理」里面，用页内标签切换。</li>
+        <li><b>「今天」是做事的地方：</b>要发的消息 + 这周谁记了谁没记。打开导师台默认落在这里。</li>
+        <li><b>「全部学生」是管名单的地方：</b>按顾问（备注名括号里的 Angela / Jason）分组，邀请、连接状态、学校筛选都在这里。现在首页上的这些工具挪过来，所以首页就不挤了。</li>
+        <li><b>顾问和导师是两回事。</b>导师是登录账号（陈老师、李老师）；顾问是备注名里写的名字，只用来分组，不是账号。两个标签右上角的「顾问」下拉是同一个筛选。管理员视图里另外多一列「导师」。</li>
+        <li><b>学生详情做成单独一页，不再从右侧滑出。</b>要放的东西变多了：今天的消息、四周的填写日历、发过的消息（提醒间隔要看得到）、最近的记录。侧滑面板放不下，也没法用链接直接打开、没法返回。单独一页带「← 返回」，回到点进来的那个标签。</li>
+      </ol>
+
+      <h3>还没定</h3>
+      <ul>
+        <li>学生详情页里要不要保留 J / K 切换上一个、下一个学生（现在侧滑面板里有）。我倾向保留。</li>
+        <li>提醒加进夜间任务后，每晚模型调用大约多三到五成。</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------- 测试数据 ----------------
+// 近 7 天：二 三 四 五 六 日 今；f 记了 · e 没记 · t 今天还没记 · n 还没注册
+const STUDENTS = [
+  { id: 'liu',  name: '刘佳琪', real: '刘佳琪', con: 'Jason',  mentor: '陈老师', school: '包玉刚',         stage: '首月 · 第 6 天', signup: '10/21', days: 'neeeeet', state: '还没开始记', warn: true, sub: '注册后一条都没有', last: '还没有记录' },
+  { id: 'wang', name: '王可欣', real: '王可欣', con: 'Angela', mentor: '陈老师', school: '平和双语',       stage: '每周看', signup: '8/7', days: 'fffeeet', state: '4 天没记', warn: true, sub: '系统昨天推送过一次', last: '10/22 周四' },
+  { id: 'chen', name: '陈思远', real: '陈思远', con: 'Angela', mentor: '陈老师', school: '平和双语',       stage: '首月 · 第 21 天', signup: '10/6', days: 'fefeeet', state: '3 天没记', warn: true, sub: '实测待补 2 条', last: '10/23 周五' },
+  { id: 'zhou', name: '周以宁', real: '周以宁', con: 'Angela', mentor: '陈老师', school: '上海中学国际部', stage: '首月 · 第 13 天', signup: '10/14', days: 'ffeffft', state: '正常', sub: '今天还没记', last: '10/25 昨天' },
+  { id: 'zhao', name: '赵一鸣', real: '赵一鸣', con: 'Jason',  mentor: '陈老师', school: '包玉刚',         stage: '每周看', signup: '7/23', days: 'fefefef', state: '正常', sub: '今天已经记了', last: '10/26 今天' },
+  { id: 'lin',  name: '林小满', real: '林小满', con: 'Angela', mentor: '陈老师', school: '上海中学国际部', stage: '每周看', signup: '9/1', days: 'fffffff', state: '每天都记', sub: '实测待补 2 条', last: '10/26 今天' },
+  // 只有管理员看得到：李老师连接的学生
+  { id: 'he',   name: '何安琪', real: '何安琪', con: 'Jason',  mentor: '李老师', school: '包玉刚',         stage: '首月 · 第 9 天', signup: '10/18', days: 'fffeffft', state: '正常', sub: '今天还没记', last: '10/25 昨天', adminOnly: true },
+];
+const UNLINKED = [
+  { name: '孙浩然', con: 'Angela', school: '上海中学国际部', stage: '每周看', conn: 'wait', connText: '邀请中' },
+  { name: '吴雨桐', con: null, school: '平和双语', stage: '每周看', conn: 'no', connText: '已拒绝' },
+  { name: '郑子涵', con: null, school: '未设置学校', stage: '首月 · 第 30 天', conn: 'no', connText: '未邀请' },
+];
+
+const DRAFTS = [
+  { sid: 'zhou', type: 'praise', kind: '每日表扬', why: '昨天记了 2 条：物理、数学',
+    evi: '10/25 物理 · 牛顿定律 / 斜面 · 练习 · 实测 B+ · 备注「斜面那题受力图错两次，对着例题改了」\n10/25 物理 · 牛顿第二定律 · 复习 · 40 分钟',
+    alts: [
+      '斜面那题受力图错了两次，你备注里写了是对着例题改的。牛顿第二定律那节当天也复习了。',
+      '昨天物理记了两条，牛顿第二定律先复习，再做斜面那组练习，实测 B+。',
+      '牛顿定律这周你周四学、周日复习又练了一次，斜面那题还对着例题改了受力图。',
+    ] },
+  { sid: 'lin', type: 'praise', kind: '周小结', why: '上周 7 天都记了 · 有一件事可以问问',
+    evi: '10/21 数学 · 链式法则 · 练习 · 实测 A · 备注「三层复合都对了」\n10/25 数学 · 错题复习 · 复习\n10/23 物理 · 摩擦力 · 练习 · 自评 完全掌握 · 实测 B- · 备注「最后两题没思路」',
+    alts: [
+      '链式法则那组练习实测 A，你备注写了三层复合都对了，周日又记了一次错题复习。\n\n物理摩擦力周四那次你自评完全掌握，实测是 B-，备注说最后两题没思路。要不要这周找二十分钟一起看看？',
+      '上周七天都有记录，微积分链式法则练习拿了 A，周日还专门复习了错题。\n\n摩擦力周四最后两题没思路，是卡在受力分析，还是公式不会用？',
+    ] },
+  { sid: 'zhao', type: 'praise', kind: '周小结', why: '上周记了 4 天',
+    evi: '10/22 英语 · 议论文写作 / 论点展开 · 学习 · 备注「按老师说的每段一个论点改了」\n10/24 化学 · 平衡常数 · 练习 · 实测 A-',
+    alts: [
+      '议论文那次你备注写了按每段一个论点改了一版。化学平衡常数那组练习实测 A-。',
+      '上周四天有记录，英语和化学各两次。化学平衡常数练习拿了 A-，议论文也照每段一个论点改了。',
+    ] },
+  { sid: 'chen', type: 'nudge', kind: '提醒', why: '首月 · 3 天没记',
+    evi: '最后一条：10/23 英语 · 词汇 · 复习 · 备注「把老记混的 8 个词单独抄下来了」',
+    alts: [
+      '周末过得怎么样？上周你把英语那 8 个老记混的词单独抄出来了，后来复习的时候还会混吗？这几天有学的话，随手记一条就行。',
+      '这两天学校是不是事情多？不急，有空把最近上的课记一两条，我想看看英语单词那块后来怎么样了。',
+    ] },
+  { sid: 'wang', type: 'nudge', kind: '周小结 + 提醒', why: '上周记了 4 天 · 之后 4 天没记',
+    note: '系统昨天（10/25）已经给她推送过一次「几天没记录」的提醒。今天再发容易像在催，可以过 3 天再说。',
+    recSnooze: 3,
+    evi: '10/19–10/22 物理 · 牛顿定律 · 练习 ×3\n10/16 物理单元测验 B- · 备注「受力分析丢分」\n10/23 起没有记录',
+    alts: [
+      '上周前几天物理牛顿定律的练习你连着记了三次。\n\n之后没看到新的记录，这两天是不是作业比较多？方便的时候记一条最近学的就行。',
+      '单元测验之后，你连着三天都记了牛顿定律的练习。\n\n这周还没看到记录，是在忙别的科吗？有空先记一条，我好知道你现在学到哪了。',
+    ] },
+  { sid: 'liu', type: 'nudge', kind: '提醒', why: '首月 · 第 6 天 · 还没记过',
+    evi: '10/21 注册，之后没有记录。首月学生端每天会收到系统的记录提醒（默认开）。',
+    alts: [
+      '刚开始用可能不知道从哪记起。先记今天上的一节课就行，写上课名和大概学了什么。哪里不会填直接问我。',
+      '不用一次记很全，今天上完课记一条试试。填的时候卡在哪一步了，跟我说一声。',
+    ] },
+  { sid: 'he', type: 'praise', kind: '每日表扬', why: '昨天记了 3 条', sentBy: '李老师', sentAt: '09:12',
+    evi: '10/25 英语 · 阅读 · 学习 · 备注「先把生词圈出来再读」', alts: ['英语阅读那次你备注写了先把生词圈出来再读，昨天三条记录里两条是英语。'] },
+];
+
+// 发过的消息（学生详情页用）
+const HISTORY = {
+  chen: [
+    { date: '10/23 周五', kind: '每日表扬', by: '陈老师', st: '已发', text: '英语那 8 个老记混的词你单独抄下来了，复习的时候好找。' },
+    { date: '10/20 周一', kind: '提醒', by: '陈老师', st: '已发', text: '周末有没有空记一两条？上周数学那几节课后来怎么样了？' },
+    { date: '10/17 周五', kind: '每日表扬', by: '陈老师', st: '不用发 · 当面说过了', skip: true, text: '' },
+  ],
+  wang: [
+    { date: '10/19 周一', kind: '周小结', by: '陈老师', st: '已发', text: '上周物理牛顿定律记了四次，其中三次是练习，实测都填了。' },
+  ],
+  zhou: [
+    { date: '10/24 周六', kind: '每日表扬', by: '陈老师', st: '已发', text: '数学导数那节你备注写了例题自己又推了一遍。' },
+    { date: '10/22 周四', kind: '每日表扬', by: '陈老师', st: '已发', text: '物理摩擦力那节课当天就记上了，第二天又复习了一次。' },
+  ],
+};
+const LAST_NUDGE = { chen: '10/20 周一', wang: '没有', liu: '没有' };
+
+// 最近的记录（学生详情页用，按学生生成几条）
+function recordsOf(id) {
+  const base = {
+    chen: [['10/23 周五', '英语 · 词汇', '复习', '35 分钟', '基本掌握', '', '把老记混的 8 个词单独抄下来了'], ['10/21 周三', '数学 · 一元二次方程 / 配方法', '练习', '40 分钟', '有不少没掌握', '待补', ''], ['10/20 周二', '物理 · 牛顿定律', '学习', '45 分钟', '基本掌握', '', '']],
+    zhou: [['10/25 周日', '物理 · 牛顿定律 / 斜面', '练习', '30 分钟', '基本掌握', 'B+', '斜面那题受力图错两次，对着例题改了'], ['10/25 周日', '物理 · 牛顿第二定律', '复习', '40 分钟', '完全掌握', '', ''], ['10/24 周六', '数学 · 导数', '学习', '50 分钟', '基本掌握', '', '例题自己又推了一遍']],
+  };
+  return base[id] || [['10/22 周四', '物理 · 牛顿定律 / 摩擦力', '练习', '30 分钟', '基本掌握', 'B', ''], ['10/21 周三', 'AP 微积分 BC · 导数 / 链式法则', '学习', '45 分钟', '完全掌握', '', ''], ['10/20 周二', 'IB 英语 A · 议论文写作', '复习', '25 分钟', '基本掌握', '', '']];
+}
+
+// ---------------- 状态 ----------------
+const state = {};
+DRAFTS.forEach((d) => { state[d.sid] = { alt: 0, status: d.sentBy ? 'sent' : 'open', by: d.sentBy, at: d.sentAt, text: d.alts[0] }; });
+let view = 'mentor', page = 'today', detailId = null, from = 'today', con = '全部', showUnlinked = false;
+
+const byId = Object.fromEntries(STUDENTS.map((s) => [s.id, s]));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SNOOZE = [
+  { d: 3, label: '3 天后', date: '10/29 周四' },
+  { d: 5, label: '5 天后', date: '10/31 周六' },
+  { d: 7, label: '7 天后', date: '11/2 周一' },
+];
+const isAdmin = () => view === 'admin';
+const seen = (s) => (isAdmin() || !s.adminOnly) && (con === '全部' || (con === '未分配' ? !s.con : s.con === con));
+const students = () => STUDENTS.filter(seen);
+const drafts = () => DRAFTS.filter((d) => seen(byId[d.sid]));
+const daysHtml = (str) => `<div class="days">${[...str].slice(-7).map((c) => `<i class="d ${c === 'e' ? '' : c}"></i>`).join('')}</div>`;
+
+// ---------------- 消息卡片 ----------------
+function msgHtml(d, inDetail) {
+  const s = byId[d.sid], st = state[d.sid];
+  const av = `<span class="av">${s.name[0]}</span>`;
+  const nameBtn = `<button class="link" data-act="open" data-sid="${s.id}">${s.name}</button>`;
+  if (st.status === 'sent') {
+    const by = st.by || '你';
+    const mine = !st.by || st.by === '陈老师';
+    return `<div class="done">${av}<span>${by === '你' ? '已复制给' : `<b>${by}</b> ${st.at} 已发给`} <b>${nameBtn}</b>${by === '你' ? '，记为已发' : ''}</span>${mine ? `<button class="undo" data-act="undo" data-sid="${d.sid}">撤销</button>` : ''}</div>`;
+  }
+  if (st.status === 'later') return `<div class="done">${av}<span><b>${nameBtn}</b>：${st.when} 按那时的记录重新写一条${d.type === 'nudge' ? '；这之前记了就不提醒了' : ''}</span><button class="undo" data-act="undo" data-sid="${d.sid}">撤销</button></div>`;
+  if (st.status === 'skip') return `<div class="done">${av}<span>不给 <b>${nameBtn}</b> 发这条</span><span class="reasons">${['当面说过了', '请假了', '这条写得不合适'].map((r) => `<button class="${st.reason === r ? 'on' : ''}" data-act="reason" data-r="${r}" data-sid="${d.sid}">${r}</button>`).join('')}</span><button class="undo" data-act="undo" data-sid="${d.sid}">撤销</button></div>`;
+
+  const body = st.editing
+    ? `<div class="edit"><textarea data-sid="${d.sid}">${esc(st.text)}</textarea></div>`
+    : `<div class="bubble" id="b-${d.sid}">${esc(st.text)}</div>`;
+  const acts = st.editing
+    ? `<button class="btn primary" data-act="save" data-sid="${d.sid}">保存</button><button class="btn plain" data-act="cancel" data-sid="${d.sid}">取消</button>`
+    : `<button class="btn primary" data-act="copy" data-sid="${d.sid}">复制</button>
+       <button class="btn" data-act="edit" data-sid="${d.sid}">改一下</button>
+       <button class="btn" data-act="snooze" data-sid="${d.sid}">过几天再说</button>
+       <button class="btn plain" data-act="skip" data-sid="${d.sid}">不用发</button>
+       <span class="sp"></span>
+       <button class="btn plain" data-act="alt" data-sid="${d.sid}">换个说法</button>
+       <button class="btn plain" data-act="evi" data-sid="${d.sid}">${st.evi ? '收起依据' : '依据'}</button>
+       <div class="menu" id="m-${d.sid}"><div class="lbl">到时候按最新的记录重新写一条</div>${SNOOZE.map((o) => `<button data-act="later" data-d="${o.d}" data-sid="${d.sid}"><span>${o.label}${d.recSnooze === o.d ? ' <span class="rec">· 建议</span>' : ''}</span><small>${o.date}</small></button>`).join('')}</div>`;
+  const meta = inDetail ? '' : `<div class="who"><b>${nameBtn}</b><span class="meta">${s.stage} · ${s.school}${s.con ? ` · ${s.con}` : ''}${isAdmin() ? ` · 导师 ${s.mentor}` : ''}</span></div>`;
+
+  return `<article class="msg ${inDetail ? 'in-detail' : ''}" id="msg-${d.sid}">
+    <div class="msg-head">${inDetail ? '' : av}${meta}
+      <div class="why" ${inDetail ? 'style="margin-left:0;text-align:left"' : ''}><span class="kind ${d.type}">${d.kind}</span>${inDetail ? ' · ' : '<br>'}${d.why}</div>
+    </div>
+    ${body}
+    ${d.note && !st.editing ? `<div class="note">${d.note}</div>` : ''}
+    <div class="evi ${st.evi ? 'on' : ''}">${esc(d.evi).replace(/\n/g, '<br>')}</div>
+    <div class="acts">${acts}</div>
+  </article>`;
+}
+
+function msgLabel(sid) {
+  const d = DRAFTS.find((x) => x.sid === sid);
+  if (!d) return '<span class="today-msg quiet">—</span>';
+  const st = state[sid];
+  if (st.status === 'sent') return `<span class="today-msg quiet">${st.by && st.by !== '陈老师' ? `${st.by}已发` : '已发'}</span>`;
+  if (st.status === 'later') return `<span class="today-msg quiet">${st.when.split(' ')[0]} 再写</span>`;
+  if (st.status === 'skip') return '<span class="today-msg quiet">不发</span>';
+  return `<button class="today-msg" data-act="jump" data-sid="${sid}">${d.type === 'praise' ? d.kind : '提醒'}待发</button>`;
+}
+
+// ---------------- 页面 ----------------
+function tabsHtml() {
+  const open = drafts().filter((d) => state[d.sid].status === 'open').length;
+  const cons = ['全部', 'Angela', 'Jason', '未分配'];
+  return `<div class="tabs">
+    <button class="tab ${page === 'today' ? 'on' : ''}" data-act="tab" data-p="today">今天${open ? `<span class="c">${open}</span>` : ''}</button>
+    <button class="tab ${page === 'all' ? 'on' : ''}" data-act="tab" data-p="all">全部学生<span class="c">${students().length + UNLINKED.length}</span></button>
+    <div class="right">
+      <select class="pick" id="con" aria-label="顾问">${cons.map((c) => `<option ${c === con ? 'selected' : ''}>${c === '全部' ? '全部顾问' : c}</option>`).join('')}</select>
+      <div class="search">搜索学生<kbd>/</kbd></div>
+    </div>
+  </div>`;
+}
+
+function todayHtml() {
+  const ds = drafts();
+  const open = ds.filter((d) => state[d.sid].status === 'open');
+  const praise = open.filter((d) => d.type === 'praise').length;
+  const sent = ds.filter((d) => state[d.sid].status === 'sent').length + 1;
+  const head = `<header class="pg-head"><div class="pg-date">10 月 26 日 周一</div>
+    <h1>${open.length ? `今天有 ${open.length} 条消息要发` : '今天的消息都处理完了'}</h1>
+    <p class="pg-sub">${open.length ? `${praise} 条表扬，${open.length - praise} 条提醒。都是根据学生自己的记录写的，复制后去微信发，看着不对就改一下。` : `今天发了 ${sent} 条。下面是这周的填写情况。`}</p></header>`;
+
+  const queue = `<div class="sec-h"><h2>待发</h2><span class="n">${open.length ? `${open.length} 条` : ''}</span><span class="aside">复制就算已发，可撤销</span></div>
+    <section class="panel">${ds.map((d) => msgHtml(d)).join('') || '<div class="empty">没有待发的消息。</div>'}</section>`;
+
+  const rows = students();
+  const follow = rows.filter((s) => s.warn), ok = rows.filter((s) => !s.warn);
+  const cols = isAdmin() ? 6 : 5;
+  const row = (s) => `<tr class="row" data-act="open" data-sid="${s.id}">
+    <td><div class="nm"><span class="av">${s.name[0]}</span><div><b>${s.name}</b><small>${s.stage} · ${s.school}</small></div></div></td>
+    <td class="col-mentor">${s.mentor}</td>
+    <td>${daysHtml(s.days)}</td>
+    <td><span class="state ${s.warn ? 'warn' : ''}">${s.state}<small>${s.sub}</small></span></td>
+    <td>${s.last}</td>
+    <td>${msgLabel(s.id)}</td></tr>`;
+  let body = '';
+  if (follow.length) body += `<tr class="grp"><td colspan="${cols}">要跟进 · ${follow.length}</td></tr>${follow.map(row).join('')}`;
+  if (ok.length) body += `<tr class="grp"><td colspan="${cols}">正常 · ${ok.length}</td></tr>${ok.map(row).join('')}`;
+  const board = `<div class="sec-h"><h2>这周谁记了</h2>
+      <span class="aside legend"><span><i class="d f"></i>记了</span><span><i class="d"></i>没记</span><span><i class="d t"></i>今天还没记</span><span><i class="d n"></i>还没注册</span></span></div>
+    <section class="panel scroll"><table class="tbl"><thead><tr><th>学生</th><th class="col-mentor">导师</th>
+      <th><div class="dayh"><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span><span class="t">今</span></div></th>
+      <th>情况</th><th>最后一次记录</th><th>今天的消息</th></tr></thead><tbody>${body || `<tr><td colspan="${cols}" class="empty">没有学生</td></tr>`}</tbody></table>
+      <a class="foot-link" href="#" data-act="tab" data-p="all">邀请学生、看未连接的学生 → 全部学生</a></section>`;
+  return head + queue + board;
+}
+
+function allHtml() {
+  const rows = students();
+  const un = UNLINKED.filter((u) => con === '全部' || (con === '未分配' ? !u.con : u.con === con));
+  const groups = {};
+  rows.forEach((s) => { (groups[s.con || '未分配'] ||= { on: [], off: [] }).on.push(s); });
+  un.forEach((u) => { (groups[u.con || '未分配'] ||= { on: [], off: [] }).off.push(u); });
+  const order = ['Angela', 'Jason', '未分配'].filter((k) => groups[k]);
+  const cols = isAdmin() ? 7 : 6;
+  const onRow = (s) => `<tr class="row" data-act="open" data-sid="${s.id}">
+    <td><div class="nm"><span class="av">${s.name[0]}</span><div><b>${s.name}</b><small>${s.real !== s.name ? `本名 ${s.real}` : '&nbsp;'}</small></div></div></td>
+    <td class="col-mentor">${s.mentor}</td>
+    <td>${s.school}</td><td>${s.stage}</td><td>${daysHtml(s.days)}</td><td>${s.last}</td>
+    <td><span class="conn"><i></i>已连接</span></td></tr>`;
+  const offRow = (u) => `<tr>
+    <td><div class="nm"><span class="av">${u.name[0]}</span><div><b style="color:var(--ink-2)">${u.name}</b><small>&nbsp;</small></div></div></td>
+    <td class="col-mentor">—</td>
+    <td>${u.school}</td><td>${u.stage}</td><td style="color:var(--ink-3)">连接后才能看</td><td>—</td>
+    <td><span class="conn ${u.conn}"><i></i>${u.connText}</span>${u.conn === 'no' ? ' <button class="btn plain" style="height:26px">邀请</button>' : ''}</td></tr>`;
+  const body = order.map((k) => `<tr class="grp"><td colspan="${cols}">${k}<span>${groups[k].on.length + groups[k].off.length} 人${k === '未分配' ? ' · 备注名里没写顾问' : ''}</span></td></tr>${groups[k].on.map(onRow).join('')}${groups[k].off.map(offRow).join('')}`).join('');
+  return `<div class="all-head"><div><h1>全部学生</h1><p>按顾问分组。顾问取自备注名括号里的名字，比如「林小满(Angela)」。</p></div><button class="btn primary">邀请学生</button></div>
+    <div class="filters"><select class="pick"><option>全部学校</option><option>上海中学国际部</option><option>平和双语</option><option>包玉刚</option></select><select class="pick"><option>全部连接状态</option><option>已连接</option><option>邀请中</option><option>未连接</option></select></div>
+    <section class="panel scroll"><table class="tbl"><thead><tr><th>学生</th><th class="col-mentor">导师</th><th>学校</th><th>阶段</th><th>近 7 天</th><th>最后一次记录</th><th>连接</th></tr></thead><tbody>${body}</tbody></table></section>`;
+}
+
+function detailHtml() {
+  const s = byId[detailId];
+  const d = DRAFTS.find((x) => x.sid === s.id);
+  // 四周日历：10/5 周一 起，到 11/1 周日；今天 10/26
+  const fillMap = { liu: [], wang: [6, 7, 8, 9, 10, 13, 15, 16, 17, 19, 20, 21, 22], chen: [7, 8, 10, 11, 14, 17, 18, 20, 22, 23], zhou: [14, 15, 16, 17, 19, 20, 21, 23, 24, 25], zhao: [9, 12, 13, 16, 18, 19, 20, 22, 24, 26], lin: [5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26], he: [18, 19, 20, 21, 23, 24, 25] };
+  const sign = Number((s.signup.split('/')[0] === '10') ? s.signup.split('/')[1] : 0);
+  const filled = new Set(fillMap[s.id] || []);
+  let weeks = '';
+  for (let w = 0; w < 4; w++) {
+    let cells = '';
+    for (let i = 0; i < 7; i++) {
+      const day = 5 + w * 7 + i;
+      const label = day > 31 ? day - 31 : day;
+      let cls = '';
+      if (day > 26) cls = 'x';
+      else if (day < sign) cls = 'x';
+      else if (filled.has(day)) cls = 'f';
+      else if (day === 26) cls = 't';
+      cells += `<i class="${cls}">${label}</i>`;
+    }
+    weeks += `<div class="cal-w">${cells}</div>`;
+  }
+  const n = [...filled].filter((x) => x >= Math.max(sign, 5) && x <= 26).length;
+  const total = 26 - Math.max(sign, 5) + 1;
+
+  const hist = HISTORY[s.id] || [];
+  const sentToday = d && state[d.sid].status === 'sent' ? [{ date: '10/26 今天', kind: d.kind, by: state[d.sid].by || '陈老师', st: '已发', text: state[d.sid].text }] : [];
+  const allHist = [...sentToday, ...hist];
+  const lastNudge = LAST_NUDGE[s.id];
+
+  const recs = recordsOf(s.id);
+  return `<button class="back" data-act="tab" data-p="${from}">← ${from === 'all' ? '全部学生' : '今天'}</button>
+    <div class="det-head"><span class="av">${s.name[0]}</span>
+      <div><h1>${s.name}</h1><div class="meta"><span>${s.stage}</span><span>${s.school}</span><span>顾问 ${s.con || '未分配'}</span>${isAdmin() ? `<span>导师 ${s.mentor}</span>` : ''}<span>已连接</span></div></div>
+      <div class="acts2"><button class="btn">改备注</button><button class="btn plain">断开连接</button></div>
+    </div>
+    <div class="grid2">
+      <div>
+        <div class="sec-h"><h2>今天的消息</h2></div>
+        <section class="panel">${d ? msgHtml(d, true) : '<div class="empty">今天没有要发的消息。</div>'}</section>
+
+        <div class="sec-h"><h2>最近的记录</h2><span class="aside">共 ${recs.length} 条 · 最近 7 天</span></div>
+        <section class="panel scroll"><table class="tbl recs"><thead><tr><th>日期</th><th>课程</th><th>类型</th><th>时长</th><th>主观</th><th>客观</th><th>备注</th></tr></thead>
+          <tbody>${recs.length && s.id !== 'liu' ? recs.map((r) => `<tr><td style="white-space:nowrap">${r[0]}</td><td style="color:var(--ink)">${r[1]}</td><td>${r[2]}</td><td style="white-space:nowrap">${r[3]}</td><td>${r[4]}</td><td class="${r[5] && r[5] !== '待补' ? 'g' : ''}" style="${r[5] === '待补' ? 'color:var(--warn)' : ''}">${r[5] || '—'}</td><td class="note">${r[6] || '<span style="color:var(--ink-3)">—</span>'}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">还没有记录</td></tr>'}</tbody></table>
+          <a class="foot-link" href="#">在数据分析里看 ${s.name} 的全部数据 →</a></section>
+      </div>
+      <div>
+        <div class="sec-h"><h2>四周填写</h2><span class="aside">${n} / ${total} 天</span></div>
+        <section class="panel cal">
+          <div class="cal-h"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>${weeks}
+          <div class="cal-sum">${sign > 5 ? `${s.signup} 注册。` : ''}${s.state === '正常' || s.state === '每天都记' ? '最近一直在记。' : `最后一次记录是 ${s.last}。`}</div>
+        </section>
+
+        <div class="sec-h"><h2>发过的消息</h2></div>
+        <section class="panel">
+          <div class="hist"><ul>${allHist.length ? allHist.map((h) => `<li><div class="top"><b>${h.date}</b><span>${h.kind}</span><span class="st">${h.skip ? h.st : `${h.by} ${h.st}`}</span></div>${h.text ? `<p>${esc(h.text)}</p>` : ''}</li>`).join('') : '<li><p class="skip">还没有发过消息。</p></li>'}</ul></div>
+          ${lastNudge ? `<div class="rule">上次提醒：${lastNudge}。同一个学生两次提醒至少隔 3 天，「过几天再说」也只能选 3 / 5 / 7 天。</div>` : ''}
+        </section>
+      </div>
+    </div>`;
+}
+
+function render() {
+  const el = document.getElementById('page');
+  el.innerHTML = page === 'detail' ? detailHtml() : tabsHtml() + (page === 'today' ? todayHtml() : allHtml());
+  const sel = document.getElementById('con');
+  if (sel) sel.onchange = () => { con = sel.value === '全部顾问' ? '全部' : sel.value; render(); };
+}
+
+// ---------------- 交互 ----------------
+let toastT;
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 1800); }
+function closeMenus() { document.querySelectorAll('.menu.on').forEach((m) => m.classList.remove('on')); }
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act],[data-view]');
+  if (!b) { closeMenus(); return; }
+  if (b.dataset.view) {
+    view = b.dataset.view;
+    document.querySelectorAll('[data-view]').forEach((x) => x.classList.toggle('on', x === b));
+    document.getElementById('app').classList.toggle('is-admin', isAdmin());
+    document.getElementById('role').textContent = isAdmin() ? '管理员' : '教师账号';
+    if (page === 'detail' && byId[detailId].adminOnly && !isAdmin()) page = from;
+    render(); return;
+  }
+  const sid = b.dataset.sid, st = state[sid], d = DRAFTS.find((x) => x.sid === sid);
+  switch (b.dataset.act) {
+    case 'nav-home': page = 'today'; break;
+    case 'tab': e.preventDefault(); page = b.dataset.p; window.scrollTo(0, 0); break;
+    case 'open': if (e.target.closest('.today-msg')) return; from = page === 'detail' ? from : page; page = 'detail'; detailId = sid; render(); window.scrollTo(0, 0); return;
+    case 'copy': navigator.clipboard?.writeText(st.text).catch(() => {}); st.status = 'sent'; st.by = null; toast(`已复制，去微信发给${byId[sid].name}吧`); break;
+    case 'edit': st.editing = true; break;
+    case 'cancel': st.editing = false; break;
+    case 'save': st.text = document.querySelector(`textarea[data-sid="${sid}"]`).value; st.editing = false; toast('已保存，下次生成会参考你的改法'); break;
+    case 'snooze': { const m = document.getElementById(`m-${sid}`); const was = m.classList.contains('on'); closeMenus(); if (!was) { m.style.left = b.offsetLeft + 'px'; m.classList.add('on'); } return; }
+    case 'later': { const o = SNOOZE.find((x) => x.d === Number(b.dataset.d)); st.status = 'later'; st.when = o.date; break; }
+    case 'skip': st.status = 'skip'; st.reason = null; break;
+    case 'reason': st.reason = st.reason === b.dataset.r ? null : b.dataset.r; break;
+    case 'undo': st.status = 'open'; break;
+    case 'alt': st.alt = (st.alt + 1) % d.alts.length; st.text = d.alts[st.alt]; render(); document.getElementById(`b-${sid}`)?.classList.add('alt-in'); return;
+    case 'evi': st.evi = !st.evi; break;
+    case 'jump': { const m = document.getElementById(`msg-${sid}`); m.scrollIntoView({ behavior: 'smooth', block: 'center' }); m.classList.remove('flash'); void m.offsetWidth; m.classList.add('flash'); return; }
+  }
+  render();
+  if (b.dataset.act === 'edit') document.querySelector(`textarea[data-sid="${sid}"]`)?.focus();
+});
+
+render();
+</script>
+</body>
+</html>

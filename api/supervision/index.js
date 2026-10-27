@@ -1,9 +1,11 @@
 // AI 监督流程入口（路由固定为单段 /api/supervision）。
 //
 //   1) 定时任务（pg_cron 每 15 分钟）：POST {"type":"run"}，头 x-notify-secret = NOTIFY_SECRET
-//      生成「新生每日一句」和「周一的周小结」草稿，返回摘要。重复触发安全（唯一键 + 先查后建）。
+//      撤下过期提醒、重写到期的「过几天再说」，生成「首月每日一句」「周一的周小结」和「温和提醒」草稿，返回摘要。
+//      重复触发安全（唯一键 + 先查后建）；一个学生最多一条未处理草稿。
 //   2) 重新生成：POST {"type":"regenerate","draft_id":"…"}，头 Authorization: Bearer <导师 access token>
 //      必须是该学生的已连接导师（status = 1）；管理员（role ≥ 3）可处理任意学生。
+//      支持 daily / weekly / nudge 以及「周小结 + 提醒」（meta.nudge）；已撤下（dropped）的返回 409。
 //   3) 本地调提示词：POST {"type":"preview","kind","dayN","records","issues"}
 //      只在非生产环境、且带头 x-supervision-dev: 1 时可用，不碰数据库；生产环境一律 404。
 //

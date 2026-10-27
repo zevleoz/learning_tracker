@@ -873,7 +873,7 @@ export default function Mentor() {
         delete next[studentId];
         return next;
       });
-      if (studentParam === studentId) setActiveView('analytics', { replace: true });
+      if (studentParam === studentId) goUrl({ view: activeView }, { replace: true });
       toast('学生已永久删除', { kind: 'success' });
       // 重拉一次，刷新统计与左侧列表
       try { await loadData(user.id, isAdmin); } catch (_) {}

@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from '../src/components/Layout.jsx';
+import WorkspaceSwitch from '../src/components/WorkspaceSwitch.jsx';
 import { renderStudentRoutes } from '../src/pages/student/routes.jsx';
+import { WORKSPACES, rootWorkspace, rememberWorkspacePath } from '../src/lib/workspaceNav.js';
 import { supabase } from '../src/__mocks__/supabase';
 import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 
@@ -106,5 +108,75 @@ describe('学生端路由', () => {
     renderApp('/me/reminders');
     expect(await screen.findByRole('heading', { name: '提醒' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByRole('switch').length).toBe(4));
+  });
+});
+
+describe('平台导航（一表人才 ⇄ E4）', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  function renderRoot(profile) {
+    return render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Navigate to={WORKSPACES[rootWorkspace(profile)]} replace />} />
+          <Route path="/mentor" element={<div>一表人才</div>} />
+          <Route path="/e4" element={<div>E4 首页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  function renderSwitch(path) {
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/mentor"
+            element={<><div>一表人才</div><WorkspaceSwitch target="e4" /></>}
+          />
+          <Route path="/e4" element={<><div>E4 首页</div><WorkspaceSwitch target="tracker" /></>} />
+          <Route path="/e4/students/9" element={<div>E4 学生页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('/ 落到本标签页上次用过的平台', () => {
+    rememberWorkspacePath('tracker', '/mentor?view=students');
+    renderRoot({ default_workspace: 'e4' });
+    expect(screen.getByText('一表人才')).toBeInTheDocument();
+    expect(screen.queryByText('E4 首页')).not.toBeInTheDocument();
+  });
+
+  it('/ 没有记录时按 default_workspace 分流', () => {
+    renderRoot({ default_workspace: 'tracker' });
+    expect(screen.getByText('一表人才')).toBeInTheDocument();
+  });
+
+  it('/ 没有记录且偏好为空时落 E4', () => {
+    renderRoot(null);
+    expect(screen.getByText('E4 首页')).toBeInTheDocument();
+  });
+
+  it('切到 E4 回到上次停留的那一页', () => {
+    rememberWorkspacePath('e4', '/e4/students/9');
+    renderSwitch('/mentor');
+    fireEvent.click(screen.getByRole('button', { name: '前往 E4 学习力平台' }));
+    expect(screen.getByText('E4 学生页')).toBeInTheDocument();
+  });
+
+  it('切到一表人才回到上次停留的那一页', () => {
+    rememberWorkspacePath('tracker', '/mentor?view=analytics&student=u1');
+    renderSwitch('/e4');
+    fireEvent.click(screen.getByRole('button', { name: '前往 一表人才' }));
+    expect(screen.getByText('一表人才')).toBeInTheDocument();
+  });
+
+  it('没有记录时切平台去对方首页', () => {
+    renderSwitch('/mentor');
+    fireEvent.click(screen.getByRole('button', { name: '前往 E4 学习力平台' }));
+    expect(screen.getByText('E4 首页')).toBeInTheDocument();
   });
 });

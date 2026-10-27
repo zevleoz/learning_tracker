@@ -6,6 +6,7 @@ import { useAuth } from '../lib/useAuth.js';
 import { listE4Students, updateWorkspace } from '../lib/e4Store.js';
 import { getRecentStudents, subscribeRecent } from '../lib/e4Recent.js';
 import WorkspaceSwitch from './WorkspaceSwitch.jsx';
+import { rememberWorkspacePath } from '../lib/workspaceNav.js';
 import logoColor from '../logo/logo_color.png';
 
 function IconStudents() {
@@ -198,6 +199,11 @@ export default function E4Layout() {
 
   useEffect(() => subscribeRecent(() => setRecent(getRecentStudents())), []);
   useEffect(() => { setRecent(getRecentStudents()); }, [location.pathname]);
+
+  // 记住 E4 里最后停留的页面：切到一表人才再回来、或打开 `/` 时都回到这里
+  useEffect(() => {
+    rememberWorkspacePath('e4', location.pathname + location.search);
+  }, [location.pathname, location.search]);
 
   // 记住上次打开的工作区：下次登录直接落到 E4
   useEffect(() => {

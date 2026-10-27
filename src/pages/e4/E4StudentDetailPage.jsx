@@ -331,7 +331,7 @@ export default function E4StudentDetailPage() {
                 <dt>追踪学生</dt>
                 <dd>
                   <Link
-                    to={`/mentor?student=${student.tracker_profile_id}`}
+                    to={`/mentor?view=analytics&student=${student.tracker_profile_id}`}
                     className="text-[var(--e4-accent-strong)] hover:underline"
                   >
                     {student.tracker?.full_name || '已关联'} · 查看学习数据 →

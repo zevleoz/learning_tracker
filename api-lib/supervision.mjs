@@ -27,6 +27,7 @@ export const PREV_WEEKS_LOOKBACK = 3;
 export const MAX_ISSUES = 4;
 export const DROP_SUPERSEDED = '有了更新的一条';
 export const DROP_RECORDED = '学生已经记了';
+export const DROP_MUTED = '已隐藏 / 暂停';
 const REJECTED_REASON = SKIP_REASONS[2]; // 这条写得不合适
 const SNOOZE_RECOMMEND = 3; // 系统刚推送过：建议先推迟 3 天
 
@@ -292,10 +293,13 @@ export async function runSupervisionJob({
   const today = shanghaiToday(now);
   const yesterday = addDays(today, -1);
   const startedAt = clock();
-  const students = await store.listScopeStudents();
-  if (students.length === 0) return summary;
+  const allStudents = await store.listScopeStudents();
+  if (allStudents.length === 0) return summary;
+  // 被隐藏 / 暂停的学生不参与本轮生成；他们名下已有的草稿稍后一并撤下
+  const mutedIds = await store.listActiveMuteIds(today);
+  const students = allStudents.filter((s) => !mutedIds.has(s.id));
   const byId = new Map(students.map((s) => [s.id, s]));
-  const ids = students.map((s) => s.id);
+  const ids = allStudents.map((s) => s.id);
   let attempts = 0;
   let consecutiveFailures = 0;
   let stopped = null;
@@ -370,6 +374,11 @@ export async function runSupervisionJob({
     }
   }
   await dropRows(surplus, DROP_SUPERSEDED);
+
+  // ⓪ 被隐藏 / 暂停：名下还没处理的草稿直接撤下，本轮也不再为这些学生生成
+  if (mutedIds.size > 0) {
+    await dropRows(openRows.filter((r) => mutedIds.has(r.student_id)), DROP_MUTED);
+  }
 
   // ① 自动撤下：提醒发出之后学生自己记了（包括推迟中的）
   const hasRecordFrom = (id, date) => [...datesOf(id)].some((d) => d >= date);
@@ -743,6 +752,24 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch }) {
     async getProfile(id) {
       const [row] = await getJson(`profiles?select=id,created_at,role&id=eq.${encodeURIComponent(id)}`);
       return row || null;
+    },
+    /**
+     * 当前生效的隐藏 / 暂停：hidden 永久；snoozed 到 until（含）为止。
+     * @returns {Promise<Set<string>>} 学生 id
+     */
+    async listActiveMuteIds(today) {
+      let rows;
+      try {
+        rows = await getAll('supervision_mutes?select=student_id,mode,until');
+      } catch (err) {
+        // 011 迁移还没跑时表不存在：当作没人被隐藏，别让整轮停掉
+        console.error('[supervision] 读取 supervision_mutes 失败，本轮不过滤', err?.message);
+        return new Set();
+      }
+      return new Set(rows
+        .filter((r) => r.mode === 'hidden'
+          || (r.mode === 'snoozed' && r.until && dateOf(r.until) >= today))
+        .map((r) => r.student_id));
     },
     /**
      * 该期已经有草稿的学生 id 集合（任何状态，含 dropped）。

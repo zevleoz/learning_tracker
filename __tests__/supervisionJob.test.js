@@ -32,7 +32,7 @@ const rec = (student_id, session_date, extra = {}) => ({
 
 /** 内存版 store，接口与 createSupabaseStore 一致 */
 function fakeStore({
-  students = [], records = [], drafts = [], connections = [], exams = [], pushes = [],
+  students = [], records = [], drafts = [], connections = [], exams = [], pushes = [], mutes = [],
 } = {}) {
   const state = { drafts: drafts.map((d) => ({ status: 'draft', meta: {}, created_at: '2026-10-20T02:00:00Z', ...d })), inserted: [], loads: [], dropped: [] };
   const inIds = (ids) => (d) => ids.includes(d.student_id);
@@ -40,6 +40,11 @@ function fakeStore({
   return {
     state,
     async listScopeStudents() { return students; },
+    async listActiveMuteIds(today) {
+      return new Set(mutes
+        .filter((m) => m.mode === 'hidden' || (m.mode === 'snoozed' && m.until && m.until >= today))
+        .map((m) => m.student_id));
+    },
     async getProfile(id) { return students.find((s) => s.id === id) || null; },
     async listDraftStudentIds(kind, start, end = start) {
       return new Set(state.drafts.filter((d) => d.kind === kind && (d.period_start === start || d.period_end === end)).map((d) => d.student_id));
@@ -402,7 +407,7 @@ describe('其他', () => {
 // ===========================================================================
 // 消息草稿 v2
 // ===========================================================================
-const { createSupabaseStore, DROP_SUPERSEDED, DROP_RECORDED } = require('../api-lib/supervision.mjs');
+const { createSupabaseStore, DROP_SUPERSEDED, DROP_RECORDED, DROP_MUTED } = require('../api-lib/supervision.mjs');
 
 let gseq = 0;
 /** 返回 C2 形状：text / alts / evidence / facts / why / lint */
@@ -634,6 +639,60 @@ describe('v2 · 自动撤下', () => {
     }
     expect(byId(store, 'nb').status).toBe('draft');
     expect(out.dropped).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('v2 · 隐藏 / 暂停学生', () => {
+  test('隐藏 / 暂停中的学生本轮不出草稿；名下 draft / snoozed 草稿撤下（DROP_MUTED）', async () => {
+    const store = fakeStore({
+      students: [
+        { id: 'hidden', created_at: signedUp(5) },
+        { id: 'snoozed', created_at: signedUp(5) },
+        { id: 'expired', created_at: signedUp(5) },
+        { id: 'normal', created_at: signedUp(5) },
+      ],
+      records: ['hidden', 'snoozed', 'expired', 'normal'].map((id) => rec(id, YESTERDAY)),
+      drafts: [
+        draftRow({ id: 'dh', student_id: 'hidden', kind: 'daily', period_start: '2026-10-22', period_end: '2026-10-22' }),
+        draftRow({
+          id: 'ds', student_id: 'snoozed', kind: 'nudge', period_start: '2026-10-22', period_end: '2026-10-22',
+          status: 'snoozed', snooze_until: TODAY, handled_at: '2026-10-22T03:00:00Z',
+        }),
+      ],
+      mutes: [
+        { student_id: 'hidden', mode: 'hidden', until: null },
+        { student_id: 'snoozed', mode: 'snoozed', until: TODAY },  // 今天到期，仍生效
+        { student_id: 'expired', mode: 'snoozed', until: '2026-10-25' }, // 已过期 → 回到主列表
+      ],
+    });
+    const gen = richGen();
+    const out = await run(store, gen);
+    expect(store.state.inserted.map((d) => d.student_id).sort()).toEqual(['expired', 'normal']);
+    expect(store.state.inserted.map((d) => d.kind)).toEqual(['daily', 'daily']);
+    expect(gen.mock.calls.map(([i]) => i.kind)).toEqual(['daily', 'daily']);
+    expect(byId(store, 'dh')).toMatchObject({ status: 'dropped', meta: { drop_reason: DROP_MUTED } });
+    expect(byId(store, 'ds')).toMatchObject({ status: 'dropped', meta: { drop_reason: DROP_MUTED } });
+    expect(out).toMatchObject({ created: 2, daily: 2, dropped: 2 });
+  });
+
+  test('暂停到期后（until < 今天）这位学生自动恢复生成；隐藏仍然永久生效', async () => {
+    const store = fakeStore({
+      students: [{ id: 's1', created_at: signedUp(5) }],
+      records: [rec('s1', YESTERDAY)],
+      mutes: [{ student_id: 's1', mode: 'snoozed', until: '2026-10-25' }],
+    });
+    const gen = richGen();
+    expect((await run(store, gen)).daily).toBe(1);
+    expect(gen).toHaveBeenCalledTimes(1);
+
+    const stillHidden = fakeStore({
+      students: [{ id: 's1', created_at: signedUp(5) }],
+      records: [rec('s1', YESTERDAY)],
+      mutes: [{ student_id: 's1', mode: 'hidden', until: null }],
+    });
+    const gen2 = richGen();
+    expect((await run(stillHidden, gen2)).created).toBe(0);
+    expect(gen2).not.toHaveBeenCalled();
   });
 });
 
@@ -876,5 +935,16 @@ describe('v2 · Supabase REST store', () => {
     ]);
     expect([...await store.listDraftStudentIds('daily', '2026-10-25', '2026-10-25')]).toEqual(['s1']);
     expect(calls[3].url).toContain('or=(period_start.eq.2026-10-25,period_end.eq.2026-10-25)');
+  });
+
+  test('listActiveMuteIds：hidden 永久生效，snoozed 只看 until >= 今天', async () => {
+    const { store, calls } = make(() => reply(200, [
+      { student_id: 'a', mode: 'hidden', until: null },
+      { student_id: 'b', mode: 'snoozed', until: '2026-10-26' }, // 今天到期，仍生效
+      { student_id: 'c', mode: 'snoozed', until: '2026-10-25' }, // 昨天到期
+      { student_id: 'd', mode: 'snoozed', until: null },         // 坏数据：不生效
+    ]));
+    expect([...(await store.listActiveMuteIds('2026-10-26'))].sort()).toEqual(['a', 'b']);
+    expect(calls[0].url).toContain('supervision_mutes?select=student_id,mode,until');
   });
 });

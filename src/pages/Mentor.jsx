@@ -25,6 +25,7 @@ import WeekBoard from '../components/mentor/WeekBoard.jsx';
 import StudentMessagesPanel from '../components/mentor/StudentMessagesPanel.jsx';
 import { AttentionText, FillStrip, StageTag, StudentLink } from '../components/mentor/FillStrip.jsx';
 import { useDrafts } from '../components/mentor/useDrafts.js';
+import { useMutes } from '../components/mentor/useMutes.js';
 import {
   buildFillInfo, sortGroupStudents, weekBoardRow,
 } from '../components/mentor/fillInfo.js';
@@ -1009,21 +1010,29 @@ export default function Mentor() {
   );
   const dr = useDrafts({ supabase, getAccessToken, userId: user?.id, studentIds: draftStudentIds });
 
-  const openDrafts = useMemo(() => dr.drafts.filter((d) => d.status === 'draft'), [dr.drafts]);
+  const todayIso = fill.today || todayISO();
+  const todayDateLine = dateLineCN(todayIso);
+
+  // 隐藏 / 暂停的学生：不在待发队列里出现，周表里收进「已隐藏」
+  const {
+    activeMutes, hide: hideStudent, snooze: snoozeStudent, restore: restoreStudent,
+  } = useMutes({ supabase, userId: user?.id, todayIso });
+
+  const openDrafts = useMemo(
+    () => dr.drafts.filter((d) => d.status === 'draft' && !activeMutes[d.student_id]),
+    [dr.drafts, activeMutes],
+  );
 
   // 一位学生今天最终落在「今天的消息」里的那一条：待发优先，其次今天处理过的
   const draftByStudent = useMemo(() => {
     const m = {};
     for (const d of dr.drafts) {
-      if (d.status === 'dropped') continue;
+      if (d.status === 'dropped' || activeMutes[d.student_id]) continue;
       const cur = m[d.student_id];
       if (!cur || (d.status === 'draft' && cur.status !== 'draft')) m[d.student_id] = d;
     }
     return m;
-  }, [dr.drafts]);
-
-  const todayIso = fill.today || todayISO();
-  const todayDateLine = dateLineCN(todayIso);
+  }, [dr.drafts, activeMutes]);
 
   // 今天 tab 的「这周谁记了」：已连接、符合搜索和顾问筛选的学生
   const todayRows = useMemo(() => {
@@ -1041,16 +1050,21 @@ export default function Mentor() {
           || (s.full_name || '').toLowerCase().includes(q)
           || (s.school_name || '').toLowerCase().includes(q);
       })
-      .map((s) => weekBoardRow({
-        ...s,
-        mentorName: teacherNames[connections[s.id]?.teacher_id] || '',
-      }, infoById[s.id], draftByStudent[s.id], todayIso));
+      .map((s) => {
+        const alias = connections[s.id]?.mentor_alias || '';
+        const { cleanName } = parseConsultant(alias);
+        return weekBoardRow({
+          ...s,
+          name: cleanName || alias || s.full_name,
+          mentorName: teacherNames[connections[s.id]?.teacher_id] || '',
+        }, infoById[s.id], draftByStudent[s.id], todayIso);
+      });
   }, [draftStudentIds, studentById, connections, infoById, draftByStudent, todayIso, filterConsultant, searchQuery, teacherNames]);
 
   // 今天 tab 的抬头数字：几条表扬、几条提醒、今天已经发了多少
   const praiseCount = openDrafts.filter((d) => d.kind !== 'nudge' && !(d.kind === 'weekly' && d.meta?.nudge)).length;
   const reminderCount = openDrafts.length - praiseCount;
-  const sentTodayCount = dr.drafts.filter((d) => d.status === 'sent').length;
+  const sentTodayCount = dr.drafts.filter((d) => d.status === 'sent' && !activeMutes[d.student_id]).length;
 
   /** 「今天的消息」列：滚动到对应卡片，闪一下引起注意（不跳页） */
   function jumpToDraft(studentId) {
@@ -1264,6 +1278,7 @@ export default function Mentor() {
                     todayIso={todayIso}
                     showMentor={isAdmin}
                     onOpenStudent={openStudentById}
+                    mutes={activeMutes}
                   />
 
                   <WeekBoard
@@ -1271,6 +1286,11 @@ export default function Mentor() {
                     showMentor={isAdmin}
                     onOpenStudent={openStudentById}
                     onJumpToDraft={jumpToDraft}
+                    mutes={activeMutes}
+                    todayIso={todayIso}
+                    onHide={hideStudent}
+                    onSnooze={snoozeStudent}
+                    onRestore={restoreStudent}
                   />
                   <a
                     href="/mentor?tab=all"
@@ -1918,12 +1938,18 @@ export default function Mentor() {
                 todayIso={todayIso}
                 showMentor={isAdmin}
                 onOpenStudent={openStudentById}
+                mutes={activeMutes}
               />
               <WeekBoard
                 rows={todayRows}
                 showMentor={isAdmin}
                 onOpenStudent={openStudentById}
                 onJumpToDraft={jumpToDraft}
+                mutes={activeMutes}
+                todayIso={todayIso}
+                onHide={hideStudent}
+                onSnooze={snoozeStudent}
+                onRestore={restoreStudent}
               />
               <a
                 href="/mentor?tab=all"

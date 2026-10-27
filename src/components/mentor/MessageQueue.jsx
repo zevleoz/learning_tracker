@@ -25,9 +25,13 @@ function emptyText(dr) {
  * @param {boolean} [props.showMentor]
  * @param {(id: string) => void} [props.onOpenStudent]
  */
-export default function MessageQueue({ drafts = [], persons, dr, todayIso, showMentor = false, onOpenStudent }) {
-  const open = drafts.filter((d) => d.status === 'draft');
-  const handled = drafts.filter((d) => d.status !== 'draft' && d.status !== 'dropped');
+export default function MessageQueue({
+  drafts = [], persons, dr, todayIso, showMentor = false, onOpenStudent, mutes = {},
+}) {
+  // 被隐藏 / 暂停的学生连今天处理过的行也不占位置
+  const visible = drafts.filter((d) => !mutes[d.student_id]);
+  const open = visible.filter((d) => d.status === 'draft');
+  const handled = visible.filter((d) => d.status !== 'draft' && d.status !== 'dropped');
   const list = [...open, ...handled];
 
   return (

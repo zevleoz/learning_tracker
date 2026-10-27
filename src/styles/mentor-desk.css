@@ -457,6 +457,63 @@
   cursor: inherit;
 }
 
+/* ---------- 隐藏 / 暂停 ---------- */
+.md-root .md-msg-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.md-root .md-more {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--md-ink-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.md-root .md-more:hover {
+  background: var(--md-soft);
+  color: var(--md-ink);
+}
+.md-root .md-restore {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  color: var(--md-ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.md-root .md-restore:hover { color: var(--md-ink); }
+.md-root .md-tbl .md-hidden-head td {
+  border-top: 1px solid var(--md-soft);
+  padding-top: 14px;
+}
+.md-root .md-hidden-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--md-ink-3);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+.md-root .md-hidden-toggle:hover { color: var(--md-ink); }
+.md-root .md-mute-pop {
+  min-width: 200px;
+  z-index: 1000;
+}
+
 /* ---------- 键盘可见性 ---------- */
 .md-root button:focus-visible,
 .md-root textarea:focus-visible {

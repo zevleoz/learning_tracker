@@ -168,6 +168,32 @@ function createMockQueryBuilder(tableName) {
       };
     },
 
+    upsert(data, options = {}) {
+      trackCall('upsert', tableName, data);
+      const table = mockTables[tableName] || [];
+      const rows = Array.isArray(data) ? data : [data];
+      const key = options.onConflict || 'id';
+      const results = rows.map((item) => {
+        const full = {
+          ...(item.id ? {} : { id: `mock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` }),
+          ...item,
+        };
+        const idx = table.findIndex((r) => r[key] === full[key]);
+        if (idx >= 0) {
+          table[idx] = { ...table[idx], ...full };
+          return table[idx];
+        }
+        table.push(full);
+        return full;
+      });
+      mockTables[tableName] = table;
+      return {
+        select: () => Promise.resolve({ data: results, error: null }),
+        single: async () => ({ data: results[0], error: null }),
+        then: async (resolve) => { resolve({ data: results, error: null }); },
+      };
+    },
+
     update(data) {
       trackCall('update', tableName, data);
       const filters = [];
@@ -206,24 +232,41 @@ function createMockQueryBuilder(tableName) {
       return builder;
     },
 
-    async delete() {
-      trackCall('delete', tableName, this.filters);
-      const table = mockTables[tableName] || [];
-      const deleted = table.filter(row => {
-        let matches = true;
-        for (const filter of this.filters) {
-          if (filter.type === 'eq' && row[filter.field] !== filter.value) matches = false;
-        }
-        return matches;
-      });
-      mockTables[tableName] = table.filter(row => {
-        let matches = false;
-        for (const filter of this.filters) {
-          if (filter.type === 'eq' && row[filter.field] === filter.value) matches = true;
-        }
-        return !matches;
-      });
-      return { data: deleted, error: null };
+    delete() {
+      const filters = [];
+      const builder = {
+        eq(field, value) {
+          filters.push({ type: 'eq', field, value });
+          return builder;
+        },
+
+        match(conditions) {
+          Object.entries(conditions).forEach(([field, value]) => {
+            builder.eq(field, value);
+          });
+          return builder;
+        },
+
+        select() {
+          return Promise.resolve(builder.__run());
+        },
+
+        then(resolve) {
+          return Promise.resolve(builder.__run()).then(resolve);
+        },
+
+        __run() {
+          trackCall('delete', tableName, filters);
+          const table = mockTables[tableName] || [];
+          const matches = (row) => filters.every(
+            (f) => f.type !== 'eq' || row[f.field] === f.value
+          );
+          const deleted = table.filter(matches);
+          mockTables[tableName] = table.filter((row) => !matches(row));
+          return { data: deleted, error: null };
+        },
+      };
+      return builder;
     },
 
     async then(resolve) {

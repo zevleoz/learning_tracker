@@ -23,7 +23,7 @@ const rec = (student_id, day, extra = {}) => ({
   grade_label: null, score: null, notes: null, deleted_at: null, created_at: at(day), course_id: null, ...extra,
 });
 
-function setup({ admin = true, extraConnections = [], drafts = [] } = {}) {
+function setup({ admin = true, extraConnections = [], drafts = [], mutes = [] } = {}) {
   const me = admin ? { id: 'admin-1', role: 3 } : { id: 'mentor-1', role: 2 };
   supabase.__setAuthState({ user: { id: me.id, email: 'x@test.com' }, session: { user: { id: me.id } } });
   setAuthUser({ id: me.id, email: 'x@test.com' });
@@ -48,6 +48,7 @@ function setup({ admin = true, extraConnections = [], drafts = [] } = {}) {
     rec('s-fine', 0), rec('s-fine', -1),
   ]);
   supabase.__setTableData('supervision_drafts', drafts);
+  supabase.__setTableData('supervision_mutes', mutes);
 }
 
 const draft = (over = {}) => ({
@@ -163,6 +164,81 @@ describe('学生管理 · 今天 tab', () => {
     await waitFor(() => expect(within(board).getAllByText('久未填').length).toBeGreaterThan(0));
     fireEvent.click(within(board).getByRole('button', { name: '久未填' }));
     await waitFor(() => expect(url()).toBe('/mentor?view=analytics&student=s-gap'));
+  });
+});
+
+describe('学生管理 · 隐藏 / 暂停', () => {
+  const boardRegion = () => screen.findByRole('region', { name: '这周谁记了' });
+
+  it('隐藏的学生从主列表移入「已隐藏」，恢复后立即回来', async () => {
+    setup({ mutes: [{ student_id: 's-gap', mode: 'hidden', until: null, set_by: 'admin-1' }] });
+    renderPage();
+    await readyToday();
+    const board = await boardRegion();
+    const toggle = await within(board).findByRole('button', { name: '已隐藏 1 人' });
+    expect(within(board).queryByRole('button', { name: '久未填' })).toBeNull();
+
+    fireEvent.click(toggle);
+    fireEvent.click(await within(board).findByRole('button', { name: '恢复' }));
+
+    await waitFor(() => expect(within(board).getByRole('button', { name: '久未填' })).toBeInTheDocument());
+    const deletes = supabase.__getCallHistory()
+      .filter((c) => c.method === 'delete' && c.table === 'supervision_mutes');
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].args).toEqual([{ type: 'eq', field: 'student_id', value: 's-gap' }]);
+  });
+
+  it('⋯ 菜单可以隐藏；右键菜单可以暂停 5 天，行上显示「再看」', async () => {
+    setup();
+    renderPage();
+    await readyToday();
+    const board = await boardRegion();
+    const row = within(board).getByRole('button', { name: '久未填' }).closest('tr');
+
+    fireEvent.click(within(row).getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /隐藏/ }));
+
+    await waitFor(() => {
+      const save = supabase.__getCallHistory().find((c) => c.method === 'upsert' && c.table === 'supervision_mutes');
+      expect(save.args).toMatchObject({ student_id: 's-gap', mode: 'hidden', until: null, set_by: 'admin-1' });
+    });
+    await waitFor(() => expect(within(board).getByRole('button', { name: '已隐藏 1 人' })).toBeInTheDocument());
+
+    // 恢复 → 用右键菜单暂停 5 天
+    fireEvent.click(within(board).getByRole('button', { name: '已隐藏 1 人' }));
+    fireEvent.click(within(board).getByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(within(board).getByRole('button', { name: '久未填' })).toBeInTheDocument());
+
+    const again = within(board).getByRole('button', { name: '久未填' }).closest('tr');
+    fireEvent.contextMenu(again);
+    fireEvent.click(screen.getByRole('menuitem', { name: /暂停 5 天/ }));
+
+    await waitFor(() => {
+      const saves = supabase.__getCallHistory().filter((c) => c.method === 'upsert' && c.table === 'supervision_mutes');
+      expect(saves[saves.length - 1].args).toMatchObject({ student_id: 's-gap', mode: 'snoozed', until: off(5) });
+    });
+    await waitFor(() => expect(within(board).getByText(/再看：/)).toBeInTheDocument());
+  });
+
+  it('暂停到期（until < 今天）自动回到主列表', async () => {
+    setup({ mutes: [{ student_id: 's-gap', mode: 'snoozed', until: off(-1) }] });
+    renderPage();
+    await readyToday();
+    const board = await boardRegion();
+    await waitFor(() => expect(within(board).getByRole('button', { name: '久未填' })).toBeInTheDocument());
+    expect(within(board).queryByText(/已隐藏/)).toBeNull();
+  });
+
+  it('隐藏学生今天的草稿不出现在待发队列，抬头也不计数', async () => {
+    setup({
+      drafts: [draft({ student_id: 's-gap' })],
+      mutes: [{ student_id: 's-gap', mode: 'hidden', until: null }],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('今天的消息都处理完了')).toBeInTheDocument());
+    const queue = screen.getByRole('region', { name: '待发消息' });
+    expect(within(queue).getByText('没有待发的消息。')).toBeInTheDocument();
+    expect(screen.queryByText('数学二次函数那节，你把例题抄了一遍。')).toBeNull();
   });
 });
 

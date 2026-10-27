@@ -12,6 +12,9 @@ const INK_2 = '#48484A';
 const INK_3 = '#6E6E73';
 const CELL = { color: INK_2, fontSize: 14 };
 const HEAD = { color: INK_3, fontSize: 12.5, fontWeight: 500 };
+// 学校列不再吃掉剩余宽度；「最后一次记录」要放得下「10/24 · 13 天前」，不截断
+const SCHOOL_W = 200;
+const LAST_W = 150;
 
 /** ··· 菜单：点按钮展开；点外面或按 Esc 收起。菜单内容始终在 DOM 里，用样式显隐。 */
 function RowMenu({ children }) {
@@ -219,19 +222,19 @@ export default function StudentTable({ groups, infoOf, selectedId, collapsedGrou
     ? [
       { key: 'name', className: 'mt-col-name' },
       { key: 'mentor', width: 96 },
-      { key: 'school', className: 'mt-col-school' },
+      { key: 'school', width: SCHOOL_W },
       { key: 'stage', className: 'mt-col-stage' },
       { key: 'strip', className: 'mt-col-strip' },
-      { key: 'last', className: 'mt-col-last' },
+      { key: 'last', width: LAST_W },
       { key: 'conn', className: 'mt-col-conn' },
       { key: 'act', className: 'mt-col-act' },
     ]
     : [
       { key: 'name', className: 'mt-col-name' },
-      { key: 'school', className: 'mt-col-school' },
+      { key: 'school', width: SCHOOL_W },
       { key: 'stage', className: 'mt-col-stage' },
       { key: 'strip', className: 'mt-col-strip' },
-      { key: 'last', className: 'mt-col-last' },
+      { key: 'last', width: LAST_W },
       { key: 'conn', className: 'mt-col-conn' },
       { key: 'act', className: 'mt-col-act' },
     ];

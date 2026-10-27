@@ -1,4 +1,4 @@
-// 学生管理 · 卡片视图：沿用原来的卡片，加一行填写情况（新生：昨天 / 今天 + 小方块；其他：N/7 + 小方块）。
+// 学生管理 · 卡片视图：沿用原来的卡片，加一行填写情况（首月：昨天 / 今天 + 小方块；其他：N/7 + 小方块）。
 
 import { motion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
@@ -8,7 +8,7 @@ import { Card } from '../ui/card.jsx';
 import { consultantColor, consultantKey, parseConsultant } from '../../utils/consultant.js';
 import { formatInactivity } from '../../utils/inactivity.js';
 import { DayTag, FillStrip, StudentLink } from './FillStrip.jsx';
-import { newbieDayStatus } from './fillInfo.js';
+import { firstMonthDayStatus } from './fillInfo.js';
 
 function StudentCard({ s, group, info, selected, a, inactive }) {
   const conn = a.connections[s.id];
@@ -21,7 +21,7 @@ function StudentCard({ s, group, info, selected, a, inactive }) {
   const { cleanName } = parseConsultant(alias);
   const displayName = cleanName || alias || s.full_name || '(未命名)';
   const avatarColor = consultantColor(group.consultant);
-  const nb = newbieDayStatus(info);
+  const nb = firstMonthDayStatus(info);
 
   return (
     <Card
@@ -67,7 +67,7 @@ function StudentCard({ s, group, info, selected, a, inactive }) {
             <span className="mentor-status-dot" />
             {meta.label}
           </span>
-          {/* 新生的「昨天」一行已经说明了没填，不再重复「N 天未填写」 */}
+          {/* 首月学生的「昨天」一行已经说明了没填，不再重复「N 天未填写」 */}
           {!info.isNew && inactive && (
             <span className="mentor-inactive">
               <span className="mentor-inactive-dot" />

@@ -1,6 +1,6 @@
 // AI 监督流程的共用规则（纯函数，浏览器 / 服务端 / 测试共用）
 //
-// 新生：注册当天算第 1 天，第 1–30 天每天看（daily）；第 31 天起每周看（weekly）。
+// 首月：注册当天算第 1 天，第 1–30 天每天看（daily）；第 31 天起每周看（weekly）。
 // 「填了」：那一天至少有一条未删除的 learning_sessions（待补填的练习也算填了）。
 // 日期一律用 'YYYY-MM-DD' 字符串，按 UTC 计算差值，避开时区和夏令时。
 
@@ -98,8 +98,8 @@ export function fillSummary(sessionDates, todayIso) {
 /**
  * 今日反馈里两份名单的归类（只看已连接的学生）。
  * @returns {'new-missed-yesterday' | 'gap' | null}
- *   new-missed-yesterday：新生，昨天没填（注册当天不算，第 2 天起才有「昨天」）
- *   gap：非新生，连续 GAP_ALERT_DAYS 天以上没填（从没记录过的也算）
+ *   new-missed-yesterday：首月，昨天没填（注册当天不算，第 2 天起才有「昨天」）
+ *   gap：首月之后，连续 GAP_ALERT_DAYS 天以上没填（从没记录过的也算）
  */
 export function attentionOf({ signupIso, summary, todayIso }) {
   const n = dayNumber(signupIso, todayIso);

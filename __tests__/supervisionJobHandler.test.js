@@ -38,6 +38,12 @@ function fakeStore({ connections = [], draft } = {}) {
     }]),
     updateDraft: jest.fn(async (id, patch) => ({ ...draft, ...patch })),
     listScopeStudents: jest.fn(async () => []),
+    lastSent: jest.fn(async () => null),
+    styleRefs: jest.fn(async () => []),
+    rejected: jest.fn(async () => []),
+    loadExams: jest.fn(async () => []),
+    listOpenDrafts: jest.fn(async () => []),
+    dropDrafts: jest.fn(async () => 0),
   };
   return store;
 }
@@ -107,6 +113,51 @@ describe('/api/supervision regenerate', () => {
     expect(res.code).toBe(200);
     expect(store.updateDraft).toHaveBeenCalledWith(DRAFT_ID, expect.objectContaining({ body: '新稿', edited_body: null, status: 'draft' }));
     expect(res.body.draft).toMatchObject({ body: '新稿', edited_body: null, status: 'draft' });
+  });
+
+  test('新的种类也能重新生成：提醒（nudge）、周小结 + 提醒；刷新 meta.alts', async () => {
+    mockAuth();
+    const connections = [{ teacher_id: TEACHER, student_id: 's1' }];
+    const rich = jest.fn(async () => ({ text: '新稿', evidence: [], alts: ['备选'], facts: ['f'], why: '理由', lint: [] }));
+
+    const nudge = { ...baseDraft, kind: 'nudge', period_start: '2026-10-26', period_end: '2026-10-26', meta: { alts: ['旧'] } };
+    const store = fakeStore({ draft: nudge, connections });
+    const res = makeRes();
+    await createHandler({ makeStore: () => store, generate: rich })(post({ type: 'regenerate', draft_id: DRAFT_ID }, bearer), res);
+    expect(res.code).toBe(200);
+    expect(rich.mock.calls[0][0]).toMatchObject({ kind: 'nudge', records: [] });
+    expect(store.updateDraft).toHaveBeenCalledWith(DRAFT_ID, expect.objectContaining({
+      body: '新稿', status: 'draft', snooze_until: null, meta: expect.objectContaining({ alts: ['备选'] }),
+    }));
+
+    const weekly = { ...baseDraft, kind: 'weekly', period_start: '2026-10-19', period_end: '2026-10-25', meta: { nudge: true } };
+    const store2 = fakeStore({ draft: weekly, connections });
+    const res2 = makeRes();
+    await createHandler({ makeStore: () => store2, generate: rich })(post({ type: 'regenerate', draft_id: DRAFT_ID }, bearer), res2);
+    expect(res2.code).toBe(200);
+    expect(rich.mock.calls[1][0]).toMatchObject({ kind: 'weekly', combineNudge: true });
+  });
+
+  test('提醒草稿同样受导师连接检查保护：没连接的导师 → 403，不调用模型', async () => {
+    mockAuth({ id: OTHER });
+    const g = jest.fn();
+    const nudge = { ...baseDraft, kind: 'nudge', period_start: '2026-10-26', period_end: '2026-10-26' };
+    const store = fakeStore({ draft: nudge, connections: [{ teacher_id: TEACHER, student_id: 's1' }] });
+    const res = makeRes();
+    await createHandler({ makeStore: () => store, generate: g })(post({ type: 'regenerate', draft_id: DRAFT_ID }, bearer), res);
+    expect(res.code).toBe(403);
+    expect(g).not.toHaveBeenCalled();
+  });
+
+  test('已撤下（dropped）的草稿 → 409，不调用模型', async () => {
+    mockAuth();
+    const g = jest.fn();
+    const dropped = { ...baseDraft, status: 'dropped' };
+    const store = fakeStore({ draft: dropped, connections: [{ teacher_id: TEACHER, student_id: 's1' }] });
+    const res = makeRes();
+    await createHandler({ makeStore: () => store, generate: g })(post({ type: 'regenerate', draft_id: DRAFT_ID }, bearer), res);
+    expect(res.code).toBe(409);
+    expect(g).not.toHaveBeenCalled();
   });
 
   test('没有连接这位学生的导师 → 403，且不调用模型、不写库', async () => {

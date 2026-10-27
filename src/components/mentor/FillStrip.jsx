@@ -20,11 +20,10 @@ export function FillStrip({ summary, showCount = true }) {
   );
 }
 
-/** 阶段：新生红色标签；每周灰字；未连接 — */
+/** 阶段：首月灰色标签；每周灰字；未连接 — */
 export function StageTag({ info }) {
   if (!info?.connected) return <span className="fs-none">—</span>;
-  if (info.isNew) return <span className="fs-stage fs-stage--new">{info.stage}</span>;
-  return <span className="fs-stage">每周</span>;
+  return <span className="fs-stage">{info.stage}</span>;
 }
 
 /** 需关注列：绿 / 红 / 琥珀文字（语义色只用在文字或小点上） */
@@ -38,20 +37,20 @@ export function AttentionText({ info }) {
   );
 }
 
-/** 「第 N 天」小红标（卡片名字旁；仅新生） */
+/** 「第 N 天」小标（卡片名字旁；仅首月） */
 export function DayTag({ info }) {
   if (!info?.connected || !info.isNew) return null;
   return <span className="fs-daytag">第 {info.day} 天</span>;
 }
 
 /**
- * 学生名字链接：左键打开侧栏；带修饰键 / 中键时交给浏览器
- * （href 是 /mentor?student=<id>，页面会按它打开侧栏）。
+ * 学生名字链接：左键打开这位学生的数据分析；带修饰键 / 中键时交给浏览器。
+ * href 用 /mentor?view=analytics&student=<id>；旧页面也会按 ?student= 落到数据分析。
  */
 export function StudentLink({ id, onOpen, className = '', title, children }) {
   return (
     <a
-      href={`/mentor?student=${encodeURIComponent(id)}`}
+      href={`/mentor?view=analytics&student=${encodeURIComponent(id)}`}
       className={`mt-namelink ${className}`}
       title={title}
       onClick={(e) => {

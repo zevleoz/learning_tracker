@@ -1,12 +1,11 @@
-// 学生管理页的「填写情况」纯函数：阶段 / 需关注 / 最后记录 / 组内排序 / 组头统计 / 今日反馈文案。
-// 规则本身来自 src/lib/supervision.js（新生 = 注册第 1–30 天；3 天以上没填），这里只做展示层组装。
+// 学生管理页的「填写情况」纯函数：阶段 / 需关注 / 最后记录 / 组内排序 / 组头统计 / 消息类型 / 这周谁记了。
+// 规则本身来自 src/lib/supervision.js（首月 = 注册第 1–30 天；3 天以上没记录），这里只做展示层组装。
 
 import {
   fillSummary,
   dayNumber,
   attentionOf,
   addDays,
-  lastWeekRange,
   GAP_ALERT_DAYS,
   NEW_STUDENT_DAYS,
 } from '../../lib/supervision.js';
@@ -80,14 +79,14 @@ export function buildFillInfo({ student, connected, dates, todayIso, pending = n
     summary,
     attention, // 'new-missed-yesterday' | 'gap' | null
     cell,      // 需关注列 { text, tone } | null
-    stage: isNew ? `新生 · 第 ${day} 天` : '每周',
+    stage: isNew ? `首月 · 第 ${day} 天` : '每周看',
     lastText,
     pending,
   };
 }
 
-/** 卡片里新生的「昨天 / 今天」两段状态 */
-export function newbieDayStatus(info) {
+/** 卡片里首月学生的「昨天 / 今天」两段状态 */
+export function firstMonthDayStatus(info) {
   if (!info?.connected || !info.isNew) return null;
   return {
     yesterday: info.day >= 2
@@ -98,7 +97,7 @@ export function newbieDayStatus(info) {
 }
 
 /**
- * 组内排序：已连接在前 → 新生在前 → 没填天数多的在前（从没记录 = 最多）→ 保持原顺序。
+ * 组内排序：已连接在前 → 首月在前 → 没填天数多的在前（从没记录 = 最多）→ 保持原顺序。
  * @param {Array} students 组内学生（已是当前顺序）
  * @param {(id: string) => object} infoOf
  */
@@ -135,14 +134,12 @@ export function groupCounts(students, infoOf) {
   return out;
 }
 
-/** 草稿类型文案：每日 · 新生第 N 天 / 周报 · 上周 */
-export function draftKindLabel(draft, info, todayIso) {
-  if (draft.kind === 'weekly') {
-    const last = todayIso ? lastWeekRange(todayIso) : null;
-    if (last && draft.period_start === last.start && draft.period_end === last.end) return '周报 · 上周';
-    return `周报 · ${formatMD(draft.period_start)}–${formatMD(draft.period_end)}`;
-  }
-  return info?.isNew ? `每日 · 新生第 ${info.day} 天` : '每日';
+/** 消息类型：每日表扬 / 周小结 / 周小结 + 提醒 / 提醒 */
+export function draftKindLabel(draft) {
+  if (!draft || draft.kind === 'daily') return '每日表扬';
+  if (draft.kind === 'weekly') return draft.meta?.nudge ? '周小结 + 提醒' : '周小结';
+  if (draft.kind === 'nudge') return '提醒';
+  return '每日表扬';
 }
 
 function dateWord(iso, todayIso) {
@@ -181,4 +178,54 @@ export function namesListText(title, items) {
     it.lastText ? `最后记录 ${it.lastText}` : null,
   ].filter(Boolean).join(' · '));
   return `${title}（${items.length} 人）\n${lines.join('\n')}`;
+}
+
+/**
+ * 「这周谁记了」的一行（C4）。
+ * @param {object} student 学生（name / full_name / school_name / created_at / mentorName 可选）
+ * @param {object} info buildFillInfo 的结果
+ * @param {object|null} draft 这位学生今天待发 / 已处理的消息
+ * @param {string} todayIso
+ * @returns {{ id, name, stageText, school, mentorName, days, stateText, warn, subText, lastText, draft }}
+ */
+export function weekBoardRow(student, info, draft, todayIso) {
+  const signup = signupDay(student?.created_at);
+  const day = signup && todayIso ? dayNumber(signup, todayIso) : null;
+  const isFirstMonth = day != null && day >= 1 && day <= NEW_STUDENT_DAYS;
+  const summary = info?.connected ? info.summary : fillSummary([], todayIso);
+
+  const days = (summary.days || []).map((d) => {
+    let state = 'e';
+    if (signup && d.date < signup) state = 'n';
+    else if (d.filled) state = 'f';
+    else if (d.date === todayIso) state = 't';
+    return { date: d.date, state };
+  });
+
+  let stateText = '正常';
+  if (summary.gap == null) stateText = '还没开始记';
+  else if (summary.count === 7) stateText = '每天都记';
+  else if (summary.gap >= GAP_ALERT_DAYS) stateText = `${summary.gap} 天没记`;
+
+  const pending = info?.pending || 0;
+  let subText = '';
+  if (!info?.connected) subText = '';
+  else if (pending > 0) subText = `实测待补 ${pending} 条`;
+  else if (summary.gap == null) subText = '注册后一条都没有';
+  else if (summary.todayFilled) subText = '今天已经记了';
+  else subText = '今天还没记';
+
+  return {
+    id: student?.id,
+    name: student?.name || student?.full_name || '(未命名)',
+    stageText: isFirstMonth ? `首月 · 第 ${day} 天` : '每周看',
+    school: student?.school_name || student?.school || '',
+    mentorName: student?.mentorName || '',
+    days,
+    stateText,
+    warn: !!info?.attention,
+    subText,
+    lastText: info?.connected ? info.lastText : '—',
+    draft: draft || null,
+  };
 }

@@ -217,7 +217,8 @@ export function lintDraft(text, kind = 'daily') {
 
 const GRADE_RE = /(?<![A-Za-z])([A-DF][+-]?)(?![A-Za-z])/g;
 const gradeTokens = (s) => new Set([...String(s).matchAll(GRADE_RE)].map((m) => m[1]));
-const NUDGE_BANNED = ['记得填', '请', '及时', '务必', '打卡'];
+// 「请」只拦命令式的用法：请假、邀请、请教不算
+const NUDGE_BANNED = [['记得填', /记得填/], ['请', /(?<!邀)请(?![假教])/], ['及时', /及时/], ['务必', /务必/], ['打卡', /打卡/]];
 
 /**
  * 生成后的核对（代码做，不靠模型自觉）。返回问题列表，空数组代表没问题。
@@ -263,7 +264,7 @@ export function checkGrounding(text, input = {}) {
   // 提醒类（含周小结里合并的提醒）的额外禁忌
   if (input.kind === 'nudge' || input.combineNudge || input.nudge) {
     if (/\d+\s*天(没|没有)(记|填)/.test(t)) problems.push('提醒里不能说几天没记');
-    for (const w of NUDGE_BANNED) if (t.includes(w)) problems.push(`提醒里不要用「${w}」`);
+    for (const [w, re] of NUDGE_BANNED) if (re.test(t)) problems.push(`提醒里不要用「${w}」`);
   }
   // 任何消息最多一个问题
   if ((t.match(/[？?]/g) || []).length >= 2) problems.push('问了不止一个问题');

@@ -10164,9 +10164,9 @@ body:has(.yb-student) {
   print-color-adjust: exact;
 }
 .e4-prep-check.is-on {
-  background: var(--e4-navy);
+  /* 内方块用居中背景画（不用 inset box-shadow：Safari 生成 PDF 截图时会丢掉 inset 阴影，变成实心块） */
+  background: linear-gradient(var(--e4-navy), var(--e4-navy)) center / 8px 8px no-repeat #fff;
   border-color: var(--e4-navy);
-  box-shadow: inset 0 0 0 2.5px #fff;
 }
 .e4-prep-check.is-editable { cursor: pointer; }
 .e4-prep-check.is-editable:hover { border-color: var(--e4-navy); }
@@ -12146,6 +12146,32 @@ body.e4-light .e4-print-toolbar .e4-btn-ghost {
 body.e4-light .e4-print-toolbar .e4-btn-ghost:hover:not(:disabled) { background: #EAE8E1; color: #26241F; }
 body.e4-light .e4-print-toolbar .e4-btn-primary { background: #57758F; border-color: #57758F; color: #FDFCFA; }
 body.e4-light .e4-print-toolbar .e4-btn-primary:hover:not(:disabled) { background: #456078; border-color: #456078; }
+
+/* ---- 预览工具条：纸张大小（A4 / US Letter）+ 下载 PDF ---- */
+.e4-print-toolbar-actions { display: flex; align-items: center; gap: 10px; }
+.e4-paper-switch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.e4-paper-switch button {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  color: #A39E92;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.e4-paper-switch button:hover:not(:disabled) { color: #E8E5DD; }
+.e4-paper-switch button.is-on { background: #1C2126; color: #E8E5DD; font-weight: 600; }
+.e4-paper-switch button:disabled { cursor: default; opacity: 0.6; }
+body.e4-light .e4-paper-switch { border-color: rgba(34, 31, 26, 0.16); }
+body.e4-light .e4-paper-switch button { color: #5E5A4F; }
+body.e4-light .e4-paper-switch button:hover:not(:disabled) { color: #26241F; }
+body.e4-light .e4-paper-switch button.is-on { background: #FDFCFA; color: #26241F; box-shadow: 0 1px 2px rgba(34, 31, 26, 0.08); }
 
 /* ================================================================
    打印预览浮层（PrintPreviewModal）

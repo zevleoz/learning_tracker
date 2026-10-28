@@ -6,6 +6,7 @@ import { useAuth } from '../lib/useAuth.js';
 import { listE4Students, updateWorkspace } from '../lib/e4Store.js';
 import { getRecentStudents, subscribeRecent } from '../lib/e4Recent.js';
 import WorkspaceSwitch from './WorkspaceSwitch.jsx';
+import ToastHost from './ToastHost.jsx';
 import { rememberWorkspacePath } from '../lib/workspaceNav.js';
 import logoColor from '../logo/logo_color.png';
 
@@ -329,6 +330,8 @@ export default function E4Layout() {
       </motion.main>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {/* E4 页面的 toast()（AI 预填、保存、上传的成功/失败）靠它显示；之前没挂，提示全被吞掉 */}
+      <ToastHost />
     </div>
   );
 }

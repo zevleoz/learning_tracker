@@ -7350,11 +7350,13 @@ body:has(.yb-student) {
   width: 210mm;
   /* 与打印页同高 270mm（见 @media print 说明），屏幕预览所见即所印 */
   min-height: 270mm;
-  padding: 16mm 16mm 14mm;
+  /* 上 20mm：章节条（9–15mm）与正文之间留约 5mm，章节条下划线不再压到标题 */
+  padding: 20mm 16mm 14mm;
   page-break-after: always;
   break-after: page;
   background: #fff;
 }
+.e4-print-page.e4-page-shell.is-cover { padding-top: 16mm; }
 .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
 
 /* ---- 自适应分页（AutoPages） ---- */
@@ -7372,7 +7374,7 @@ body:has(.yb-student) {
 /* 章节条：细实线分隔（参考图是细线不是虚线） */
 .e4-chapter-strip {
   position: absolute;
-  top: 12mm; left: 20mm; right: 20mm;
+  top: 9mm; left: 20mm; right: 20mm;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7777,10 +7779,10 @@ body:has(.yb-student) {
 
 /* Safari（html.e4-safari，见 lib/e4Browser.js）：打印时每张纸顶部强加约 21mm、底部为 0，
    @page 页边距改不掉，页面还按纸宽放大约 2.8%。页高改为 248mm（21.2 + 248×1.028 = 276mm ≤ Letter 279.4mm），
-   顶部留白交给 Safari 那 21mm：章节条贴页顶、正文上边距 6mm，封面去掉顶部空白、logo 略小。
-   屏幕预览同样生效，分页预算见 AutoPages（228mm） */
-html.e4-safari .e4-print-page.e4-page-shell { min-height: 248mm; padding-top: 6mm; }
-html.e4-safari .e4-print-page .e4-chapter-strip { top: 2mm; }
+   页内边距与其他浏览器相同（章节条 9mm、正文 20mm）；封面去掉顶部空白、上边距 6mm、logo 略小以放进 248mm。
+   屏幕预览同样生效，分页预算见 AutoPages（214mm） */
+html.e4-safari .e4-print-page.e4-page-shell { min-height: 248mm; }
+html.e4-safari .e4-print-page.e4-page-shell.is-cover { padding-top: 6mm; }
 html.e4-safari .e4-print-page .e4-cover-top-spacer { height: 0; }
 html.e4-safari .e4-print-page .e4-brand-logo { height: 46mm; }
 

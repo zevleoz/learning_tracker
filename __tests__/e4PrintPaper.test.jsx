@@ -40,9 +40,15 @@ describe('E4 报告打印纸型（A4 / US Letter，Safari 与 Chrome）', () => 
     expect(21.2 + 270 * (215.9 / 210)).toBeGreaterThan(279.4);
   });
 
-  test('分页预算与页高一致：Chrome 270 − 16 − 14 = 240mm，Safari 248 − 6 − 14 = 228mm', () => {
-    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = IS_SAFARI \? 228 : 240;/);
-    expect(css).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ min-height: 248mm; padding-top: 6mm; \}/);
+  test('分页预算与页高一致：Chrome 270 − 20 − 14 = 236mm，Safari 248 − 20 − 14 = 214mm', () => {
+    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = IS_SAFARI \? 214 : 236;/);
+    expect(css).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ min-height: 248mm; \}/);
+  });
+
+  test('章节条（9mm 起、约 6mm 高）与正文（20mm 起）之间留白，下划线不再压到标题', () => {
+    expect(css).toMatch(/top: 9mm; left: 20mm; right: 20mm;/);
+    expect(css).toMatch(/padding: 20mm 16mm 14mm;/);
+    expect(9 + 6.2).toBeLessThan(20);
   });
 });
 

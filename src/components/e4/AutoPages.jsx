@@ -6,11 +6,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { paginateUnits } from '../../lib/e4Pagination.js';
 import { IS_SAFARI } from '../../lib/e4Browser.js';
 
-// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 页高 − 上留白 − 下 14mm：
-//   Chrome 等：270 − 16 − 14 = 240mm（详见 index.css 的 E4 @media print 说明）
-//   Safari：248 − 6 − 14 = 228mm（Safari 打印时顶部自带约 21mm，见 lib/e4Browser.js）
+// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 页高 − 上 20mm（章节条下方）− 下 14mm：
+//   Chrome 等：270 − 20 − 14 = 236mm（详见 index.css 的 E4 @media print 说明）
+//   Safari：248 − 20 − 14 = 214mm（Safari 打印 Letter 时顶部自带约 21mm，见 lib/e4Browser.js）
 const INNER_WIDTH_MM = 178;
-const INNER_HEIGHT_MM = IS_SAFARI ? 228 : 240;
+const INNER_HEIGHT_MM = IS_SAFARI ? 214 : 236;
 const SAFETY_MM = 6; // 安全余量：吸收 offsetTop/offsetHeight 取整与打印缩放误差
 
 function UnitView({ unit, slice }) {

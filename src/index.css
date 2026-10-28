@@ -7348,8 +7348,8 @@ body:has(.yb-student) {
   position: relative;
   box-sizing: border-box;
   width: 210mm;
-  /* 纸型交集 210×279mm：A4(297) 与 Letter(279.4) 下都不溢出 */
-  min-height: 279mm;
+  /* 与打印页同高 270mm（见 @media print 说明），屏幕预览所见即所印 */
+  min-height: 270mm;
   padding: 16mm 16mm 14mm;
   page-break-after: always;
   break-after: page;
@@ -7733,8 +7733,8 @@ body:has(.yb-student) {
 
 /* ===== 打印色彩保留 ===== */
 @media print {
-  /* 不强制纸型：A4 / US Letter 由打印对话框决定。强制 A4 时选 Letter 会整页缩到约 94%，
-     不认 size 的浏览器（Safari）则溢出成空白页 */
+  /* 不强制纸型：A4 / US Letter 由打印对话框决定。强制 A4 时 Safari 按 297mm 排版、
+     却打在 279.4mm 的 Letter 纸上，每页溢出一截 → 隔页空白 */
   @page { margin: 0; }
 
   /* 解除全局壳层约束：overflow hidden 是 Chrome 打印空白页的常见根因 */
@@ -7751,21 +7751,20 @@ body:has(.yb-student) {
   .no-print { display: none !important; }
   .e4-pg-measure { display: none !important; }
 
+  /* 只用 mm，不用 vw/vh：Safari 打印时 vw/vh 仍是窗口尺寸，会把整页撑宽、挤出纸外 */
   .e4-print-doc {
-    width: 100vw !important;
-    margin: 0 !important;
+    width: 210mm !important;
+    margin: 0 auto !important;
     box-shadow: none !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  /* 每页撑满实际纸张（打印时 vw/vh = 纸张尺寸）：页眉贴纸顶、页脚贴纸底。
-     正文列固定 178mm 居中（与分页测量同宽）；分页预算按较矮的 Letter 计（AutoPages 249mm），
-     A4 多出的高度落在正文与页脚之间。高度减 0.5mm 防取整溢出出空白页 */
+  /* 页高 270mm：Safari 会把文档按纸张可打印宽度等比缩放，能否放下看的是「高/宽」比例。
+     270/210 = 1.286 ≤ Letter 的 279.4/215.9 = 1.294（A4 为 1.414），Safari 与 Chrome、
+     A4 与 Letter、有无系统页边距都放得下一页，不再溢出成空白页。分页预算见 AutoPages（240mm） */
   .e4-print-page.e4-page-shell {
-    width: 100vw !important;
-    height: calc(100vh - 0.5mm) !important;
-    padding-left: calc((100vw - 178mm) / 2) !important;
-    padding-right: calc((100vw - 178mm) / 2) !important;
+    width: 210mm !important;
+    height: 270mm !important;
     min-height: 0 !important;
     box-shadow: none !important;
     page-break-after: always;
@@ -7773,14 +7772,6 @@ body:has(.yb-student) {
     page-break-inside: avoid;
   }
   .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
-  .e4-print-page .e4-chapter-strip {
-    left: calc((100vw - 170mm) / 2);
-    right: calc((100vw - 170mm) / 2);
-  }
-  .e4-print-page .e4-page-footer {
-    left: calc((100vw - 178mm) / 2);
-    right: calc((100vw - 178mm) / 2);
-  }
 }
 
 /* =====================================================================
@@ -12192,7 +12183,7 @@ body.e4-light .e4-print-modal { background: #F4F3EF; }
     height: auto !important;
     padding: 0 !important;
   }
-  body.e4-print-modal-open .e4-print-modal .e4-print-doc { margin: 0 !important; }
+  body.e4-print-modal-open .e4-print-modal .e4-print-doc { margin: 0 auto !important; }
 }
 
 /* ---- shadcn DatePicker：最终文档就地编辑的日期触发器 ---- */

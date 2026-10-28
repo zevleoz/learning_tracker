@@ -13,18 +13,29 @@ function e4PrintBlock() {
   return css.slice(start, css.indexOf('E4 应用 UI 升级', start));
 }
 
-describe('E4 报告打印纸型（A4 / US Letter）', () => {
-  test('不再强制 A4：纸型由打印对话框决定（强制 A4 时选 Letter 会整页缩小，Safari 会溢出成空白页）', () => {
+const autoPages = fs.readFileSync(path.join(__dirname, '../src/components/e4/AutoPages.jsx'), 'utf8');
+
+describe('E4 报告打印纸型（A4 / US Letter，Safari 与 Chrome）', () => {
+  test('不强制 A4：Safari 会按 297mm 排版却打在 Letter 纸上，隔页空白', () => {
     const block = e4PrintBlock();
     expect(block).toMatch(/@page\s*\{\s*margin:\s*0;\s*\}/);
     expect(block).not.toMatch(/size:\s*A4/);
   });
 
-  test('打印时每页撑满实际纸张，正文列 178mm 居中（与分页测量同宽）', () => {
+  test('打印规则不用 vw/vh：Safari 打印时它们是窗口尺寸，会把整页撑宽挤出纸外', () => {
+    const rules = e4PrintBlock().replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(rules).not.toMatch(/\d*v[wh]\b/);
+  });
+
+  test('页面 210×270mm：高/宽 ≤ Letter 的 279.4/215.9，Safari 按纸宽缩放后两种纸都放得下', () => {
     const block = e4PrintBlock();
-    expect(block).toMatch(/height:\s*calc\(100vh - 0\.5mm\)\s*!important/);
-    expect(block).toMatch(/padding-left:\s*calc\(\(100vw - 178mm\) \/ 2\)/);
-    expect(block).not.toMatch(/height:\s*279mm/);
+    expect(block).toMatch(/width:\s*210mm\s*!important/);
+    expect(block).toMatch(/height:\s*270mm\s*!important/);
+    expect(270 / 210).toBeLessThanOrEqual(279.4 / 215.9);
+  });
+
+  test('分页预算与页高一致：270 − 上 16 − 下 14 = 240mm', () => {
+    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = 240;/);
   });
 });
 

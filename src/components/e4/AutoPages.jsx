@@ -5,10 +5,11 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { paginateUnits } from '../../lib/e4Pagination.js';
 
-// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 279mm − 上 16mm − 下 14mm = 249mm
-// 279mm 为 A4(297) 与 Letter(279.4) 的纸型交集：两种纸下都不溢出，不再连锁出空白页。
+// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 270mm − 上 16mm − 下 14mm = 240mm
+// 270mm 页高：Safari 按纸宽等比缩放文档，210×270 的比例在 A4 / Letter、Safari / Chrome 下都放得下一页
+// （详见 index.css 的 E4 @media print 说明）。
 const INNER_WIDTH_MM = 178;
-const INNER_HEIGHT_MM = 249;
+const INNER_HEIGHT_MM = 240;
 const SAFETY_MM = 6; // 安全余量：吸收 offsetTop/offsetHeight 取整与打印缩放误差
 
 function UnitView({ unit, slice }) {

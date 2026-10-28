@@ -7350,8 +7350,9 @@ body:has(.yb-student) {
   width: 210mm;
   /* 与打印页同高 270mm（见 @media print 说明），屏幕预览所见即所印 */
   min-height: 270mm;
-  /* 上 20mm：章节条（9–15mm）与正文之间留约 5mm，章节条下划线不再压到标题 */
-  padding: 20mm 16mm 14mm;
+  /* 页内版心：章节条 12–18mm，正文从 23mm 起（与章节条留约 5mm，下划线不压标题），
+     页脚距页底 8mm、正文下边距 19mm。Safari 打印 Letter 时整页按纸宽放大约 2.8%，上下约 12 / 10mm */
+  padding: 23mm 16mm 19mm;
   page-break-after: always;
   break-after: page;
   background: #fff;
@@ -7374,7 +7375,7 @@ body:has(.yb-student) {
 /* 章节条：细实线分隔（参考图是细线不是虚线） */
 .e4-chapter-strip {
   position: absolute;
-  top: 9mm; left: 20mm; right: 20mm;
+  top: 12mm; left: 20mm; right: 20mm;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7388,13 +7389,13 @@ body:has(.yb-student) {
 .e4-chapter-label { letter-spacing: 1px; font-weight: 600; text-transform: uppercase; color: var(--e4-red); }
 .e4-chapter-right { font-weight: 500; letter-spacing: 0.3px; }
 
-.e4-cover-top-spacer { height: 22mm; }
+.e4-cover-top-spacer { height: 10mm; }
 .e4-page-body { position: relative; }
 
 /* 三列页脚 */
 .e4-page-footer {
   position: absolute;
-  bottom: 5mm; left: 16mm; right: 16mm;
+  bottom: 8mm; left: 16mm; right: 16mm;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   gap: 6mm;
@@ -7416,7 +7417,8 @@ body:has(.yb-student) {
   margin-bottom: 8mm;
 }
 .e4-brand-logo {
-  height: 56mm;
+  /* 封面 logo 与顶部空白收小一点，封面内容与页脚之间留出空隙 */
+  height: 50mm;
   width: auto;
   object-fit: contain;
 }
@@ -7774,17 +7776,8 @@ body:has(.yb-student) {
     page-break-inside: avoid;
   }
   .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
-  html.e4-safari .e4-print-page.e4-page-shell { height: 248mm !important; }
 }
 
-/* Safari（html.e4-safari，见 lib/e4Browser.js）：打印时每张纸顶部强加约 21mm、底部为 0，
-   @page 页边距改不掉，页面还按纸宽放大约 2.8%。页高改为 248mm（21.2 + 248×1.028 = 276mm ≤ Letter 279.4mm），
-   页内边距与其他浏览器相同（章节条 9mm、正文 20mm）；封面去掉顶部空白、上边距 6mm、logo 略小以放进 248mm。
-   屏幕预览同样生效，分页预算见 AutoPages（214mm） */
-html.e4-safari .e4-print-page.e4-page-shell { min-height: 248mm; }
-html.e4-safari .e4-print-page.e4-page-shell.is-cover { padding-top: 6mm; }
-html.e4-safari .e4-print-page .e4-cover-top-spacer { height: 0; }
-html.e4-safari .e4-print-page .e4-brand-logo { height: 46mm; }
 
 /* =====================================================================
    E4 应用 UI 升级 — 与打印报告同品牌：海军蓝侧栏 + 米白纸感主区

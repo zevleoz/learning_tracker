@@ -186,7 +186,7 @@ export function namesListText(title, items) {
  * @param {object} info buildFillInfo 的结果
  * @param {object|null} draft 这位学生今天待发 / 已处理的消息
  * @param {string} todayIso
- * @returns {{ id, name, stageText, school, mentorName, days, stateText, warn, subText, lastText, draft }}
+ * @returns {{ id, name, stageText, firstMonthDay, yesterday, school, mentorName, days, stateText, warn, subText, lastText, draft }}
  */
 export function weekBoardRow(student, info, draft, todayIso) {
   const signup = signupDay(student?.created_at);
@@ -215,10 +215,16 @@ export function weekBoardRow(student, info, draft, todayIso) {
   else if (summary.todayFilled) subText = '今天已经记了';
   else subText = '今天还没记';
 
+  // 「今天」按昨天分组：f = 昨天记了，e = 昨天没记，n = 昨天还没注册
+  const yesterdayIso = todayIso ? addDays(todayIso, -1) : null;
+  const yesterday = days.find((d) => d.date === yesterdayIso)?.state || 'e';
+
   return {
     id: student?.id,
     name: student?.name || student?.full_name || '(未命名)',
     stageText: isFirstMonth ? `首月 · 第 ${day} 天` : '每周看',
+    firstMonthDay: isFirstMonth ? day : null,
+    yesterday,
     school: student?.school_name || student?.school || '',
     mentorName: student?.mentorName || '',
     days,

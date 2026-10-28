@@ -1,4 +1,4 @@
-// 「这周谁记了」：要跟进的学生在前，正常的在后。
+// 「这周谁记了」：昨天没记的学生在前，昨天记了的在后；首月学生名字旁一个小标。
 // 每天一个小方块（18px），最后一列「今天的消息」跳到今天 tab 里对应的卡片。
 // 行尾 ··· / 右键可以隐藏或暂停学生；被隐藏 / 暂停的收进底部「已隐藏 N 人」，可恢复。
 
@@ -153,8 +153,11 @@ function BoardRow({
               <button type="button" className="md-link" onClick={() => onOpenStudent?.(row.id)}>
                 {row.name}
               </button>
+              {row.firstMonthDay != null && (
+                <span className="md-flag" title={`首月 · 第 ${row.firstMonthDay} 天`}>首月</span>
+              )}
             </b>
-            <small>{[row.stageText, row.school].filter(Boolean).join(' · ')}</small>
+            <small>{row.school || ''}</small>
           </div>
         </div>
       </td>
@@ -215,8 +218,9 @@ export default function WeekBoard({
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const muted = rows.filter((r) => mutes[r.id]);
   const visible = rows.filter((r) => !mutes[r.id]);
-  const warn = visible.filter((r) => r.warn);
-  const normal = visible.filter((r) => !r.warn);
+  const missed = visible.filter((r) => r.yesterday === 'e');
+  const filled = visible.filter((r) => r.yesterday === 'f');
+  const notYet = visible.filter((r) => r.yesterday === 'n');
   const cols = showMentor ? 6 : 5;
   const labels = headerLabels(rows);
 
@@ -276,8 +280,9 @@ export default function WeekBoard({
               <tr><td colSpan={cols} className="md-empty">没有学生</td></tr>
             ) : (
               <>
-                {group('要跟进', warn)}
-                {group('正常', normal)}
+                {group('昨天没记', missed)}
+                {group('昨天记了', filled)}
+                {group('昨天还没注册', notYet)}
                 {muted.length > 0 && (
                   <tr className="md-grp md-hidden-head">
                     <td colSpan={cols}>

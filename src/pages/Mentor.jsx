@@ -131,11 +131,11 @@ export default function Mentor() {
 
   // ── URL 是页面状态的唯一来源（decision 10）──
   // ?view=students|analytics|syllabus|settings（默认 students）
-  // &tab=today|all（只对 students 有效，默认 today）
+  // &tab=today|all（只对 students 有效，默认 all；旧链接 ?tab=all 照常可用）
   // &student=<id>（数据分析 / 课表选中的学生）
   const viewParam = searchParams.get('view');
   const activeView = VIEWS.includes(viewParam) ? viewParam : 'students';
-  const tab = activeView === 'students' && searchParams.get('tab') === 'all' ? 'all' : 'today';
+  const tab = activeView === 'students' && searchParams.get('tab') === 'today' ? 'today' : 'all';
   const studentParam = searchParams.get('student') || '';
   // 选中的学生由 URL 决定；对象引用保持稳定，下面的拉记录 effect 才不会反复重跑
   const picked = useMemo(
@@ -147,7 +147,7 @@ export default function Mentor() {
     const p = new URLSearchParams();
     const view = next.view || 'students';
     if (view !== 'students') p.set('view', view);
-    if (view === 'students' && next.tab === 'all') p.set('tab', 'all');
+    if (view === 'students' && next.tab === 'today') p.set('tab', 'today');
     if (next.student && (view === 'analytics' || view === 'syllabus')) p.set('student', next.student);
     return p;
   };
@@ -1191,6 +1191,22 @@ export default function Mentor() {
                   <button
                     type="button"
                     role="tab"
+                    aria-selected={tab === 'all'}
+                    onClick={() => goTab('all')}
+                    style={{
+                      ...TAB_BTN,
+                      fontWeight: tab === 'all' ? 600 : 500,
+                      color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
+                      borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
+                      marginBottom: -1,
+                    }}
+                  >
+                    全部学生
+                    <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
                     aria-selected={tab === 'today'}
                     onClick={() => goTab('today')}
                     style={{
@@ -1205,22 +1221,6 @@ export default function Mentor() {
                     {openDrafts.length > 0 && (
                       <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{openDrafts.length}</span>
                     )}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === 'all'}
-                    onClick={() => goTab('all')}
-                    style={{
-                      ...TAB_BTN,
-                      fontWeight: tab === 'all' ? 600 : 500,
-                      color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
-                      borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
-                      marginBottom: -1,
-                    }}
-                  >
-                    全部学生
-                    <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
                   </button>
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', paddingBottom: 8 }}>
@@ -1254,15 +1254,15 @@ export default function Mentor() {
               {tab === 'today' ? (
                 <>
                   <header style={{ margin: '8px 2px 20px' }}>
-                    <div style={{ fontSize: 12.5, color: '#6E6E73' }}>{todayDateLine}</div>
-                    <h1 style={{ fontSize: 22, fontWeight: 600, color: '#1C1C1E', margin: '5px 0 6px' }}>
+                    <div style={{ fontSize: 12, color: '#6E6E73' }}>{todayDateLine}</div>
+                    <h1 style={{ fontSize: 20, fontWeight: 600, color: '#1C1C1E', margin: '4px 0 5px' }}>
                       {dr.status === 'loading'
                         ? '正在加载今天的消息…'
                         : openDrafts.length > 0
                           ? `今天有 ${openDrafts.length} 条消息要发`
                           : '今天的消息都处理完了'}
                     </h1>
-                    <p style={{ fontSize: 13.5, color: '#48484A', lineHeight: 1.65, margin: 0 }}>
+                    <p style={{ fontSize: 12.5, color: '#48484A', lineHeight: 1.6, margin: 0 }}>
                       {dr.status === 'loading'
                         ? '稍等，正在整理学生昨天的记录。'
                         : openDrafts.length > 0
@@ -1293,7 +1293,7 @@ export default function Mentor() {
                     onRestore={restoreStudent}
                   />
                   <a
-                    href="/mentor?tab=all"
+                    href="/mentor"
                     onClick={(e) => { e.preventDefault(); goTab('all'); }}
                     style={{
                       display: 'inline-block', marginTop: 14, fontSize: 13, color: '#6E6E73',
@@ -1849,6 +1849,23 @@ export default function Mentor() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === 'all'}
+              onClick={() => goTab('all')}
+              style={{
+                ...TAB_BTN,
+                padding: '9px 10px 10px',
+                fontWeight: tab === 'all' ? 600 : 500,
+                color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
+                borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              全部学生
+              <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === 'today'}
               onClick={() => goTab('today')}
               style={{
@@ -1864,23 +1881,6 @@ export default function Mentor() {
               {openDrafts.length > 0 && (
                 <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{openDrafts.length}</span>
               )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'all'}
-              onClick={() => goTab('all')}
-              style={{
-                ...TAB_BTN,
-                padding: '9px 10px 10px',
-                fontWeight: tab === 'all' ? 600 : 500,
-                color: tab === 'all' ? '#1C1C1E' : '#6E6E73',
-                borderBottom: tab === 'all' ? '2px solid #1C1C1E' : '2px solid transparent',
-                marginBottom: -1,
-              }}
-            >
-              全部学生
-              <span style={{ marginLeft: 5, fontSize: 12, color: '#6E6E73' }}>{students.length}</span>
             </button>
           </div>
 
@@ -1914,7 +1914,7 @@ export default function Mentor() {
           {tab === 'today' ? (
             <>
               <header style={{ margin: '4px 2px 18px' }}>
-                <div style={{ fontSize: 12.5, color: '#6E6E73' }}>{todayDateLine}</div>
+                <div style={{ fontSize: 12, color: '#6E6E73' }}>{todayDateLine}</div>
                 <h1 style={{ fontSize: 20, fontWeight: 600, color: '#1C1C1E', margin: '5px 0 6px' }}>
                   {dr.status === 'loading'
                     ? '正在加载今天的消息…'
@@ -1952,7 +1952,7 @@ export default function Mentor() {
                 onRestore={restoreStudent}
               />
               <a
-                href="/mentor?tab=all"
+                href="/mentor"
                 onClick={(e) => { e.preventDefault(); goTab('all'); }}
                 style={{
                   display: 'inline-block', marginTop: 14, fontSize: 13, color: '#6E6E73',

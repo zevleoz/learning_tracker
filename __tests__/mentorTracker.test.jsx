@@ -100,9 +100,16 @@ beforeEach(() => {
 });
 
 describe('学生管理 · 今天 tab', () => {
-  it('默认进今天：日期、抬头、待发卡片、这周谁记了', async () => {
-    setup({ drafts: [draft()] });
+  it('默认进全部学生；?tab=today 进今天', async () => {
+    setup();
     renderPage();
+    await readyList();
+    expect(screen.getByRole('tab', { name: /全部学生/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('今天：日期、抬头、待发卡片、这周谁记了', async () => {
+    setup({ drafts: [draft()] });
+    renderPage('/mentor?tab=today');
     await waitFor(() => expect(screen.getByText('今天有 1 条消息要发')).toBeInTheDocument());
     expect(screen.getByRole('tab', { name: /今天/ })).toHaveAttribute('aria-selected', 'true');
     const queue = await screen.findByRole('region', { name: '待发消息' });
@@ -115,7 +122,7 @@ describe('学生管理 · 今天 tab', () => {
 
   it('没有待发消息时显示「今天的消息都处理完了」', async () => {
     setup();
-    renderPage();
+    renderPage('/mentor?tab=today');
     await waitFor(() => expect(screen.getByText('今天的消息都处理完了')).toBeInTheDocument());
     const queue = screen.getByRole('region', { name: '待发消息' });
     expect(within(queue).getByText('没有待发的消息。')).toBeInTheDocument();
@@ -125,7 +132,7 @@ describe('学生管理 · 今天 tab', () => {
     setup({ drafts: [draft()] });
     const writeText = jest.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });
-    renderPage();
+    renderPage('/mentor?tab=today');
     const queue = await screen.findByRole('region', { name: '待发消息' });
     fireEvent.click(await within(queue).findByRole('button', { name: '复制' }));
     await waitFor(() => expect(updates('supervision_drafts').length).toBe(1));
@@ -138,7 +145,7 @@ describe('学生管理 · 今天 tab', () => {
 
   it('不用发：折叠行给出原因，可撤销', async () => {
     setup({ drafts: [draft()] });
-    renderPage();
+    renderPage('/mentor?tab=today');
     const queue = await screen.findByRole('region', { name: '待发消息' });
     fireEvent.click(await within(queue).findByRole('button', { name: '不用发' }));
     await waitFor(() => expect(updates('supervision_drafts').length).toBe(1));
@@ -150,7 +157,7 @@ describe('学生管理 · 今天 tab', () => {
 
   it('点卡片里的学生名直接进数据分析，没有弹窗', async () => {
     setup({ drafts: [draft()] });
-    renderPage();
+    renderPage('/mentor?tab=today');
     const queue = await screen.findByRole('region', { name: '待发消息' });
     fireEvent.click(await within(queue).findByRole('button', { name: '首月已填' }));
     await waitFor(() => expect(url()).toBe('/mentor?view=analytics&student=s-b'));
@@ -159,7 +166,7 @@ describe('学生管理 · 今天 tab', () => {
 
   it('点「这周谁记了」里的学生同样进数据分析', async () => {
     setup();
-    renderPage();
+    renderPage('/mentor?tab=today');
     const board = await screen.findByRole('region', { name: '这周谁记了' });
     await waitFor(() => expect(within(board).getAllByText('久未填').length).toBeGreaterThan(0));
     fireEvent.click(within(board).getByRole('button', { name: '久未填' }));
@@ -172,7 +179,7 @@ describe('学生管理 · 隐藏 / 暂停', () => {
 
   it('隐藏的学生从主列表移入「已隐藏」，恢复后立即回来', async () => {
     setup({ mutes: [{ student_id: 's-gap', mode: 'hidden', until: null, set_by: 'admin-1' }] });
-    renderPage();
+    renderPage('/mentor?tab=today');
     await readyToday();
     const board = await boardRegion();
     const toggle = await within(board).findByRole('button', { name: '已隐藏 1 人' });
@@ -190,7 +197,7 @@ describe('学生管理 · 隐藏 / 暂停', () => {
 
   it('⋯ 菜单可以隐藏；右键菜单可以暂停 5 天，行上显示「再看」', async () => {
     setup();
-    renderPage();
+    renderPage('/mentor?tab=today');
     await readyToday();
     const board = await boardRegion();
     const row = within(board).getByRole('button', { name: '久未填' }).closest('tr');
@@ -222,7 +229,7 @@ describe('学生管理 · 隐藏 / 暂停', () => {
 
   it('暂停到期（until < 今天）自动回到主列表', async () => {
     setup({ mutes: [{ student_id: 's-gap', mode: 'snoozed', until: off(-1) }] });
-    renderPage();
+    renderPage('/mentor?tab=today');
     await readyToday();
     const board = await boardRegion();
     await waitFor(() => expect(within(board).getByRole('button', { name: '久未填' })).toBeInTheDocument());
@@ -234,7 +241,7 @@ describe('学生管理 · 隐藏 / 暂停', () => {
       drafts: [draft({ student_id: 's-gap' })],
       mutes: [{ student_id: 's-gap', mode: 'hidden', until: null }],
     });
-    renderPage();
+    renderPage('/mentor?tab=today');
     await waitFor(() => expect(screen.getByText('今天的消息都处理完了')).toBeInTheDocument());
     const queue = screen.getByRole('region', { name: '待发消息' });
     expect(within(queue).getByText('没有待发的消息。')).toBeInTheDocument();
@@ -245,10 +252,10 @@ describe('学生管理 · 隐藏 / 暂停', () => {
 describe('学生管理 · 全部学生 tab', () => {
   it('tab 写进 URL；列表显示阶段、近 7 天、最后记录、连接', async () => {
     setup();
-    renderPage();
+    renderPage('/mentor?tab=today');
     await readyToday();
     fireEvent.click(screen.getByRole('tab', { name: /全部学生/ }));
-    await waitFor(() => expect(url()).toBe('/mentor?tab=all'));
+    await waitFor(() => expect(url()).toBe('/mentor'));
     await readyList();
 
     const miss = within(rowOf('首月未填'));

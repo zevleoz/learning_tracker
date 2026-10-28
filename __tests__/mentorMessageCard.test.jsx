@@ -315,6 +315,8 @@ const BOARD_ROWS = [
     id: 'wang',
     name: '王可欣',
     stageText: '每周看',
+    firstMonthDay: null,
+    yesterday: 'e',
     school: '平和双语',
     mentorName: '李老师',
     days: days(['f', 'f', 'e', 'e', 'f', 'e', 't']),
@@ -328,6 +330,8 @@ const BOARD_ROWS = [
     id: 'zhou',
     name: '周以宁',
     stageText: '首月 · 第 13 天',
+    firstMonthDay: 13,
+    yesterday: 'f',
     school: '上海中学国际部',
     mentorName: '陈老师',
     days: days(['f', 'e', 'f', 'e', 'f', 'f', 't']),
@@ -340,10 +344,12 @@ const BOARD_ROWS = [
 ];
 
 describe('这周谁记了', () => {
-  it('要跟进在前，正常在后；今天一列加粗', () => {
+  it('昨天没记在前，昨天记了在后；首月只有小标；今天一列加粗', () => {
     const { container } = render(<WeekBoard rows={BOARD_ROWS} />);
-    const warnGroup = screen.getByText('要跟进 · 1');
-    const normalGroup = screen.getByText('正常 · 1');
+    const warnGroup = screen.getByText('昨天没记 · 1');
+    const normalGroup = screen.getByText('昨天记了 · 1');
+    expect(screen.getByText('首月')).toHaveAttribute('title', '首月 · 第 13 天');
+    expect(screen.queryByText(/每周看/)).toBeNull();
     expect(
       warnGroup.compareDocumentPosition(normalGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();

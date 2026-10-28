@@ -162,6 +162,8 @@ describe('这周谁记了（weekBoardRow）', () => {
     expect(r.days[5].state).toBe('f');
     expect(r.days[4].state).toBe('e');
     expect(r.stageText).toBe('首月 · 第 13 天');
+    expect(r.firstMonthDay).toBe(13);
+    expect(r.yesterday).toBe('f');
     expect(r.stateText).toBe('正常');
     expect(r.warn).toBe(false);
     expect(r.subText).toBe('今天已经记了');
@@ -180,6 +182,7 @@ describe('这周谁记了（weekBoardRow）', () => {
     expect(r.days[5].state).toBe('e');
     expect(r.days[6].state).toBe('t');
     expect(r.stageText).toBe('首月 · 第 3 天');
+    expect(r.yesterday).toBe('e');
     expect(r.stateText).toBe('还没开始记');
     expect(r.warn).toBe(true); // 首月第 3 天还没记过 → 要跟进
     expect(r.subText).toBe('注册后一条都没有');
@@ -191,6 +194,7 @@ describe('这周谁记了（weekBoardRow）', () => {
     expect(r.stateText).toBe('还没开始记');
     expect(r.warn).toBe(false);
     expect(r.stageText).toBe('首月 · 第 1 天');
+    expect(r.yesterday).toBe('n'); // 今天才注册：不算昨天没记
   });
 
   it('7 天都记：每天都记；有实测待补时优先显示', () => {
@@ -200,6 +204,7 @@ describe('这周谁记了（weekBoardRow）', () => {
     expect(r.stateText).toBe('每天都记');
     expect(r.subText).toBe('实测待补 2 条');
     expect(r.stageText).toBe('每周看');
+    expect(r.firstMonthDay).toBeNull();
   });
 
   it('3 天以上没记：N 天没记 + 要跟进', () => {

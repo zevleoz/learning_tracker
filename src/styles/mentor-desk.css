@@ -14,7 +14,7 @@
   box-sizing: border-box;
   color: var(--md-ink);
   font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", "Noto Sans CJK SC", system-ui, sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -33,16 +33,16 @@
 }
 .md-root .md-sec-h h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 650;
 }
 .md-root .md-n {
   color: var(--md-ink-3);
-  font-size: 14px;
+  font-size: 13px;
 }
 .md-root .md-aside {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--md-ink-3);
 }
 .md-root .md-panel {
@@ -54,7 +54,7 @@
 .md-root .md-empty {
   padding: 24px;
   color: var(--md-ink-2);
-  font-size: 14.5px;
+  font-size: 13.5px;
 }
 
 /* ---------- 消息卡片 ---------- */
@@ -79,7 +79,7 @@
   flex: none;
   background: var(--md-soft);
   color: var(--md-ink-2);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 .md-root .md-av--sm {
@@ -88,19 +88,19 @@
   font-size: 12px;
 }
 .md-root .md-who b {
-  font-size: 15.5px;
+  font-size: 14.5px;
   font-weight: 650;
 }
 .md-root .md-person-meta {
   display: block;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--md-ink-3);
   margin-top: 2px;
 }
 .md-root .md-why {
   margin-left: auto;
   text-align: right;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--md-ink-2);
   line-height: 1.5;
 }
@@ -117,7 +117,7 @@
   background: var(--md-soft);
   border-radius: 4px 14px 14px 14px;
   padding: 14px 16px;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.75;
   color: var(--md-ink);
   white-space: pre-wrap;
@@ -132,7 +132,7 @@
   border: 0;
   border-radius: 4px 14px 14px 14px;
   padding: 14px 16px;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.75;
   color: var(--md-ink);
   background: #fff;
@@ -143,25 +143,25 @@
 
 .md-root .md-note {
   margin: 10px 0 0 46px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--md-warn);
   line-height: 1.55;
 }
 .md-root .md-lint {
   margin: 8px 0 0 46px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--md-ink-3);
   line-height: 1.55;
 }
 .md-root .md-evi {
   margin: 10px 0 0 46px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--md-ink-3);
   line-height: 1.7;
 }
 .md-root .md-err {
   margin: 10px 0 0 46px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--md-warn);
 }
 
@@ -181,7 +181,7 @@
   border: 0;
   background: var(--md-soft);
   color: var(--md-ink);
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -225,14 +225,14 @@
   text-align: left;
   padding: 9px 10px;
   border-radius: 7px;
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--md-ink);
   cursor: pointer;
 }
 .md-root .md-menu button:hover { background: var(--md-soft); }
 .md-root .md-menu button small {
   color: var(--md-ink-3);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .md-root .md-menu-lbl {
   padding: 6px 10px 4px;
@@ -249,7 +249,7 @@
   gap: 12px;
   padding: 14px 24px;
   border-top: 1px solid var(--md-soft);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--md-ink-2);
 }
 .md-root .md-done:first-child { border-top: 0; }
@@ -267,7 +267,7 @@
   border: 0;
   background: none;
   color: var(--md-ink-3);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 5px;
@@ -286,7 +286,7 @@
   background: none;
   color: var(--md-ink-2);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -311,7 +311,7 @@
   display: flex;
   gap: 16px;
   margin-left: auto;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--md-ink-3);
 }
 .md-root .md-legend span {
@@ -336,15 +336,15 @@
 }
 .md-root .md-tbl th {
   text-align: left;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--md-ink-3);
   padding: 14px 12px 10px;
   white-space: nowrap;
 }
 .md-root .md-tbl td {
-  padding: 13px 12px;
-  font-size: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
   color: var(--md-ink-2);
   border-top: 1px solid var(--md-soft);
   vertical-align: middle;
@@ -355,8 +355,8 @@
 .md-root .md-tbl td:last-child { padding-right: 24px; }
 .md-root .md-tbl .md-grp td {
   border-top: 0;
-  padding: 18px 24px 6px;
-  font-size: 12.5px;
+  padding: 14px 24px 5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--md-ink-3);
   letter-spacing: .02em;
@@ -368,11 +368,23 @@
   align-items: center;
   gap: 10px;
 }
-.md-root .md-nm .md-av { width: 28px; height: 28px; font-size: 12.5px; }
+.md-root .md-nm .md-av { width: 28px; height: 28px; font-size: 12px; }
 .md-root .md-nm b {
   color: var(--md-ink);
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: 13.5px;
+}
+.md-root .md-nm .md-flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--md-line);
+  border-radius: 4px;
+  color: var(--md-ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  vertical-align: 1px;
 }
 .md-root .md-nm small {
   display: block;
@@ -436,7 +448,7 @@
   display: block;
   font-weight: 400;
   color: var(--md-ink-3);
-  font-size: 12.5px;
+  font-size: 12px;
   margin-top: 2px;
 }
 
@@ -444,7 +456,7 @@
   border: 0;
   background: none;
   padding: 0;
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--md-ink);
   cursor: pointer;
   text-decoration: underline;
@@ -487,7 +499,7 @@
   background: none;
   padding: 0 4px;
   color: var(--md-ink-2);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -503,7 +515,7 @@
   background: none;
   padding: 0;
   color: var(--md-ink-3);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .02em;
   cursor: pointer;

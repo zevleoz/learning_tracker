@@ -1,12 +1,13 @@
-// E4《阶段学习力复盘报告》A4 版式组件（8 页）。
+// E4《阶段学习力复盘报告》版式组件（8 个章节）。
 // 版式语言对齐 FirstReportPrint/PrepPrint（章节条 / 页脚 / 纸张外壳），
 // 量化字段由一表人才数据预填、可点改；定性字段由导师填写。
+// 与另两份报告一样走 AutoPages 自适应分页：章节内容超出一页时续页，不再溢出纸张。
 import { PROGRESS_STATIC, PROGRESS_MODULES, MODULE_STATUSES } from '../../lib/e4ProgressTemplate.js';
 import { toLocalDateStr } from '../../lib/date.js';
 import DocField from './DocField.jsx';
+import AutoPages from './AutoPages.jsx';
 import logoImg from '../../logo/logo_color.png';
 
-const TOTAL_PAGES = 8;
 
 function formatCN(iso) {
   if (!iso) return '';
@@ -151,28 +152,6 @@ function CalendarMini({ calendar, periodStart, periodEnd }) {
   );
 }
 
-function PageShell({ children, pageIndex, chapterLabel, chapterTint = 'red', studentLine, cover = false }) {
-  return (
-    <section className={`e4-print-page e4-page-shell ${cover ? 'is-cover' : ''}`}>
-      {!cover && (
-        <div className={`e4-chapter-strip e4-tint-${chapterTint}`}>
-          <div className="e4-chapter-left">
-            <span className="e4-chapter-dot">●</span>
-            <span className="e4-chapter-label">{chapterLabel}</span>
-          </div>
-          <div className="e4-chapter-right">{studentLine}</div>
-        </div>
-      )}
-      {cover && <div className="e4-cover-top-spacer" />}
-      <div className="e4-page-body">{children}</div>
-      <footer className="e4-page-footer">
-        <span className="e4-foot-brand">{PROGRESS_STATIC.brandKicker}</span>
-        <span className="e4-foot-template">{PROGRESS_STATIC.footerCenter}</span>
-        <span className="e4-foot-page">{pageIndex} / {TOTAL_PAGES}</span>
-      </footer>
-    </section>
-  );
-}
 
 export default function ProgressPrint({
   report,
@@ -200,10 +179,37 @@ export default function ProgressPrint({
     );
   };
 
-  return (
-    <div className="e4-print-doc e4-progress-doc">
-      {/* ---------------- P1 封面 ---------------- */}
-      <PageShell pageIndex={1} cover studentLine={studentLine}>
+  const head = (no, title, en, lead) => ({
+    id: 'head',
+    kind: 'block',
+    node: (
+      <>
+        <SectionHead no={no} title={title} en={en} />
+        <p className="e4-dim-intro">{lead}</p>
+      </>
+    ),
+  });
+  const block = (id, node) => ({ id, kind: 'block', node });
+  const subTitle = (id, text) => block(id, <h3 className="e4-subsection-title">{text}</h3>);
+  const note = (id, label, text) => block(id, <p className="e4-progress-note"><strong>{label}</strong>{text}</p>);
+  const delCell = (op, index) => editable && (
+    <td className="col-ops no-print">
+      <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.(op, { index })}>×</button>
+    </td>
+  );
+  const opsHead = editable && <th className="col-ops no-print" aria-label="操作" />;
+  const addRow = (id, op, label) => block(id, (
+    <button type="button" className="e4-prep-row-add no-print" onClick={() => onTableOp?.(op)}>{label}</button>
+  ));
+  const page = (key, chapterLabel, chapterTint, units) => ({ key, chapterLabel, chapterTint, studentLine, units });
+
+  // ---------------- P1 封面 ----------------
+  const coverSection = {
+    key: 'cover',
+    cover: true,
+    studentLine,
+    units: [block('cover', (
+      <>
         <div className="e4-brand-emblem">
           <img src={logoImg} alt="凭远 APP·ARK" className="e4-brand-logo" />
         </div>
@@ -241,332 +247,318 @@ export default function ProgressPrint({
           <strong>使用说明</strong>
           <span>{S.confidentiality}</span>
         </div>
-      </PageShell>
+      </>
+    ))],
+  };
 
-      {/* ---------------- P2 阶段起点 ---------------- */}
-      <PageShell pageIndex={2} chapterLabel={S.p2Chapter} chapterTint="red" studentLine={studentLine}>
-        <SectionHead no={S.p2No} title={S.p2Title} en={S.p2En} />
-        <p className="e4-dim-intro">{S.p2Lead}</p>
+  // ---------------- P2 阶段起点 ----------------
+  const p2 = page('p2', S.p2Chapter, 'red', [
+    head(S.p2No, S.p2Title, S.p2En, S.p2Lead),
+    subTitle('prior-title', S.priorTitle),
+    {
+      id: 'prior',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-label">项目</th><th>内容</th></tr></thead>,
+      rows: S.priorItems.map((it) => (
+        <tr key={it.key}>
+          <td className="col-label">{it.label}</td>
+          <td>
+            <EF d={{ area: 'p2', key: it.key }} type="long" val={data.p2?.[it.key]} placeholder={it.hint} />
+          </td>
+        </tr>
+      )),
+    },
+    subTitle('scope-title', S.scopeTitle),
+    {
+      id: 'scope',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-label">信息来源</th><th>具体范围</th></tr></thead>,
+      rows: S.scopeItems.map((it) => (
+        <tr key={it.key}>
+          <td className="col-label">{it.label}</td>
+          <td>
+            <EF d={{ area: 'scope', key: it.key }} type="long" val={data.p2?.scope?.[it.key]} placeholder={it.hint} />
+          </td>
+        </tr>
+      )),
+    },
+    note('note', '阅读提示', S.p2Note),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.priorTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-label">项目</th><th>内容</th></tr></thead>
-          <tbody>
-            {S.priorItems.map((it) => (
-              <tr key={it.key}>
-                <td className="col-label">{it.label}</td>
-                <td>
-                  <EF d={{ area: 'p2', key: it.key }} type="long" val={data.p2?.[it.key]} placeholder={it.hint} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  // ---------------- P3 学习参与与节奏 ----------------
+  const p3 = page('p3', S.p3Chapter, 'red', [
+    head(S.p3No, S.p3Title, S.p3En, S.p3Lead),
+    subTitle('summary-title', '关键数据'),
+    block('summary', (
+      <div className="e4-progress-summary">
+        {[
+          { k: 'recordCoverage', v: data.p3?.recordCoverage },
+          { k: 'totalDuration', v: data.p3?.totalDuration },
+          { k: 'weekdayAvg', v: data.p3?.weekdayAvg },
+          { k: 'weekendAvg', v: data.p3?.weekendAvg },
+        ].map((it, i) => (
+          <div key={it.k} className="e4-progress-summary-cell">
+            <span className="e4-progress-summary-label">{S.summaryLabels[i]}</span>
+            <EF d={{ area: 'p3', key: it.k }} val={it.v} />
+          </div>
+        ))}
+      </div>
+    )),
+    subTitle('calendar-title', S.calendarTitle),
+    block('calendar', <CalendarMini calendar={data.p3?.calendar || {}} periodStart={cover.periodStart} periodEnd={cover.periodEnd} />),
+    subTitle('observation-title', S.observationLabel),
+    block('observation', (
+      <div className="e4-progress-observation">
+        <EF d={{ area: 'p3', key: 'observation' }} type="long" val={data.p3?.observation} placeholder={S.observationHint} />
+      </div>
+    )),
+    note('note', '数据说明', S.p3Note),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.scopeTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-label">信息来源</th><th>具体范围</th></tr></thead>
-          <tbody>
-            {S.scopeItems.map((it) => (
-              <tr key={it.key}>
-                <td className="col-label">{it.label}</td>
-                <td>
-                  <EF d={{ area: 'scope', key: it.key }} type="long" val={data.p2?.scope?.[it.key]} placeholder={it.hint} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="e4-progress-note"><strong>阅读提示</strong>{S.p2Note}</p>
-      </PageShell>
-
-      {/* ---------------- P3 学习参与与节奏 ---------------- */}
-      <PageShell pageIndex={3} chapterLabel={S.p3Chapter} chapterTint="red" studentLine={studentLine}>
-        <SectionHead no={S.p3No} title={S.p3Title} en={S.p3En} />
-        <p className="e4-dim-intro">{S.p3Lead}</p>
-
-        <h3 className="e4-subsection-title">关键数据</h3>
-        <div className="e4-progress-summary">
-          {[
-            { k: 'recordCoverage', v: data.p3?.recordCoverage },
-            { k: 'totalDuration', v: data.p3?.totalDuration },
-            { k: 'weekdayAvg', v: data.p3?.weekdayAvg },
-            { k: 'weekendAvg', v: data.p3?.weekendAvg },
-          ].map((it, i) => (
-            <div key={it.k} className="e4-progress-summary-cell">
-              <span className="e4-progress-summary-label">{S.summaryLabels[i]}</span>
-              <EF d={{ area: 'p3', key: it.k }} val={it.v} />
+  // ---------------- P4 学科投入、学习结构与练习质量 ----------------
+  const p4 = page('p4', S.p4Chapter, 'orange', [
+    head(S.p4No, S.p4Title, S.p4En, S.p4Lead),
+    subTitle('subject-title', S.subjectTableTitle),
+    {
+      id: 'subjects',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table e4-progress-subject',
+      head: (
+        <thead>
+          <tr>
+            <th className="col-subject">学科</th>
+            <th className="col-time">时间投入</th>
+            <th className="col-struct">学习结构</th>
+            <th className="col-quality">练习质量</th>
+            {opsHead}
+          </tr>
+        </thead>
+      ),
+      rows: subjects.map((s, i) => (
+        <tr key={i}>
+          <td className="col-subject">
+            <EF d={{ area: 'subject', index: i, field: 'subject' }} val={s.subject} placeholder="填写学科" />
+          </td>
+          <td className="col-time">
+            <div className="e4-cell-stack">
+              <EF d={{ area: 'subject', index: i, field: 'totalMinsText' }} val={s.totalMinsText} />
+              <EF d={{ area: 'subject', index: i, field: 'sharePctText' }} val={s.sharePctText} />
             </div>
-          ))}
-        </div>
+          </td>
+          <td className="col-struct">
+            <div className="e4-cell-stack">
+              <EF d={{ area: 'subject', index: i, field: 'structureText' }} val={s.structureText} />
+              <EF d={{ area: 'subject', index: i, field: 'reviewMinsText' }} val={s.reviewMinsText} />
+            </div>
+          </td>
+          <td className="col-quality">
+            <div className="e4-cell-stack">
+              <EF d={{ area: 'subject', index: i, field: 'practiceCountText' }} val={s.practiceCountText} />
+              <EF d={{ area: 'subject', index: i, field: 'evalText' }} type="long" val={s.evalText} placeholder="客观与主观评价" />
+            </div>
+          </td>
+          {delCell('delSubject', i)}
+        </tr>
+      )),
+    },
+    ...(editable && subjects.length < 8 ? [addRow('add-subject', 'addSubject', '+ 添加学科行')] : []),
+    subTitle('problem-title', S.problemTableTitle),
+    {
+      id: 'problems',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-subject">学科</th><th>当前发现问题</th>{opsHead}</tr></thead>,
+      rows: (data.p4?.problems || []).map((p, i) => (
+        <tr key={i}>
+          <td className="col-subject">
+            <EF d={{ area: 'problem', index: i, field: 'subject' }} val={p.subject} placeholder="填写学科" />
+          </td>
+          <td>
+            <EF d={{ area: 'problem', index: i, field: 'issue' }} type="long" val={p.issue} placeholder={i === 0 ? S.problemHint1 : S.problemHint2} />
+          </td>
+          {delCell('delProblem', i)}
+        </tr>
+      )),
+    },
+    ...(editable ? [addRow('add-problem', 'addProblem', '+ 添加问题行')] : []),
+    note('note', '判断原则', S.p4Note),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.calendarTitle}</h3>
-        <CalendarMini calendar={data.p3?.calendar || {}} periodStart={cover.periodStart} periodEnd={cover.periodEnd} />
+  // ---------------- P5 分学科自主性 ----------------
+  const p5 = page('p5', S.p5Chapter, 'teal', [
+    head(S.p5No, S.p5Title, S.p5En, S.p5Lead),
+    subTitle('autonomy-title', S.p5TableTitle),
+    {
+      id: 'autonomy',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table e4-progress-autonomy',
+      head: <thead><tr><th className="col-subject">学科</th><th>自主学习占比</th>{opsHead}</tr></thead>,
+      rows: subjects.map((s, i) => (
+        <tr key={i}>
+          <td className="col-subject"><span className="e4-subject-name">{cellText(s.subject)}</span></td>
+          <td>
+            <AutonomyBar
+              pctText={s.autonomyPctText}
+              editable={editable}
+              onCommit={(v) => onPatch?.({ area: 'subject', index: i, field: 'autonomyPctText' }, v)}
+            />
+          </td>
+          {delCell('delSubject', i)}
+        </tr>
+      )),
+    },
+    subTitle('observation-title', S.observationLabel),
+    block('observation', (
+      <div className="e4-progress-observation">
+        <EF d={{ area: 'p5', key: 'observation' }} type="long" val={data.p5?.observation} placeholder={S.p5ObservationHint} />
+      </div>
+    )),
+    note('note', '数据说明', S.p5Note),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.observationLabel}</h3>
-        <div className="e4-progress-observation">
-          <EF d={{ area: 'p3', key: 'observation' }} type="long" val={data.p3?.observation} placeholder={S.observationHint} />
-        </div>
-        <p className="e4-progress-note"><strong>数据说明</strong>{S.p3Note}</p>
-      </PageShell>
-
-      {/* ---------------- P4 学科投入、学习结构与练习质量 ---------------- */}
-      <PageShell pageIndex={4} chapterLabel={S.p4Chapter} chapterTint="orange" studentLine={studentLine}>
-        <SectionHead no={S.p4No} title={S.p4Title} en={S.p4En} />
-        <p className="e4-dim-intro">{S.p4Lead}</p>
-
-        <h3 className="e4-subsection-title">{S.subjectTableTitle}</h3>
-        <table className="e4-navy-table e4-progress-table e4-progress-subject">
-          <thead>
-            <tr>
-              <th className="col-subject">学科</th>
-              <th className="col-time">时间投入</th>
-              <th className="col-struct">学习结构</th>
-              <th className="col-quality">练习质量</th>
-              {editable && <th className="col-ops no-print" aria-label="操作" />}
-            </tr>
-          </thead>
-          <tbody>
-            {subjects.map((s, i) => (
-              <tr key={i}>
-                <td className="col-subject">
-                  <EF d={{ area: 'subject', index: i, field: 'subject' }} val={s.subject} placeholder="填写学科" />
-                </td>
-                <td className="col-time">
-                  <div className="e4-cell-stack">
-                    <EF d={{ area: 'subject', index: i, field: 'totalMinsText' }} val={s.totalMinsText} />
-                    <EF d={{ area: 'subject', index: i, field: 'sharePctText' }} val={s.sharePctText} />
-                  </div>
-                </td>
-                <td className="col-struct">
-                  <div className="e4-cell-stack">
-                    <EF d={{ area: 'subject', index: i, field: 'structureText' }} val={s.structureText} />
-                    <EF d={{ area: 'subject', index: i, field: 'reviewMinsText' }} val={s.reviewMinsText} />
-                  </div>
-                </td>
-                <td className="col-quality">
-                  <div className="e4-cell-stack">
-                    <EF d={{ area: 'subject', index: i, field: 'practiceCountText' }} val={s.practiceCountText} />
-                    <EF d={{ area: 'subject', index: i, field: 'evalText' }} type="long" val={s.evalText} placeholder="客观与主观评价" />
-                  </div>
-                </td>
-                {editable && (
-                  <td className="col-ops no-print">
-                    <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.('delSubject', { index: i })}>×</button>
-                  </td>
-                )}
-              </tr>
+  // ---------------- P6 分学科学业情绪 ----------------
+  const p6 = page('p6', S.p6Chapter, 'blue', [
+    head(S.p6No, S.p6Title, S.p6En, S.p6Lead),
+    {
+      id: 'emotion',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table e4-progress-emotion',
+      head: (
+        <thead>
+          <tr>
+            {S.p6ColHeaders.map((h) => (
+              <th key={h} className={h === '学科' ? 'col-subject' : ''}>{h}</th>
             ))}
-          </tbody>
-        </table>
-        {editable && subjects.length < 8 && (
-          <button type="button" className="e4-prep-row-add no-print" onClick={() => onTableOp?.('addSubject')}>+ 添加学科行</button>
-        )}
+            {opsHead}
+          </tr>
+        </thead>
+      ),
+      rows: subjects.map((s, i) => (
+        <tr key={i}>
+          <td className="col-subject"><span className="e4-subject-name">{cellText(s.subject)}</span></td>
+          <td><EF d={{ area: 'subject', index: i, field: 'experience' }} type="long" val={s.experience} placeholder={S.p6Placeholders[0]} /></td>
+          <td><EF d={{ area: 'subject', index: i, field: 'emotion' }} type="long" val={s.emotion} placeholder={S.p6Placeholders[1]} /></td>
+          <td><EF d={{ area: 'subject', index: i, field: 'finding' }} type="long" val={s.finding} placeholder={S.p6Placeholders[2]} /></td>
+          {delCell('delSubject', i)}
+        </tr>
+      )),
+    },
+    note('note', '信息来源', S.p6Note),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.problemTableTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-subject">学科</th><th>当前发现问题</th>{editable && <th className="col-ops no-print" aria-label="操作" />}</tr></thead>
-          <tbody>
-            {(data.p4?.problems || []).map((p, i) => (
-              <tr key={i}>
-                <td className="col-subject">
-                  <EF d={{ area: 'problem', index: i, field: 'subject' }} val={p.subject} placeholder="填写学科" />
-                </td>
-                <td>
-                  <EF d={{ area: 'problem', index: i, field: 'issue' }} type="long" val={p.issue} placeholder={i === 0 ? S.problemHint1 : S.problemHint2} />
-                </td>
-                {editable && (
-                  <td className="col-ops no-print">
-                    <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.('delProblem', { index: i })}>×</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {editable && (
-          <button type="button" className="e4-prep-row-add no-print" onClick={() => onTableOp?.('addProblem')}>+ 添加问题行</button>
-        )}
-        <p className="e4-progress-note"><strong>判断原则</strong>{S.p4Note}</p>
-      </PageShell>
+  // ---------------- P7 E4 阶段综合判断 ----------------
+  const p7 = page('p7', S.p7Chapter, 'red', [
+    head(S.p7No, S.p7Title, S.p7En, S.p7Lead),
+    {
+      id: 'modules',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table e4-progress-modules',
+      head: (
+        <thead>
+          <tr><th className="col-module">E4 模块</th><th className="col-status">当前状态</th><th>综合判断</th></tr>
+        </thead>
+      ),
+      rows: PROGRESS_MODULES.map((m) => {
+        const mod = data.p7?.modules?.[m.key] || {};
+        return (
+          <tr key={m.key}>
+            <td className={`col-module tint-${m.tint}`}>
+              <span className="e4-module-en">{m.key}</span>
+              <span className="e4-module-cn">{m.cn}</span>
+            </td>
+            <td className="col-status">
+              <StatusField
+                value={mod.status}
+                editable={editable}
+                onCommit={(v) => onPatch?.({ area: 'module', key: m.key, field: 'status' }, v)}
+              />
+            </td>
+            <td>
+              <EF d={{ area: 'module', key: m.key, field: 'judgment' }} type="long" val={mod.judgment} placeholder={m.judgmentHint} />
+            </td>
+          </tr>
+        );
+      }),
+    },
+    note('note', '状态说明', S.statusLegend),
+  ]);
 
-      {/* ---------------- P5 分学科自主性 ---------------- */}
-      <PageShell pageIndex={5} chapterLabel={S.p5Chapter} chapterTint="teal" studentLine={studentLine}>
-        <SectionHead no={S.p5No} title={S.p5Title} en={S.p5En} />
-        <p className="e4-dim-intro">{S.p5Lead}</p>
+  // ---------------- P8 下一阶段成长方案与复盘安排 ----------------
+  const p8 = page('p8', S.p8Chapter, 'red', [
+    head(S.p8No, S.p8Title, S.p8En, S.p8Lead),
+    subTitle('goals-title', S.goalsTitle),
+    {
+      id: 'goals',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-label">项目</th><th>内容</th></tr></thead>,
+      rows: S.goalItems.map((it) => (
+        <tr key={it.key}>
+          <td className="col-label">{it.label}</td>
+          <td>
+            <EF d={{ area: 'p8', key: it.key }} type="long" val={data.p8?.[it.key]} placeholder={it.hint} />
+          </td>
+        </tr>
+      )),
+    },
+    subTitle('solutions-title', S.solutionsTitle),
+    {
+      id: 'solutions',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-label">成长方向</th><th>简要安排</th>{opsHead}</tr></thead>,
+      rows: (data.p8?.solutions || []).map((sol, i) => (
+        <tr key={i}>
+          <td className="col-label">
+            <EF d={{ area: 'solution', index: i, field: 'direction' }} type="long" val={sol.direction} />
+          </td>
+          <td>
+            <EF d={{ area: 'solution', index: i, field: 'arrangement' }} type="long" val={sol.arrangement} />
+          </td>
+          {delCell('delSolution', i)}
+        </tr>
+      )),
+    },
+    ...(editable ? [addRow('add-solution', 'addSolution', '+ 添加一条方案')] : []),
+    note('boundary', '填写边界', S.solutionBoundary),
+    subTitle('next-title', S.nextTitle),
+    {
+      id: 'next',
+      kind: 'table',
+      tableClassName: 'e4-navy-table e4-progress-table',
+      head: <thead><tr><th className="col-label">项目</th><th>安排</th></tr></thead>,
+      rows: [
+        ...S.nextItems.map((it) => (
+          <tr key={it.key}>
+            <td className="col-label">{it.label}</td>
+            <td>
+              {it.key === 'reviewDate' ? (
+                <EF d={{ area: 'p8', key: 'reviewDate' }} type="date" val={data.p8?.reviewDate} disp={formatCN(data.p8?.reviewDate)} />
+              ) : (
+                <EF d={{ area: 'p8', key: 'verifyFocus' }} type="long" val={data.p8?.verifyFocus} placeholder="填写下一阶段需要观察的行为或变化" />
+              )}
+            </td>
+          </tr>
+        )),
+        <tr key="refNote">
+          <td className="col-label">参考信息</td>
+          <td>
+            <EF d={{ area: 'p8', key: 'refNote' }} type="long" val={data.p8?.refNote} />
+          </td>
+        </tr>,
+      ],
+    },
+    block('principle', <div className="e4-progress-principle"><strong>阶段原则</strong>　{S.p8Principle}</div>),
+  ]);
 
-        <h3 className="e4-subsection-title">{S.p5TableTitle}</h3>
-        <table className="e4-navy-table e4-progress-table e4-progress-autonomy">
-          <thead><tr><th className="col-subject">学科</th><th>自主学习占比</th>{editable && <th className="col-ops no-print" aria-label="操作" />}</tr></thead>
-          <tbody>
-            {subjects.map((s, i) => (
-              <tr key={i}>
-                <td className="col-subject"><span className="e4-subject-name">{cellText(s.subject)}</span></td>
-                <td>
-                  <AutonomyBar
-                    pctText={s.autonomyPctText}
-                    editable={editable}
-                    onCommit={(v) => onPatch?.({ area: 'subject', index: i, field: 'autonomyPctText' }, v)}
-                  />
-                </td>
-                {editable && (
-                  <td className="col-ops no-print">
-                    <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.('delSubject', { index: i })}>×</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <h3 className="e4-subsection-title">{S.observationLabel}</h3>
-        <div className="e4-progress-observation">
-          <EF d={{ area: 'p5', key: 'observation' }} type="long" val={data.p5?.observation} placeholder={S.p5ObservationHint} />
-        </div>
-        <p className="e4-progress-note"><strong>数据说明</strong>{S.p5Note}</p>
-      </PageShell>
-
-      {/* ---------------- P6 分学科学业情绪 ---------------- */}
-      <PageShell pageIndex={6} chapterLabel={S.p6Chapter} chapterTint="blue" studentLine={studentLine}>
-        <SectionHead no={S.p6No} title={S.p6Title} en={S.p6En} />
-        <p className="e4-dim-intro">{S.p6Lead}</p>
-
-        <table className="e4-navy-table e4-progress-table e4-progress-emotion">
-          <thead>
-            <tr>
-              {S.p6ColHeaders.map((h) => (
-                <th key={h} className={h === '学科' ? 'col-subject' : ''}>{h}</th>
-              ))}
-              {editable && <th className="col-ops no-print" aria-label="操作" />}
-            </tr>
-          </thead>
-          <tbody>
-            {subjects.map((s, i) => (
-              <tr key={i}>
-                <td className="col-subject"><span className="e4-subject-name">{cellText(s.subject)}</span></td>
-                <td><EF d={{ area: 'subject', index: i, field: 'experience' }} type="long" val={s.experience} placeholder={S.p6Placeholders[0]} /></td>
-                <td><EF d={{ area: 'subject', index: i, field: 'emotion' }} type="long" val={s.emotion} placeholder={S.p6Placeholders[1]} /></td>
-                <td><EF d={{ area: 'subject', index: i, field: 'finding' }} type="long" val={s.finding} placeholder={S.p6Placeholders[2]} /></td>
-                {editable && (
-                  <td className="col-ops no-print">
-                    <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.('delSubject', { index: i })}>×</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="e4-progress-note"><strong>信息来源</strong>{S.p6Note}</p>
-      </PageShell>
-
-      {/* ---------------- P7 E4 阶段综合判断 ---------------- */}
-      <PageShell pageIndex={7} chapterLabel={S.p7Chapter} chapterTint="red" studentLine={studentLine}>
-        <SectionHead no={S.p7No} title={S.p7Title} en={S.p7En} />
-        <p className="e4-dim-intro">{S.p7Lead}</p>
-
-        <table className="e4-navy-table e4-progress-table e4-progress-modules">
-          <thead>
-            <tr><th className="col-module">E4 模块</th><th className="col-status">当前状态</th><th>综合判断</th></tr>
-          </thead>
-          <tbody>
-            {PROGRESS_MODULES.map((m) => {
-              const mod = data.p7?.modules?.[m.key] || {};
-              return (
-                <tr key={m.key}>
-                  <td className={`col-module tint-${m.tint}`}>
-                    <span className="e4-module-en">{m.key}</span>
-                    <span className="e4-module-cn">{m.cn}</span>
-                  </td>
-                  <td className="col-status">
-                    <StatusField
-                      value={mod.status}
-                      editable={editable}
-                      onCommit={(v) => onPatch?.({ area: 'module', key: m.key, field: 'status' }, v)}
-                    />
-                  </td>
-                  <td>
-                    <EF d={{ area: 'module', key: m.key, field: 'judgment' }} type="long" val={mod.judgment} placeholder={m.judgmentHint} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <p className="e4-progress-note"><strong>状态说明</strong>{S.statusLegend}</p>
-      </PageShell>
-
-      {/* ---------------- P8 下一阶段成长方案与复盘安排 ---------------- */}
-      <PageShell pageIndex={8} chapterLabel={S.p8Chapter} chapterTint="red" studentLine={studentLine}>
-        <SectionHead no={S.p8No} title={S.p8Title} en={S.p8En} />
-        <p className="e4-dim-intro">{S.p8Lead}</p>
-
-        <h3 className="e4-subsection-title">{S.goalsTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-label">项目</th><th>内容</th></tr></thead>
-          <tbody>
-            {S.goalItems.map((it) => (
-              <tr key={it.key}>
-                <td className="col-label">{it.label}</td>
-                <td>
-                  <EF d={{ area: 'p8', key: it.key }} type="long" val={data.p8?.[it.key]} placeholder={it.hint} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <h3 className="e4-subsection-title">{S.solutionsTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-label">成长方向</th><th>简要安排</th>{editable && <th className="col-ops no-print" aria-label="操作" />}</tr></thead>
-          <tbody>
-            {(data.p8?.solutions || []).map((sol, i) => (
-              <tr key={i}>
-                <td className="col-label">
-                  <EF d={{ area: 'solution', index: i, field: 'direction' }} type="long" val={sol.direction} />
-                </td>
-                <td>
-                  <EF d={{ area: 'solution', index: i, field: 'arrangement' }} type="long" val={sol.arrangement} />
-                </td>
-                {editable && (
-                  <td className="col-ops no-print">
-                    <button type="button" className="e4-prep-row-del" title="删除此行" onClick={() => onTableOp?.('delSolution', { index: i })}>×</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {editable && (
-          <button type="button" className="e4-prep-row-add no-print" onClick={() => onTableOp?.('addSolution')}>+ 添加一条方案</button>
-        )}
-        <p className="e4-progress-note"><strong>填写边界</strong>{S.solutionBoundary}</p>
-
-        <h3 className="e4-subsection-title">{S.nextTitle}</h3>
-        <table className="e4-navy-table e4-progress-table">
-          <thead><tr><th className="col-label">项目</th><th>安排</th></tr></thead>
-          <tbody>
-            {S.nextItems.map((it) => (
-              <tr key={it.key}>
-                <td className="col-label">{it.label}</td>
-                <td>
-                  {it.key === 'reviewDate' ? (
-                    <EF d={{ area: 'p8', key: 'reviewDate' }} type="date" val={data.p8?.reviewDate} disp={formatCN(data.p8?.reviewDate)} />
-                  ) : (
-                    <EF d={{ area: 'p8', key: 'verifyFocus' }} type="long" val={data.p8?.verifyFocus} placeholder="填写下一阶段需要观察的行为或变化" />
-                  )}
-                </td>
-              </tr>
-            ))}
-            <tr>
-              <td className="col-label">参考信息</td>
-              <td>
-                <EF d={{ area: 'p8', key: 'refNote' }} type="long" val={data.p8?.refNote} />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="e4-progress-principle"><strong>阶段原则</strong>　{S.p8Principle}</div>
-      </PageShell>
-    </div>
+  return (
+    <AutoPages
+      sections={[coverSection, p2, p3, p4, p5, p6, p7, p8]}
+      brandKicker={S.brandKicker}
+      footerCenter={S.footerCenter}
+      docClassName="e4-progress-doc"
+    />
   );
 }

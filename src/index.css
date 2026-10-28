@@ -7733,7 +7733,9 @@ body:has(.yb-student) {
 
 /* ===== 打印色彩保留 ===== */
 @media print {
-  @page { size: A4; margin: 0; }
+  /* 不强制纸型：A4 / US Letter 由打印对话框决定。强制 A4 时选 Letter 会整页缩到约 94%，
+     不认 size 的浏览器（Safari）则溢出成空白页 */
+  @page { margin: 0; }
 
   /* 解除全局壳层约束：overflow hidden 是 Chrome 打印空白页的常见根因 */
   html, body {
@@ -7750,17 +7752,20 @@ body:has(.yb-student) {
   .e4-pg-measure { display: none !important; }
 
   .e4-print-doc {
-    width: 210mm !important;
+    width: 100vw !important;
     margin: 0 !important;
     box-shadow: none !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /* 每页撑满实际纸张（打印时 vw/vh = 纸张尺寸）：页眉贴纸顶、页脚贴纸底。
+     正文列固定 178mm 居中（与分页测量同宽）；分页预算按较矮的 Letter 计（AutoPages 249mm），
+     A4 多出的高度落在正文与页脚之间。高度减 0.5mm 防取整溢出出空白页 */
   .e4-print-page.e4-page-shell {
-    width: 210mm !important;
-    /* 固定纸高兜底 = 纸型交集 279mm（A4/Letter 都不溢出）；分页预算已含 6mm 安全余量，
-       内容不会超高，即使极端情况也不让 shell 溢出产生空白页 */
-    height: 279mm !important;
+    width: 100vw !important;
+    height: calc(100vh - 0.5mm) !important;
+    padding-left: calc((100vw - 178mm) / 2) !important;
+    padding-right: calc((100vw - 178mm) / 2) !important;
     min-height: 0 !important;
     box-shadow: none !important;
     page-break-after: always;
@@ -7768,6 +7773,14 @@ body:has(.yb-student) {
     page-break-inside: avoid;
   }
   .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
+  .e4-print-page .e4-chapter-strip {
+    left: calc((100vw - 170mm) / 2);
+    right: calc((100vw - 170mm) / 2);
+  }
+  .e4-print-page .e4-page-footer {
+    left: calc((100vw - 178mm) / 2);
+    right: calc((100vw - 178mm) / 2);
+  }
 }
 
 /* =====================================================================

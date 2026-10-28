@@ -7772,7 +7772,17 @@ body:has(.yb-student) {
     page-break-inside: avoid;
   }
   .e4-print-page.e4-page-shell:last-child { page-break-after: auto; break-after: auto; }
+  html.e4-safari .e4-print-page.e4-page-shell { height: 248mm !important; }
 }
+
+/* Safari（html.e4-safari，见 lib/e4Browser.js）：打印时每张纸顶部强加约 21mm、底部为 0，
+   @page 页边距改不掉，页面还按纸宽放大约 2.8%。页高改为 248mm（21.2 + 248×1.028 = 276mm ≤ Letter 279.4mm），
+   顶部留白交给 Safari 那 21mm：章节条贴页顶、正文上边距 6mm，封面去掉顶部空白、logo 略小。
+   屏幕预览同样生效，分页预算见 AutoPages（228mm） */
+html.e4-safari .e4-print-page.e4-page-shell { min-height: 248mm; padding-top: 6mm; }
+html.e4-safari .e4-print-page .e4-chapter-strip { top: 2mm; }
+html.e4-safari .e4-print-page .e4-cover-top-spacer { height: 0; }
+html.e4-safari .e4-print-page .e4-brand-logo { height: 46mm; }
 
 /* =====================================================================
    E4 应用 UI 升级 — 与打印报告同品牌：海军蓝侧栏 + 米白纸感主区

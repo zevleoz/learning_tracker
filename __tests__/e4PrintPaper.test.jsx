@@ -27,15 +27,41 @@ describe('E4 报告打印纸型（A4 / US Letter，Safari 与 Chrome）', () => 
     expect(rules).not.toMatch(/\d*v[wh]\b/);
   });
 
-  test('页面 210×270mm：高/宽 ≤ Letter 的 279.4/215.9，Safari 按纸宽缩放后两种纸都放得下', () => {
+  test('Chrome 等：页面 210×270mm，A4 / Letter 都放得下一页', () => {
     const block = e4PrintBlock();
     expect(block).toMatch(/width:\s*210mm\s*!important/);
     expect(block).toMatch(/height:\s*270mm\s*!important/);
-    expect(270 / 210).toBeLessThanOrEqual(279.4 / 215.9);
+    expect(270).toBeLessThanOrEqual(279.4);
   });
 
-  test('分页预算与页高一致：270 − 上 16 − 下 14 = 240mm', () => {
-    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = 240;/);
+  test('Safari：顶部强加约 21.2mm、页面按纸宽放大 215.9/210，248mm 的页面放得进 Letter（之前 270mm 每页页脚溢出到单独一张）', () => {
+    expect(e4PrintBlock()).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ height: 248mm !important; \}/);
+    expect(21.2 + 248 * (215.9 / 210)).toBeLessThanOrEqual(279.4);
+    expect(21.2 + 270 * (215.9 / 210)).toBeGreaterThan(279.4);
+  });
+
+  test('分页预算与页高一致：Chrome 270 − 16 − 14 = 240mm，Safari 248 − 6 − 14 = 228mm', () => {
+    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = IS_SAFARI \? 228 : 240;/);
+    expect(css).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ min-height: 248mm; padding-top: 6mm; \}/);
+  });
+});
+
+describe('Safari 识别（只认 Safari，不把 Chrome / Edge 当成 Safari）', () => {
+  const load = (ua) => {
+    let mod;
+    Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+    document.documentElement.classList.remove('e4-safari');
+    jest.isolateModules(() => { mod = require('../src/lib/e4Browser.js'); });
+    return mod.IS_SAFARI;
+  };
+
+  test.each([
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15', true],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', false],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0', false],
+  ])('%s → %s', (ua, expected) => {
+    expect(load(ua)).toBe(expected);
+    expect(document.documentElement.classList.contains('e4-safari')).toBe(expected);
   });
 });
 

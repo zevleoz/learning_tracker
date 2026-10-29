@@ -112,6 +112,28 @@ describe('≥1180px：记录页内嵌二列表单', () => {
     expect(screen.getByRole('region', { name: '记一下表单' })).toBeInTheDocument();
   });
 
+  test('保存新记录后清空时间与备注，保留课程和形式（同旧版）', async () => {
+    setViewport(1280);
+    seed();
+    renderLearning();
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+
+    const [start, end] = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(start, { target: { value: '07:00' } });
+    fireEvent.change(end, { target: { value: '07:45' } });
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: '错题' } });
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+
+    await waitFor(() => expect(document.querySelectorAll('input[type="time"]')[0]).toHaveValue(''));
+    expect(document.querySelectorAll('input[type="time"]')[1]).toHaveValue('');
+    expect(screen.getByLabelText('备注（可选）')).toHaveValue('');
+    expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自主预习', pressed: true })).toBeInTheDocument();
+    expect(supabase.__getCallHistory().filter(c => c.method === 'insert' && tableIs(c, 'learning_sessions'))).toHaveLength(1);
+  });
+
   test('点记录编辑：载入内嵌表单、该行 aria-current；取消编辑清除', async () => {
     setViewport(1280);
     seed([session({})]);

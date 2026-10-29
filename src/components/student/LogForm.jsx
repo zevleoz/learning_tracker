@@ -336,6 +336,25 @@ const LogForm = forwardRef(function LogForm({
       dateStr, startStr, endStr, subjIdx, objIdx, objDeferred, isObjNA,
     });
     if (res && res.errors) setErrors(res.errors);
+    // 宽屏内嵌表单保存新记录后不会关闭：像旧版一样清空时间、备注和评价，保留课程 / 章节 / 日期 / 类别 / 形式
+    if (res?.ok && layout === 'two-col' && !editing) resetAfterSave();
+  }
+
+  function resetAfterSave() {
+    const d = autoShiftBase.current || dateStr;
+    autoShiftBase.current = null;
+    setDateStr(d);
+    setStartStr(''); setEndStr(''); setTyped([]);
+    setNotes('');
+    setSubjIdx(DEFAULT_EVAL_STATE.subjIdx); setObjIdx(DEFAULT_EVAL_STATE.objIdx);
+    setObjDeferred(DEFAULT_EVAL_STATE.objDeferred); setIsObjNA(DEFAULT_EVAL_STATE.isObjNA);
+    initialRef.current = {
+      ...initialRef.current,
+      courseId, chapterId, unitId, category, formValue, dateStr: d,
+      startStr: '', endStr: '', notes: '',
+      subjIdx: DEFAULT_EVAL_STATE.subjIdx, objIdx: DEFAULT_EVAL_STATE.objIdx,
+      objDeferred: DEFAULT_EVAL_STATE.objDeferred, isObjNA: DEFAULT_EVAL_STATE.isObjNA,
+    };
   }
 
   useImperativeHandle(ref, () => ({

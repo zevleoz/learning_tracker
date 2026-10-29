@@ -113,6 +113,22 @@ export function startFromEnd(endStr, endDateStr, minutes) {
   };
 }
 
+/**
+ * 选时长时以哪个时间为准：typed 为学生亲手填过的时间（'start' | 'end'），最近的在前。
+ * 学生填的时间不被时长覆盖：最近填的那个保持不动，另一个按时长推算；都没填过则以结束（=现在）为准。
+ */
+export function durationAnchor(typed) {
+  return (typed && typed[0]) === 'start' ? 'start' : 'end';
+}
+
+/** 已知开始时刻往后推 minutes 得到结束时刻（跨午夜按次日，日期仍记开始日）；时长非法返回 null。 */
+export function endFromStart(startStr, minutes) {
+  const m = Math.round(Number(minutes));
+  if (!Number.isFinite(m) || m < 1 || m > 24 * 60) return null;
+  if (!/^\d{1,2}:\d{2}/.test(String(startStr))) return null;
+  return shiftTime(startStr, m);
+}
+
 /** 结束=现在、往前推 minutes：{ dateStr, startStr, endStr }；时长非法返回 null。 */
 export function deriveFromEnd(now, minutes) {
   const endStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;

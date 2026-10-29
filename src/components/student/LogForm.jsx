@@ -9,6 +9,7 @@ import {
   orderCoursesByRecent, defaultChapterUnit, resolveTimes, parseTimeShorthand, shiftTime,
 } from '../../lib/sessionRules.js';
 import { useMediaQuery } from '../../lib/useMediaQuery.js';
+import { useSegDrag } from '../../lib/segDrag.js';
 import '../../styles/student-logging.css';
 
 const DURATION_CHIPS = [25, 45, 60, 90, 120];
@@ -17,9 +18,13 @@ const COURSE_CHIP_LIMIT = 4;
 function pad(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
-/* ============ 单选分段控件（radiogroup，方向键切换） ============ */
+/* ============ 单选分段控件（radiogroup，方向键切换；手机可横滑选择） ============ */
 function RadioSeg({ options, value, onChange, label, disabled }) {
   const refs = useRef([]);
+  const drag = useSegDrag({
+    disabled,
+    onPick: (i) => { if (options[i]) onChange(options[i].value); },
+  });
   function onKeyDown(e, i) {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
     if (!step) return;
@@ -29,7 +34,14 @@ function RadioSeg({ options, value, onChange, label, disabled }) {
     onChange(options[next].value);
   }
   return (
-    <div className="yb-seg" role="radiogroup" aria-label={label}>
+    <div
+      className="yb-seg"
+      role="radiogroup"
+      aria-label={label}
+      data-no-swipe
+      ref={drag.ref}
+      onPointerDown={drag.onPointerDown}
+    >
       {options.map((o, i) => {
         const on = o.value === value;
         return (
@@ -41,7 +53,7 @@ function RadioSeg({ options, value, onChange, label, disabled }) {
             aria-checked={on}
             tabIndex={on ? 0 : -1}
             disabled={disabled}
-            onClick={() => onChange(o.value)}
+            onClick={() => { if (!drag.shouldSkipClick()) onChange(o.value); }}
             onKeyDown={(e) => onKeyDown(e, i)}
           >
             {o.dot && <span className={`yb-dot ${o.dot}`} aria-hidden="true" />}

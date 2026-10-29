@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { render, screen } from '@testing-library/react';
 import ProgressPrint from '../src/components/e4/ProgressPrint.jsx';
+import PrintPreviewModal from '../src/components/e4/PrintPreviewModal.jsx';
 import { buildProgressDraft } from '../src/lib/e4ProgressTemplate.js';
 
 const css = fs.readFileSync(path.join(__dirname, '../src/index.css'), 'utf8');
@@ -48,6 +49,23 @@ describe('E4 报告打印纸型（A4 / US Letter，Safari 与 Chrome）', () => 
   test('不再按浏览器区分版式（Safari 实测与 Chrome 同样不加页边距）', () => {
     expect(css).not.toMatch(/e4-safari/);
     expect(autoPages).not.toMatch(/IS_SAFARI/);
+  });
+});
+
+describe('Safari 页边距：顶层 @page 只在 E4 打印预览打开期间生效', () => {
+  const pageRules = () => [...document.head.querySelectorAll('style[data-e4-page]')];
+
+  test('打开时挂上顶层 @page { margin: 0; }（Safari 忽略 @media print 里的 @page，会时有时无地在纸顶多出 21mm），关闭后移除', () => {
+    const { rerender } = render(<PrintPreviewModal open onClose={() => {}} title="预览"><div /></PrintPreviewModal>);
+    expect(pageRules()).toHaveLength(1);
+    expect(pageRules()[0].textContent).toBe('@page { margin: 0; }');
+    rerender(<PrintPreviewModal open={false} onClose={() => {}} title="预览"><div /></PrintPreviewModal>);
+    expect(pageRules()).toHaveLength(0);
+  });
+
+  test('一表人才其他页面不受影响：index.css 里没有顶层 @page', () => {
+    const withoutPrintBlocks = css.replace(/@media print \{[\s\S]*?\n\}/g, '');
+    expect(withoutPrintBlocks).not.toMatch(/@page/);
   });
 });
 

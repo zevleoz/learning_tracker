@@ -7738,7 +7738,8 @@ body:has(.yb-student) {
 /* ===== 打印色彩保留 ===== */
 @media print {
   /* 不强制纸型：A4 / US Letter 由打印对话框决定。强制 A4 时 Safari 按 297mm 排版、
-     却打在 279.4mm 的 Letter 纸上，每页溢出一截 → 隔页空白 */
+     却打在 279.4mm 的 Letter 纸上，每页溢出一截 → 隔页空白。
+     这条只有 Chrome 认；Safari 忽略 @media print 里的 @page，E4 打印预览打开时另挂顶层 @page（见 PrintPreviewModal） */
   @page { margin: 0; }
 
   /* 解除全局壳层约束：overflow hidden 是 Chrome 打印空白页的常见根因 */

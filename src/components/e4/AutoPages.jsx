@@ -4,13 +4,11 @@
 // 屏幕预览与打印走同一渲染结果，所见即所印。
 import { useLayoutEffect, useRef, useState } from 'react';
 import { paginateUnits } from '../../lib/e4Pagination.js';
-import { IS_SAFARI } from '../../lib/e4Browser.js';
 
-// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 页高 − 上留白（章节条下方）− 下留白（页脚上方）：
-//   Chrome 等：270 − 23 − 19 = 228mm（页高见 index.css 的 E4 @media print 说明）
-//   Safari：250 − 21 − 16 = 213mm（Safari 有时在纸顶多出约 21mm，见 lib/e4Browser.js）
+// 纸张内尺寸：210mm − 左右各 16mm；内容区高 = 270mm − 上 23mm（章节条下方）− 下 19mm（页脚上方）= 228mm
+// （页高见 index.css 的 E4 @media print 说明）
 const INNER_WIDTH_MM = 178;
-const INNER_HEIGHT_MM = IS_SAFARI ? 213 : 228;
+const INNER_HEIGHT_MM = 228;
 const SAFETY_MM = 6; // 安全余量：吸收 offsetTop/offsetHeight 取整与打印缩放误差
 
 function UnitView({ unit, slice }) {

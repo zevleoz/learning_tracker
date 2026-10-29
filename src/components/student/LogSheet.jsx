@@ -8,7 +8,7 @@ import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
 import {
   CATEGORY_OPTS, FORM_PRESET_BY_CATEGORY, ALL_FORM_PRESET, OBJECTIVE_STEPS,
   DEFAULT_EVAL_STATE, CLEAR_GRADE_WARNING,
-  computeDuration, startFromEnd, deriveFromEnd, evalStateFromRow, shouldWarnClearGrade,
+  computeDuration, startFromEnd, deriveFromEnd, durationAnchor, endFromStart, evalStateFromRow, shouldWarnClearGrade,
   orderCoursesByRecent, defaultChapterUnit,
 } from '../../lib/sessionRules.js';
 import '../../styles/student-logging.css';
@@ -319,7 +319,19 @@ export default function LogSheet({
   // 新建时按时长往前推开始时间；推过午夜则 session_date 取前一天（开始所在日）。
   // autoShiftBase 记着自动前移之前的日期，改成不跨午夜的时长时可以还原；手动改日期后不再自动改。
   const autoShiftBase = useRef(null);
+  // 学生亲手填过的时间（最近的在前）：选时长时不覆盖它们，见 durationAnchor
+  const [typed, setTyped] = useState([]);
+  function typeTime(which, v) {
+    (which === 'start' ? setStartStr : setEndStr)(v);
+    setTyped(t => [which, ...t.filter(x => x !== which)]);
+  }
   function applyDuration(mins, endAnchor = endStr) {
+    if (durationAnchor(typed) === 'start' && startStr) {
+      const end = endFromStart(startStr, mins);
+      if (end) { setEndStr(end); setTyped(['start']); }
+      return;
+    }
+    if (typed.length) setTyped(['end']);
     const end = endAnchor || toTimeStr(new Date());
     const base = autoShiftBase.current || dateStr;
     const r = startFromEnd(end, base, mins);
@@ -336,6 +348,7 @@ export default function LogSheet({
   useEffect(() => {
     if (!open) return;
     autoShiftBase.current = null;
+    setTyped(editing ? ['start'] : []);
     setErrors({});
     setAddingCustom(false);
     setCustomInput('');
@@ -526,7 +539,7 @@ export default function LogSheet({
           <div className="yb-field">
             <div className="yb-label">
               <span>时长{duration ? <> · <b className="num">{duration} 分钟</b></> : null}</span>
-              <span>{startStr && endStr ? `${startStr}–${endStr}` : '选时长，开始时间按现在往前推'}</span>
+              <span>{startStr && endStr ? `${startStr}–${endStr}` : durationAnchor(typed) === 'start' && startStr ? '选时长，按开始时间往后推' : '选时长，结束按现在、开始往前推'}</span>
             </div>
             <div className="yb-chips" role="group" aria-label="常用时长">
               {DURATION_CHIPS.map(m => (
@@ -562,12 +575,12 @@ export default function LogSheet({
               <label>
                 开始
                 <input type="time" className={`yb-input ${errors.time ? 'err' : ''}`}
-                  value={startStr} onChange={(e) => setStartStr(e.target.value)} disabled={busy} />
+                  value={startStr} onChange={(e) => typeTime('start', e.target.value)} disabled={busy} />
               </label>
               <label>
                 结束
                 <input type="time" className={`yb-input ${errors.time ? 'err' : ''}`}
-                  value={endStr} onChange={(e) => setEndStr(e.target.value)} disabled={busy} />
+                  value={endStr} onChange={(e) => typeTime('end', e.target.value)} disabled={busy} />
               </label>
             </div>
             {errors.time && <span className="yb-err" role="alert">{errors.time}</span>}

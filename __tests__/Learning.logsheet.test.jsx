@@ -159,6 +159,36 @@ describe('记一下 · 时长优先', () => {
     const t = document.querySelectorAll('input[type="time"]');
     expect(computeDuration(t[0].value, t[1].value)).toBe(35);
   });
+
+  test('先填开始再点时长：开始不被覆盖，结束按开始往后推', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    const t = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(t[0], { target: { value: '14:00' } });
+    fireEvent.click(screen.getByRole('button', { name: '60 分钟' }));
+    expect(t[0].value).toBe('14:00');
+    expect(t[1].value).toBe('15:00');
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    expect(t[0].value).toBe('14:00');
+    expect(t[1].value).toBe('14:45');
+  });
+
+  test('先填结束再点时长：结束不被覆盖，开始按结束往前推；两个都填过则较早填的那个让位', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    const t = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(t[1], { target: { value: '16:30' } });
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    expect(t[0].value).toBe('15:45');
+    expect(t[1].value).toBe('16:30');
+    fireEvent.change(t[0], { target: { value: '15:00' } });
+    fireEvent.change(t[1], { target: { value: '16:10' } });
+    fireEvent.click(screen.getByRole('button', { name: '60 分钟' }));
+    expect(t[0].value).toBe('15:10');
+    expect(t[1].value).toBe('16:10');
+  });
 });
 
 describe('记一下 · 午夜前后的时长优先', () => {

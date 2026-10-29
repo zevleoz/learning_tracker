@@ -137,6 +137,57 @@ export function deriveFromEnd(now, minutes) {
   return r ? { ...r, endStr } : null;
 }
 
+/** 三个时间字段里哪些由系统填：两个时间都有值时，没亲手填的那个（都填过则时长）。 */
+function autoFieldsFor(start, end, typed) {
+  if (!start || !end) return [];
+  if (typed.length === 0) return ['start', 'end'];
+  if (typed.length === 1) return [typed[0] === 'start' ? 'end' : 'start'];
+  return ['minutes'];
+}
+
+/**
+ * 时间行（开始 · 时长 · 结束）的唯一推演规则，界面不得另写一套。
+ * current: { start: 'HH:MM'|'', end: 'HH:MM'|'', minutes: number|null, typed: Array<'start'|'end'>（由早到晚，最多 2 个）}
+ * edited:  { field: 'start'|'end'|'minutes'|'nowStart'|'nowEnd', value?, now?: Date }
+ * 返回 { start, end, minutes, typed, auto }（auto = 本次由系统填的字段）。
+ */
+export function resolveTimes(current, edited) {
+  const cur = current || {};
+  const ed = edited || {};
+  let start = String(cur.start || '');
+  let end = String(cur.end || '');
+  let typed = Array.isArray(cur.typed) ? cur.typed.filter(t => t === 'start' || t === 'end').slice(-2) : [];
+  const now = ed.now instanceof Date && !Number.isNaN(ed.now.getTime()) ? ed.now : new Date();
+  const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const field = ed.field;
+
+  if (field === 'start' || field === 'end' || field === 'nowStart' || field === 'nowEnd') {
+    const which = (field === 'start' || field === 'nowStart') ? 'start' : 'end';
+    const v = (field === 'nowStart' || field === 'nowEnd') ? nowStr : String(ed.value || '');
+    if (which === 'start') start = v; else end = v;
+    // 亲手填的（含点「现在」）记为 typed，清空则不再算填过
+    typed = [...typed.filter(t => t !== which), ...(v ? [which] : [])];
+  } else if (field === 'minutes') {
+    const minutes = Math.round(Number(ed.value));
+    if (Number.isFinite(minutes) && minutes >= 1 && minutes <= 24 * 60) {
+      // 最近亲手填的那个时间不动，另一个按时长推算；都没填过则以结束（=现在）为准
+      const anchor = durationAnchor([...typed].reverse());
+      if (anchor === 'start' && start) {
+        const nextEnd = endFromStart(start, minutes);
+        if (nextEnd) { end = nextEnd; typed = ['start']; }
+      } else {
+        const base = end || nowStr;
+        const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        const r = startFromEnd(base, todayStr, minutes);
+        // 让位的时间不再算亲手填过；什么都没填过时两个时间都是系统推的
+        if (r) { start = r.startStr; end = base; typed = typed.includes('end') ? ['end'] : []; }
+      }
+    }
+  }
+
+  return { start, end, minutes: computeDuration(start, end), typed, auto: autoFieldsFor(start, end, typed) };
+}
+
 /** 结束 <= 开始（HH:MM[:SS]）即跨午夜。 */
 export function spansMidnight(startTime, endTime) {
   const mins = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };

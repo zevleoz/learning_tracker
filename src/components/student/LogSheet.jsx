@@ -1,15 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { ChevronDown, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import DatePicker from '../ui/date-picker.jsx';
 import GradeChips from './GradeChips.jsx';
 import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
 import {
   CATEGORY_OPTS, FORM_PRESET_BY_CATEGORY, ALL_FORM_PRESET, OBJECTIVE_STEPS,
   DEFAULT_EVAL_STATE, CLEAR_GRADE_WARNING,
-  computeDuration, startFromEnd, deriveFromEnd, durationAnchor, endFromStart, evalStateFromRow, shouldWarnClearGrade,
-  orderCoursesByRecent, defaultChapterUnit,
+  computeDuration, startFromEnd, deriveFromEnd, evalStateFromRow, shouldWarnClearGrade,
+  orderCoursesByRecent, defaultChapterUnit, resolveTimes,
 } from '../../lib/sessionRules.js';
 import '../../styles/student-logging.css';
 
@@ -18,7 +18,6 @@ const COURSE_CHIP_LIMIT = 4;
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function toTimeStr(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
 function useMedia(query) {
   const get = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
@@ -34,7 +33,7 @@ function useMedia(query) {
 }
 
 /* ============ Sheet：手机底部弹层 / 桌面右侧面板 ============ */
-export function Sheet({ open, onClose, title, children, footer, headerExtra }) {
+export function Sheet({ open, onClose, onRequestClose = onClose, title, children, footer, headerExtra }) {
   const desktop = useMedia('(min-width: 900px)');
   const reduce = useReducedMotion();
   const titleId = useId();
@@ -60,7 +59,7 @@ export function Sheet({ open, onClose, title, children, footer, headerExtra }) {
       // 日历等弹层自己处理 Esc；只有焦点仍在面板内时才关闭
       if (e.defaultPrevented) return;
       e.stopPropagation();
-      onClose();
+      onRequestClose();
       return;
     }
     if (e.key !== 'Tab' || !panelRef.current) return;
@@ -90,7 +89,7 @@ export function Sheet({ open, onClose, title, children, footer, headerExtra }) {
             className="yb-sheet-scrim"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={reduce ? { duration: 0 } : { duration: 0.2 }}
-            onClick={onClose}
+            onClick={onRequestClose}
             aria-hidden="true"
           />
           <motion.div
@@ -108,7 +107,7 @@ export function Sheet({ open, onClose, title, children, footer, headerExtra }) {
             <div className="yb-sheet__h">
               <h2 id={titleId}>{title}</h2>
               {headerExtra}
-              <button type="button" className="yb-sheet__close" onClick={onClose} aria-label="关闭">
+              <button type="button" className="yb-sheet__close" onClick={onRequestClose} aria-label="关闭">
                 <X size={18} strokeWidth={2} aria-hidden="true" />
               </button>
             </div>
@@ -158,127 +157,131 @@ export function RadioSeg({ options, value, onChange, label, disabled }) {
   );
 }
 
-/* ============ 主观评价：五档刻度 ============ */
+/* ============ 主观评价：五档刻度（可拖动，也可点标签） ============ */
+const SUBJ_N = SUBJECTIVE_STEPS.length;
+
 function SubjectiveScale({ idx, onChange, disabled, labelId }) {
-  const refs = useRef([]);
-  function onKeyDown(e, i) {
-    const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
-    if (!step) return;
-    e.preventDefault();
-    const next = Math.min(SUBJECTIVE_STEPS.length - 1, Math.max(0, i + step));
-    refs.current[next]?.focus();
-    onChange(next);
+  const trackRef = useRef(null);
+  const dragging = useRef(false);
+  // 圆点左右各留 10px，与 stepAt 的换算保持一致
+  const pos = (i) => `calc(10px + (100% - 20px) * ${(SUBJ_N === 1 ? 0.5 : i / (SUBJ_N - 1))})`;
+
+  function pick(next) {
+    const step = Math.min(SUBJ_N - 1, Math.max(0, next));
+    if (step === idx) return;
+    navigator.vibrate?.(8);   // 仅部分安卓支持；不支持时为 undefined
+    onChange(step);
   }
+  // 与 GlassRail 相同的指针换算：左右各留 10px 给圆点，落点吸到最近一档
+  function stepAt(clientX) {
+    const el = trackRef.current;
+    if (!el) return idx;
+    const r = el.getBoundingClientRect();
+    const usable = r.width - 20;
+    if (usable <= 0) return idx;
+    const ratio = Math.max(0, Math.min(1, (clientX - r.left - 10) / usable));
+    return Math.round(ratio * (SUBJ_N - 1));
+  }
+  function onDown(e) {
+    if (disabled) return;
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 旧浏览器 */ }
+    dragging.current = true;
+    pick(stepAt(e.clientX));
+  }
+  function onMove(e) { if (dragging.current) pick(stepAt(e.clientX)); }
+  function onUp() { dragging.current = false; }
+  function onKeyDown(e) {
+    if (disabled) return;
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (step) { e.preventDefault(); pick(idx + step); return; }
+    if (e.key === 'Home') { e.preventDefault(); pick(0); }
+    if (e.key === 'End') { e.preventDefault(); pick(SUBJ_N - 1); }
+  }
+
   return (
-    <div>
+    <div className={`yb-subj${disabled ? ' off' : ''}`}>
+      <div
+        ref={trackRef}
+        className="yb-subj__track"
+        role="slider"
+        tabIndex={disabled ? -1 : 0}
+        aria-labelledby={labelId}
+        aria-valuemin={0}
+        aria-valuemax={SUBJ_N - 1}
+        aria-valuenow={idx}
+        aria-valuetext={SUBJECTIVE_STEPS[idx].label}
+        aria-disabled={disabled || undefined}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onKeyDown={onKeyDown}
+      >
+        <span className="yb-subj__fill" style={{ width: pos(idx) }} aria-hidden="true" />
+        <span className="yb-subj__thumb" style={{ left: pos(idx) }} aria-hidden="true" />
+      </div>
       <div className="yb-scale" role="radiogroup" aria-labelledby={labelId}>
         {SUBJECTIVE_STEPS.map((s, i) => (
           <button
             key={s.value}
-            ref={el => { refs.current[i] = el; }}
             type="button"
             role="radio"
             aria-checked={i === idx}
             aria-label={s.label}
             tabIndex={i === idx ? 0 : -1}
-            className={i <= idx ? 'on' : undefined}
+            className={i === idx ? 'on' : undefined}
             disabled={disabled}
             onClick={() => onChange(i)}
-            onKeyDown={(e) => onKeyDown(e, i)}
           >
-            <i style={{ height: 10 + i * 6 }} />
+            {s.label}
           </button>
         ))}
-      </div>
-      <div className="yb-scale-l" aria-hidden="true">
-        <span>{SUBJECTIVE_STEPS[0].label}</span>
-        <span>{SUBJECTIVE_STEPS[SUBJECTIVE_STEPS.length - 1].label}</span>
       </div>
     </div>
   );
 }
 
-/* ============ 章节 / 单元：单个可搜索选择器 ============ */
-function ChapterUnitPicker({ course, chapterId, unitId, onPick, disabled }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const listId = useId();
-  useEffect(() => { setOpen(false); setQ(''); }, [course?.id]);
-
-  const chapters = course?.chapters || [];
-  const ch = chapters.find(c => c.id === chapterId);
-  const un = ch?.units?.find(u => u.id === unitId);
-
-  const rows = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const hit = (s) => !needle || String(s || '').toLowerCase().includes(needle);
-    const out = [];
-    for (const c of chapters) {
-      const units = (c.units || []).filter(u => hit(u.name) || hit(c.name));
-      if (hit(c.name) || units.length) {
-        out.push({ kind: 'ch', id: c.id, chapterId: c.id, unitId: '', name: c.name });
-        for (const u of units) out.push({ kind: 'un', id: u.id, chapterId: c.id, unitId: u.id, name: u.name, parent: c.name });
-      }
-    }
-    return out;
-  }, [chapters, q]);
-
+/* ============ 章节 / 单元：两个下拉 ============ */
+function ChapterUnitSelects({ course, chapterId, unitId, onChange, disabled }) {
   if (!course) return null;
+  const chapters = course.chapters || [];
   if (!chapters.length) {
     return <p className="yb-note">这门课还没有章节，可在「课程」里补充大纲（章节可不选）。</p>;
   }
+  const ch = chapters.find(c => c.id === chapterId);
+  const units = ch?.units || [];
+  // 章节 / 单元已被删除时保留原值，别因为改个备注就清掉
+  const missingChapter = !!chapterId && !ch;
+  const missingUnit = !!unitId && !units.some(u => u.id === unitId);
 
   return (
-    <div className="yb-field">
-      <button
-        type="button"
-        className="yb-crumb"
-        aria-expanded={open}
-        aria-controls={listId}
-        onClick={() => setOpen(o => !o)}
-        disabled={disabled}
-      >
-        <span className="yb-sr">章节 / 单元：</span>
-        {ch ? (
-          <>
-            <span>{ch.name}</span>
-            <b>{un ? un.name : '整章'}</b>
-          </>
-        ) : <span>选择章节 / 单元（可选）</span>}
-        <ChevronDown size={16} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="yb-picker" id={listId}>
-          <input
-            className="yb-input"
-            type="search"
-            placeholder="搜索章节或单元"
-            aria-label="搜索章节或单元"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            autoFocus
-          />
-          <ul role="listbox" aria-label="章节与单元">
-            <li>
-              <button type="button" role="option" aria-selected={!chapterId}
-                onClick={() => { onPick('', ''); setOpen(false); }}>不选章节</button>
-            </li>
-            {rows.map(r => {
-              const selected = r.kind === 'ch' ? (chapterId === r.chapterId && !unitId) : unitId === r.unitId;
-              return (
-                <li key={`${r.kind}-${r.id}`} className={r.kind}>
-                  <button type="button" role="option" aria-selected={selected}
-                    onClick={() => { onPick(r.chapterId, r.unitId); setOpen(false); }}>
-                    {r.name}
-                    {r.kind === 'ch' && <small>整章</small>}
-                  </button>
-                </li>
-              );
-            })}
-            {rows.length === 0 && <li><p className="yb-note" style={{ padding: '8px 10px' }}>没有匹配的章节或单元</p></li>}
-          </ul>
-        </div>
-      )}
+    <div className="yb-cu">
+      <label className="yb-cu__f">
+        <span>章节</span>
+        <select
+          className="yb-input"
+          value={chapterId}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value, '')}
+        >
+          <option value="">不选章节</option>
+          {missingChapter && <option value={chapterId}>已删除的章节</option>}
+          {chapters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </label>
+      <label className="yb-cu__f">
+        <span>单元</span>
+        <select
+          className="yb-input"
+          value={unitId}
+          disabled={disabled || !ch}
+          onChange={(e) => onChange(chapterId, e.target.value)}
+        >
+          <option value="">整章</option>
+          {missingUnit && <option value={unitId}>已删除的单元</option>}
+          {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+      </label>
     </div>
   );
 }
@@ -319,91 +322,142 @@ export default function LogSheet({
   // 新建时按时长往前推开始时间；推过午夜则 session_date 取前一天（开始所在日）。
   // autoShiftBase 记着自动前移之前的日期，改成不跨午夜的时长时可以还原；手动改日期后不再自动改。
   const autoShiftBase = useRef(null);
-  // 学生亲手填过的时间（最近的在前）：选时长时不覆盖它们，见 durationAnchor
+  // 学生亲手填过的时间（由早到晚，最多 2 个）：选时长时不覆盖它们，见 resolveTimes
   const [typed, setTyped] = useState([]);
-  function typeTime(which, v) {
-    (which === 'start' ? setStartStr : setEndStr)(v);
-    setTyped(t => [which, ...t.filter(x => x !== which)]);
-  }
-  function applyDuration(mins, endAnchor = endStr) {
-    if (durationAnchor(typed) === 'start' && startStr) {
-      const end = endFromStart(startStr, mins);
-      if (end) { setEndStr(end); setTyped(['start']); }
-      return;
-    }
-    if (typed.length) setTyped(['end']);
-    const end = endAnchor || toTimeStr(new Date());
-    const base = autoShiftBase.current || dateStr;
-    const r = startFromEnd(end, base, mins);
-    if (!r) return;
-    setEndStr(end);
-    setStartStr(r.startStr);
+  // 打开时的表单快照：关闭前判断「有没有改过东西」
+  const initialRef = useRef(null);
+
+  // 开始 / 时长 / 结束 的推演全部交给 resolveTimes（规则见 sessionRules.js）
+  function applyEdit(field, value) {
+    const next = resolveTimes({ start: startStr, end: endStr, minutes: duration, typed }, { field, value, now: new Date() });
+    setStartStr(next.start);
+    setEndStr(next.end);
+    setTyped(next.typed);
     if (editing) return;
-    if (r.dateStr !== base) { autoShiftBase.current = base; setDateStr(r.dateStr); }
-    else if (autoShiftBase.current) { autoShiftBase.current = null; setDateStr(base); }
+    // 以结束为准往前推开始、且推过午夜时，session_date 取开始所在日；时长改小后可还原
+    if (!next.auto.includes('start') || !next.start || !next.end || !next.minutes) return;
+    const base = autoShiftBase.current || dateStr;
+    const r = startFromEnd(next.end, base, next.minutes);
+    if (!r) return;
+    if (r.dateStr !== base) {
+      autoShiftBase.current = base;
+      setDateStr(r.dateStr);
+    } else if (autoShiftBase.current) {
+      autoShiftBase.current = null;
+      setDateStr(base);
+    }
   }
   function pickDate(v) { autoShiftBase.current = null; setDateStr(v); }
 
-  // 打开时按 新建 / 编辑 / 预填 重置表单
+  function syncInitial(patch) {
+    if (initialRef.current) initialRef.current = { ...initialRef.current, ...patch };
+  }
+  // 与打开时的快照相比：课程 / 章节 / 时间 / 类别 / 形式 / 评价 / 备注 任一不同即为「改过」
+  function isDirty() {
+    const i = initialRef.current;
+    if (!i) return false;
+    return courseId !== i.courseId || chapterId !== i.chapterId || unitId !== i.unitId
+      || dateStr !== i.dateStr || startStr !== i.startStr || endStr !== i.endStr
+      || category !== i.category || formValue !== i.formValue
+      || subjIdx !== i.subjIdx || objIdx !== i.objIdx
+      || objDeferred !== i.objDeferred || isObjNA !== i.isObjNA || notes !== i.notes;
+  }
+  // 有未保存的改动时先确认再关，避免误触 scrim / Esc 丢记录
+  function requestClose() {
+    if (isDirty() && !window.confirm('放弃这条记录？')) return;
+    onClose();
+  }
+  // 焦点在弹层外时，桌面 Esc 由 Layout 广播 'yb:close-log'；统一走 requestClose，别绕过确认
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    const onCloseLog = () => requestCloseRef.current();
+    window.addEventListener('yb:close-log', onCloseLog);
+    return () => window.removeEventListener('yb:close-log', onCloseLog);
+  }, [open]);
+
+  // 打开时按 新建 / 编辑 / 预填 重置表单；同时留一份快照给「关前确认」
   useEffect(() => {
     if (!open) return;
     autoShiftBase.current = null;
-    setTyped(editing ? ['start'] : []);
     setErrors({});
     setAddingCustom(false);
     setCustomInput('');
     setShowAllCourses(false);
+    let next;
     if (editing) {
       const r = editRow;
-      setCourseId(r.course_id || '');
       const course = courseById.get(r.course_id);
       const ch = (course?.chapters || []).find(c => c.id === r.chapter_id);
-      // 章节 / 课程已被删除时找不到 ch：保留记录原来的 chapter_id / unit_id，别因为改个备注就清掉
-      setChapterId(ch ? ch.id : (r.chapter_id || ''));
-      // 只按记录本身的 unit_id 回填；没有单元时保持为空（STU-2）
-      setUnitId(r.unit_id || '');
-      setDateStr(String(r.session_date || toDateStr(new Date())));
-      setStartStr(String(r.start_time || '').slice(0, 5));
-      setEndStr(String(r.end_time || '').slice(0, 5));
-      setCategory(r.category || 1);
-      setFormValue(r.form || '');
       const ev = evalStateFromRow(r);
-      setSubjIdx(ev.subjIdx); setObjIdx(ev.objIdx); setObjDeferred(ev.objDeferred);
-      setIsObjNA(ev.isObjNA); setEditHadGrade(ev.editHadGrade);
-      setNotes(r.notes || '');
-      return;
-    }
-    const p = preset || {};
-    const cid = (p.courseId && courseById.has(p.courseId)) ? p.courseId : (orderedCourses[0]?.id || '');
-    setCourseId(cid);
-    const course = courseById.get(cid);
-    const presetCh = p.chapterId && (course?.chapters || []).find(c => c.id === p.chapterId);
-    if (presetCh) {
-      setChapterId(presetCh.id);
-      setUnitId((presetCh.units || []).some(u => u.id === p.unitId) ? p.unitId : '');
+      next = {
+        courseId: r.course_id || '',
+        // 章节 / 课程已被删除时找不到 ch：保留记录原来的 chapter_id / unit_id，别因为改个备注就清掉
+        chapterId: ch ? ch.id : (r.chapter_id || ''),
+        // 只按记录本身的 unit_id 回填；没有单元时保持为空（STU-2）
+        unitId: r.unit_id || '',
+        dateStr: String(r.session_date || toDateStr(new Date())),
+        startStr: String(r.start_time || '').slice(0, 5),
+        endStr: String(r.end_time || '').slice(0, 5),
+        category: r.category || 1,
+        formValue: r.form || '',
+        subjIdx: ev.subjIdx, objIdx: ev.objIdx, objDeferred: ev.objDeferred,
+        isObjNA: ev.isObjNA, editHadGrade: ev.editHadGrade,
+        notes: r.notes || '',
+        // 编辑时两个时间都当作亲手填过：不会因为点时长把已有时间改掉；
+        // 最近填的是开始（'end','start' 由早到晚），点时长保留开始、改结束
+        typed: ['end', 'start'],
+      };
     } else {
-      const d = defaultChapterUnit(course, recent);
-      setChapterId(d.chapterId); setUnitId(d.unitId);
+      const p = preset || {};
+      const cid = (p.courseId && courseById.has(p.courseId)) ? p.courseId : (orderedCourses[0]?.id || '');
+      const course = courseById.get(cid);
+      const presetCh = p.chapterId && (course?.chapters || []).find(c => c.id === p.chapterId);
+      let chapterId;
+      let unitId;
+      if (presetCh) {
+        chapterId = presetCh.id;
+        unitId = (presetCh.units || []).some(u => u.id === p.unitId) ? p.unitId : '';
+      } else {
+        const d = defaultChapterUnit(course, recent);
+        chapterId = d.chapterId; unitId = d.unitId;
+      }
+      const todayStr = toDateStr(new Date());
+      const derived = p.durationMinutes > 0 ? deriveFromEnd(new Date(), p.durationMinutes) : null;
+      if (derived && derived.dateStr !== todayStr) autoShiftBase.current = todayStr;
+      const cat = [1, 2, 3].includes(p.category) ? p.category : 1;
+      // 预填的形式只接受该类别的预设、学生自己的自定义形式或最近记录里出现过的形式
+      const knownForms = [...(FORM_PRESET_BY_CATEGORY[cat] || []), ...customForms, ...recent.map(r => r.form)];
+      next = {
+        courseId: cid,
+        chapterId, unitId,
+        dateStr: derived ? derived.dateStr : todayStr,
+        startStr: derived ? derived.startStr : '',
+        endStr: derived ? derived.endStr : '',
+        category: cat,
+        formValue: p.form && knownForms.includes(p.form) ? p.form : '',
+        subjIdx: DEFAULT_EVAL_STATE.subjIdx, objIdx: DEFAULT_EVAL_STATE.objIdx,
+        objDeferred: DEFAULT_EVAL_STATE.objDeferred, isObjNA: DEFAULT_EVAL_STATE.isObjNA,
+        editHadGrade: false,
+        notes: '',
+        // 预填的时间来自时长，不算亲手填过（显示为「自动」）
+        typed: [],
+      };
     }
-    autoShiftBase.current = null;
-    const todayStr = toDateStr(new Date());
-    setDateStr(todayStr);
-    const derived = p.durationMinutes > 0 ? deriveFromEnd(new Date(), p.durationMinutes) : null;
-    if (derived) {
-      setEndStr(derived.endStr); setStartStr(derived.startStr); setDateStr(derived.dateStr);
-      if (derived.dateStr !== todayStr) autoShiftBase.current = todayStr;
-    } else {
-      setStartStr(''); setEndStr('');
-    }
-    const cat = [1, 2, 3].includes(p.category) ? p.category : 1;
-    setCategory(cat);
-    // 预填的形式只接受该类别的预设、学生自己的自定义形式或最近记录里出现过的形式
-    const knownForms = [...(FORM_PRESET_BY_CATEGORY[cat] || []), ...customForms, ...recent.map(r => r.form)];
-    setFormValue(p.form && knownForms.includes(p.form) ? p.form : '');
-    setSubjIdx(DEFAULT_EVAL_STATE.subjIdx); setObjIdx(DEFAULT_EVAL_STATE.objIdx);
-    setObjDeferred(DEFAULT_EVAL_STATE.objDeferred); setIsObjNA(DEFAULT_EVAL_STATE.isObjNA);
-    setEditHadGrade(false);
-    setNotes('');
+    setCourseId(next.courseId);
+    setChapterId(next.chapterId);
+    setUnitId(next.unitId);
+    setDateStr(next.dateStr);
+    setStartStr(next.startStr);
+    setEndStr(next.endStr);
+    setCategory(next.category);
+    setFormValue(next.formValue);
+    setSubjIdx(next.subjIdx); setObjIdx(next.objIdx); setObjDeferred(next.objDeferred);
+    setIsObjNA(next.isObjNA); setEditHadGrade(next.editHadGrade);
+    setNotes(next.notes);
+    setTyped(next.typed);
+    initialRef.current = next;
   }, [open, editRow, preset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 课程在打开后才加载完成（如 ?log=1 进入）：按预填或第一门课补选，编辑时补回章节
@@ -412,7 +466,7 @@ export default function LogSheet({
     if (editing) {
       if (!chapterId && editRow.chapter_id) {
         const ch = (courseById.get(editRow.course_id)?.chapters || []).find(c => c.id === editRow.chapter_id);
-        if (ch) setChapterId(ch.id);
+        if (ch) { setChapterId(ch.id); syncInitial({ chapterId: ch.id }); }
       }
       return;
     }
@@ -422,13 +476,18 @@ export default function LogSheet({
     setCourseId(cid);
     const course = courseById.get(cid);
     const presetCh = cid === want && preset?.chapterId && (course?.chapters || []).find(c => c.id === preset.chapterId);
+    let chId;
+    let unId;
     if (presetCh) {
-      setChapterId(presetCh.id);
-      setUnitId((presetCh.units || []).some(u => u.id === preset.unitId) ? preset.unitId : '');
+      chId = presetCh.id;
+      unId = (presetCh.units || []).some(u => u.id === preset.unitId) ? preset.unitId : '';
     } else {
       const d = defaultChapterUnit(course, recent);
-      setChapterId(d.chapterId); setUnitId(d.unitId);
+      chId = d.chapterId; unId = d.unitId;
     }
+    setChapterId(chId);
+    setUnitId(unId);
+    syncInitial({ courseId: cid, chapterId: chId, unitId: unId });
   }, [open, orderedCourses]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickCourse(id) {
@@ -473,6 +532,10 @@ export default function LogSheet({
   }
 
   const duration = computeDuration(startStr, endStr);
+  // 哪些字段是系统填的（自动）——与保存前的推演同一套规则
+  const auto = resolveTimes({ start: startStr, end: endStr, minutes: duration, typed }, {}).auto;
+  const isAuto = (f) => auto.includes(f);
+  const lastTyped = typed[typed.length - 1];
   const objMode = isObjNA ? 'na' : objDeferred ? 'later' : 'now';
   function setObjMode(m) {
     if (m === 'now') { setObjDeferred(false); setIsObjNA(false); }
@@ -497,7 +560,7 @@ export default function LogSheet({
   ) : null;
 
   return (
-    <Sheet open={open} onClose={onClose} title={editing ? '编辑记录' : '记一下'} footer={footer}>
+    <Sheet open={open} onClose={onClose} onRequestClose={requestClose} title={editing ? '编辑记录' : '记一下'} footer={footer}>
       {loadingCourses && !courses.length ? (
         <p className="yb-note">加载课程中…</p>
       ) : courses.length === 0 ? (
@@ -526,43 +589,23 @@ export default function LogSheet({
               )}
             </div>
             {errors.course && <span className="yb-err">{errors.course}</span>}
-            <ChapterUnitPicker
+            <ChapterUnitSelects
               course={activeCourse}
               chapterId={chapterId}
               unitId={unitId}
               disabled={busy}
-              onPick={(c, u) => { setChapterId(c); setUnitId(u); }}
+              onChange={(c, u) => { setChapterId(c); setUnitId(u); }}
             />
           </div>
 
-          {/* 时长优先；开始/结束仍可改，照常写入 start_time / end_time / duration_minutes */}
+          {/* 时间：一行 开始 · 时长 · 结束；系统填的字段标「自动」，仍可改 */}
           <div className="yb-field">
             <div className="yb-label">
-              <span>时长{duration ? <> · <b className="num">{duration} 分钟</b></> : null}</span>
-              <span>{startStr && endStr ? `${startStr}–${endStr}` : durationAnchor(typed) === 'start' && startStr ? '选时长，按开始时间往后推' : '选时长，结束按现在、开始往前推'}</span>
-            </div>
-            <div className="yb-chips" role="group" aria-label="常用时长">
-              {DURATION_CHIPS.map(m => (
-                <button key={m} type="button" className="yb-chip num" aria-pressed={duration === m}
-                  onClick={() => applyDuration(m)} disabled={busy}>
-                  {m}<span className="yb-sr"> 分钟</span>
-                </button>
-              ))}
-              <input
-                className="yb-input yb-dur-input"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={1440}
-                aria-label="时长（分钟）"
-                placeholder="分钟"
-                value={duration ?? ''}
-                onChange={(e) => applyDuration(e.target.value)}
-                disabled={busy}
-              />
+              <span>时间{duration ? <> · <b className="num">{duration} 分钟</b></> : null}</span>
+              <span>{startStr && endStr ? `${startStr}–${endStr}` : lastTyped === 'start' && startStr ? '选时长，按开始时间往后推' : '选时长，结束按现在、开始往前推'}</span>
             </div>
             <div className="yb-times">
-              <label>
+              <label className="yb-times__date">
                 日期
                 <DatePicker
                   value={dateStr}
@@ -572,16 +615,59 @@ export default function LogSheet({
                   placeholder="选择日期"
                 />
               </label>
-              <label>
-                开始
-                <input type="time" className={`yb-input ${errors.time ? 'err' : ''}`}
-                  value={startStr} onChange={(e) => typeTime('start', e.target.value)} disabled={busy} />
-              </label>
-              <label>
-                结束
-                <input type="time" className={`yb-input ${errors.time ? 'err' : ''}`}
-                  value={endStr} onChange={(e) => typeTime('end', e.target.value)} disabled={busy} />
-              </label>
+              <div className="yb-timerow">
+                <div className="yb-timecol">
+                  <div className="yb-timecol__h">
+                    <span>开始{isAuto('start') && <span className="yb-auto">自动</span>}</span>
+                    <button type="button" className="yb-now" onClick={() => applyEdit('nowStart')} disabled={busy}>现在</button>
+                  </div>
+                  <input
+                    type="time"
+                    className={`yb-input${errors.time ? ' err' : ''}${isAuto('start') ? ' is-auto' : ''}`}
+                    aria-label="开始"
+                    value={startStr}
+                    onChange={(e) => applyEdit('start', e.target.value)}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="yb-timecol">
+                  <div className="yb-timecol__h"><span>时长{isAuto('minutes') && <span className="yb-auto">自动</span>}</span></div>
+                  <input
+                    className={`yb-input yb-dur-input${isAuto('minutes') ? ' is-auto' : ''}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={1440}
+                    aria-label="时长（分钟）"
+                    placeholder="分钟"
+                    value={duration ?? ''}
+                    onChange={(e) => applyEdit('minutes', e.target.value)}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="yb-timecol">
+                  <div className="yb-timecol__h">
+                    <span>结束{isAuto('end') && <span className="yb-auto">自动</span>}</span>
+                    <button type="button" className="yb-now" onClick={() => applyEdit('nowEnd')} disabled={busy}>现在</button>
+                  </div>
+                  <input
+                    type="time"
+                    className={`yb-input${errors.time ? ' err' : ''}${isAuto('end') ? ' is-auto' : ''}`}
+                    aria-label="结束"
+                    value={endStr}
+                    onChange={(e) => applyEdit('end', e.target.value)}
+                    disabled={busy}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="yb-chips" role="group" aria-label="常用时长">
+              {DURATION_CHIPS.map(m => (
+                <button key={m} type="button" className="yb-chip num" aria-pressed={duration === m}
+                  onClick={() => applyEdit('minutes', m)} disabled={busy}>
+                  {m}<span className="yb-sr"> 分钟</span>
+                </button>
+              ))}
             </div>
             {errors.time && <span className="yb-err" role="alert">{errors.time}</span>}
           </div>

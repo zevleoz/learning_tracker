@@ -327,6 +327,96 @@ describe('findOverlap · 跨午夜时段重叠', () => {
   });
 });
 
+describe('resolveTimes · 开始 / 时长 / 结束 的推演', () => {
+  // eslint-disable-next-line global-require
+  const { resolveTimes } = require('../src/lib/sessionRules.js');
+  const NOW = new Date(2026, 9, 26, 10, 30);
+  const cur = (o = {}) => ({ start: '', end: '', minutes: null, typed: [], ...o });
+
+  test('填开始 14:00 再选 45 → 结束 14:45（自动）', () => {
+    let r = resolveTimes(cur(), { field: 'start', value: '14:00' });
+    expect(r).toMatchObject({ start: '14:00', end: '', minutes: null, typed: ['start'], auto: [] });
+    r = resolveTimes(r, { field: 'minutes', value: 45, now: NOW });
+    expect(r).toMatchObject({ start: '14:00', end: '14:45', minutes: 45, typed: ['start'], auto: ['end'] });
+  });
+
+  test('填结束 16:30 再选 45 → 开始 15:45（自动）', () => {
+    let r = resolveTimes(cur(), { field: 'end', value: '16:30' });
+    expect(r).toMatchObject({ start: '', end: '16:30', typed: ['end'], auto: [] });
+    r = resolveTimes(r, { field: 'minutes', value: 45, now: NOW });
+    expect(r).toMatchObject({ start: '15:45', end: '16:30', minutes: 45, typed: ['end'], auto: ['start'] });
+  });
+
+  test('什么都没填就选 45 → 结束=现在，开始=现在−45（两个都自动）', () => {
+    const r = resolveTimes(cur(), { field: 'minutes', value: 45, now: NOW });
+    expect(r).toMatchObject({ start: '09:45', end: '10:30', minutes: 45, typed: [], auto: ['start', 'end'] });
+  });
+
+  test('填开始 14:00 和结束 15:10 → 时长 70（自动）', () => {
+    let r = resolveTimes(cur(), { field: 'start', value: '14:00' });
+    r = resolveTimes(r, { field: 'end', value: '15:10' });
+    expect(r).toMatchObject({ start: '14:00', end: '15:10', minutes: 70, typed: ['start', 'end'], auto: ['minutes'] });
+  });
+
+  test('填开始 → 选 45 → 再填结束 15:00：时长让位，变成 60', () => {
+    let r = resolveTimes(cur(), { field: 'start', value: '14:00' });
+    r = resolveTimes(r, { field: 'minutes', value: 45, now: NOW });
+    r = resolveTimes(r, { field: 'end', value: '15:00' });
+    expect(r).toMatchObject({ start: '14:00', end: '15:00', minutes: 60, typed: ['start', 'end'], auto: ['minutes'] });
+  });
+
+  test('填开始 14:00、结束 15:10 再选 45 → 较早填的开始移动，到 14:25', () => {
+    let r = resolveTimes(cur(), { field: 'start', value: '14:00' });
+    r = resolveTimes(r, { field: 'end', value: '15:10' });
+    r = resolveTimes(r, { field: 'minutes', value: 45, now: NOW });
+    expect(r).toMatchObject({ start: '14:25', end: '15:10', minutes: 45, typed: ['end'], auto: ['start'] });
+  });
+
+  test('点「现在」：该字段=现在，并算亲手填过', () => {
+    const r = resolveTimes(cur(), { field: 'nowStart', now: NOW });
+    expect(r).toMatchObject({ start: '10:30', end: '', typed: ['start'] });
+    const r2 = resolveTimes(cur(), { field: 'nowEnd', now: NOW });
+    expect(r2).toMatchObject({ start: '', end: '10:30', typed: ['end'] });
+    // 两个都点了「现在」：时长为自动
+    const both = resolveTimes(r2, { field: 'nowStart', now: NOW });
+    expect(both.typed).toEqual(['end', 'start']);
+    expect(both.auto).toEqual(['minutes']);
+  });
+
+  test('开始 23:30 + 60 → 结束 00:30（允许跨午夜）', () => {
+    let r = resolveTimes(cur(), { field: 'start', value: '23:30' });
+    r = resolveTimes(r, { field: 'minutes', value: 60, now: NOW });
+    expect(r).toMatchObject({ start: '23:30', end: '00:30', minutes: 60, auto: ['end'] });
+    expect(computeDuration(r.start, r.end)).toBe(60);
+  });
+
+  test('结束 00:20 选 45 → 开始 23:35（跨午夜往昨天推）', () => {
+    let r = resolveTimes(cur(), { field: 'end', value: '00:20' });
+    r = resolveTimes(r, { field: 'minutes', value: 45, now: NOW });
+    expect(r).toMatchObject({ start: '23:35', end: '00:20', minutes: 45, typed: ['end'], auto: ['start'] });
+  });
+
+  test('现在是 00:20、什么都没填选 45：开始 23:35、结束 00:20', () => {
+    const midnight = new Date(2026, 9, 26, 0, 20);
+    const r = resolveTimes(cur(), { field: 'minutes', value: 45, now: midnight });
+    expect(r).toMatchObject({ start: '23:35', end: '00:20', minutes: 45, auto: ['start', 'end'] });
+  });
+
+  test('typed 最多 2 个；清空时间不算填过；非法时长不改动', () => {
+    let r = resolveTimes(cur({ start: '09:00', end: '10:00', minutes: 60, typed: ['start', 'end'] }), { field: 'start', value: '' });
+    expect(r.start).toBe('');
+    expect(r.typed).toEqual(['end']);
+    expect(r.auto).toEqual([]);
+    const before = cur({ start: '09:00', end: '10:00', minutes: 60, typed: ['start', 'end'] });
+    for (const v of [0, -5, 1441, NaN, 'abc', '']) {
+      const bad = resolveTimes(before, { field: 'minutes', value: v, now: NOW });
+      expect(bad.start).toBe('09:00');
+      expect(bad.end).toBe('10:00');
+      expect(bad.minutes).toBe(60);
+    }
+  });
+});
+
 describe('选时长时的基准（durationAnchor / endFromStart）', () => {
   test('没亲手填过时间：以结束（=现在）为准', () => {
     expect(durationAnchor([])).toBe('end');

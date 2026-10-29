@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Learning from '../src/pages/Learning';
+import Layout from '../src/components/Layout.jsx';
 import { supabase } from '../src/__mocks__/supabase';
 import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 import { clearAllCaches } from '../src/lib/studentCache.js';
@@ -41,6 +42,19 @@ function renderLearning(path = '/learning') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Learning />
+    </MemoryRouter>,
+  );
+}
+
+// 带 Layout 的渲染：桌面 Esc 的全局快捷键在 Layout 里广播 'yb:close-log'
+function renderLearningWithLayout() {
+  return render(
+    <MemoryRouter initialEntries={['/records']}>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/records" element={<Learning />} />
+        </Route>
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -385,7 +399,7 @@ describe('编辑记录', () => {
       expect(screen.getByRole('radio', { name: 'A' })).toHaveAttribute('aria-checked', 'true');
       expect(screen.getByRole('radio', { name: '有不少没掌握' })).toHaveAttribute('aria-checked', 'true');
       // 无单元的记录不被静默改成第一单元
-      expect(screen.getByRole('button', { name: /章节 \/ 单元/ })).toHaveTextContent('整章');
+      expect(screen.getByRole('combobox', { name: '单元' })).toHaveValue('');
       expect(screen.queryByText('保存后将清除原有客观评价，记录回到待补填。')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('radio', { name: '稍后补充' }));
       expect(screen.getByText('保存后将清除原有客观评价，记录回到待补填。')).toBeInTheDocument();
@@ -505,5 +519,195 @@ describe('待补填 · 键盘操作', () => {
     fireEvent.click(document.activeElement);
     await waitFor(() => expect(lastCall('update')).toBeDefined());
     expect(lastCall('update').args).toEqual({ grade_label: 'A-', eval_type: 2 });
+  });
+});
+
+describe('记一下 · 现在按钮与自动标记', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('点「现在」把开始 / 结束填成系统当前时间，并算作亲手填过', async () => {
+    seed();
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'queueMicrotask', 'nextTick', 'setImmediate', 'clearTimeout', 'clearInterval'] });
+    jest.setSystemTime(new Date(2026, 9, 26, 10, 30));
+    renderLearning();
+    await openSheet();
+    const [startNow, endNow] = screen.getAllByRole('button', { name: '现在' });
+    const t = document.querySelectorAll('input[type="time"]');
+    fireEvent.click(startNow);
+    expect(t[0].value).toBe('10:30');
+    fireEvent.click(endNow);
+    expect(t[1].value).toBe('10:30');
+  });
+
+  test('系统推出来的时间标「自动」，亲手填后该字段不再标', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    expect(screen.queryAllByText('自动')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: '45 分钟' }));
+    const t = document.querySelectorAll('input[type="time"]');
+    // 没亲手填过：开始、结束都是系统推的，两个字段都标「自动」
+    expect(screen.getAllByText('自动')).toHaveLength(2);
+    expect(t[0].className).toContain('is-auto');
+    expect(t[1].className).toContain('is-auto');
+    fireEvent.change(t[0], { target: { value: '14:00' } });
+    // 亲手填了开始：只有结束还是自动
+    expect(screen.getAllByText('自动')).toHaveLength(1);
+    expect(t[0].className).not.toContain('is-auto');
+    expect(t[1].className).toContain('is-auto');
+  });
+});
+
+describe('记一下 · 主观评价可拖动刻度', () => {
+  test('拖动轨道吸到最近一档，保存的 self_rating 跟着变', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    setTimes('08:00', '08:40');
+    const track = screen.getByRole('slider', { name: /主观评价/ });
+    // jsdom 里所有元素宽度都是 0，给轨道一个可换算的尺寸
+    track.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 32, right: 200, bottom: 32 });
+    // jsdom 没有 PointerEvent，直接用带 clientX 的 MouseEvent 派发 pointer* 事件
+    const pe = (type, clientX) => new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 16 });
+    // 左右各留 10px：clientX 100 → 比例 0.5 → 第 2 档（有不少没掌握）
+    fireEvent(track, pe('pointerdown', 10));
+    fireEvent(track, pe('pointermove', 100));
+    fireEvent(track, pe('pointerup', 100));
+    expect(track).toHaveAttribute('aria-valuenow', '2');
+    expect(track).toHaveAttribute('aria-valuetext', '有不少没掌握');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ self_rating: 60 });
+  });
+
+  test('方向键 → 移动一档，保存的 self_rating 跟着变', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    setTimes('08:00', '08:40');
+    const track = screen.getByRole('slider', { name: /主观评价/ });
+    expect(track).toHaveAttribute('aria-valuenow', '3');
+    fireEvent.keyDown(track, { key: 'ArrowRight' });
+    expect(track).toHaveAttribute('aria-valuenow', '4');
+    expect(track).toHaveAttribute('aria-valuetext', '完全掌握');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ self_rating: 100 });
+  });
+});
+
+describe('记一下 · 章节 / 单元两个下拉', () => {
+  const MULTI_COURSE = {
+    id: 'course-m', name: '化学', subject: '', course_type: 1,
+    school_id: 'school-1', created_by: 'test-user-1', deleted_at: null, created_at: '2026-02-01',
+    chapters: [
+      { id: 'ch-a', name: '第一章', deleted_at: null, units: [
+        { id: 'u-a', name: '单元A', deleted_at: null },
+        { id: 'u-b', name: '单元B', deleted_at: null },
+      ] },
+      { id: 'ch-b', name: '第二章', deleted_at: null, units: [
+        { id: 'u-c', name: '单元C', deleted_at: null },
+      ] },
+    ],
+  };
+
+  test('单元只列所选章节的单元，保存写入对应的 chapter_id / unit_id', async () => {
+    supabase.__setTableData('courses', [MULTI_COURSE]);
+    supabase.__setTableData('learning_sessions', []);
+    supabase.__setTableData('user_learning_forms', []);
+    renderLearning();
+    fireEvent.click(await screen.findByRole('button', { name: '记一下' }));
+    await screen.findByRole('dialog', { name: '记一下' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '化学', pressed: true })).toBeInTheDocument());
+
+    const chapter = screen.getByRole('combobox', { name: '章节' });
+    const unit = screen.getByRole('combobox', { name: '单元' });
+    // 默认沿用改版前的行为：第一个章节 + 其第一个单元
+    expect(chapter).toHaveValue('ch-a');
+    expect(unit).toHaveValue('u-a');
+    fireEvent.change(chapter, { target: { value: 'ch-b' } });
+    expect(unit).toHaveValue('');
+    expect(within(unit).queryByRole('option', { name: '单元A' })).toBeNull();
+    fireEvent.change(unit, { target: { value: 'u-c' } });
+
+    setTimes('08:00', '08:40');
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ course_id: 'course-m', chapter_id: 'ch-b', unit_id: 'u-c' });
+  });
+});
+
+describe('记一下 · 关前确认', () => {
+  test('有改动时点遮罩先 confirm，取消则保留；确认后才关闭', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    const orig = window.confirm;
+    window.confirm = jest.fn(() => false);
+    try {
+      fireEvent.change(document.querySelectorAll('input[type="time"]')[0], { target: { value: '08:00' } });
+      fireEvent.click(document.querySelector('.yb-sheet-scrim'));
+      expect(window.confirm).toHaveBeenCalledWith('放弃这条记录？');
+      expect(screen.getByRole('dialog', { name: '记一下' })).toBeInTheDocument();
+      window.confirm.mockReturnValue(true);
+      fireEvent.click(document.querySelector('.yb-sheet-scrim'));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一下' })).not.toBeInTheDocument());
+    } finally {
+      window.confirm = orig;
+    }
+  });
+
+  test('没改动时点遮罩直接关闭，不弹 confirm', async () => {
+    seed();
+    renderLearning();
+    await openSheet();
+    const orig = window.confirm;
+    window.confirm = jest.fn();
+    try {
+      fireEvent.click(document.querySelector('.yb-sheet-scrim'));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: '记一下' })).not.toBeInTheDocument());
+      expect(window.confirm).not.toHaveBeenCalled();
+    } finally {
+      window.confirm = orig;
+    }
+  });
+});
+
+describe('记一下 · 桌面 Esc 也走未保存确认', () => {
+  test('焦点在弹层外按 Esc：有改动时 confirm，取消则保留', async () => {
+    seed();
+    renderLearningWithLayout();
+    // Layout 和页面各有一个「记一下」，点 Layout 的那个（快捷键入口）
+    fireEvent.click(screen.getAllByRole('button', { name: '记一下' })[0]);
+    await screen.findByRole('dialog', { name: '记一下' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    const t = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(t[0], { target: { value: '08:00' } });
+
+    const orig = window.confirm;
+    window.confirm = jest.fn(() => false);
+    try {
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(window.confirm).toHaveBeenCalledWith('放弃这条记录？');
+      expect(screen.getByRole('dialog', { name: '记一下' })).toBeInTheDocument();
+    } finally {
+      window.confirm = orig;
+    }
+  });
+});
+
+describe('记一下 · 编辑时点时长保留开始', () => {
+  test('编辑 14:00–15:00 的记录，时长改成 30：开始 14:00、结束 14:30', async () => {
+    seed([session({ id: 's-edit', category: 1, form: '自主预习', grade_label: null, start_time: '14:00:00', end_time: '15:00:00', duration_minutes: 60 })]);
+    renderLearning();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑这条记录' }));
+    await screen.findByRole('dialog', { name: '编辑记录' });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '时长（分钟）' }), { target: { value: '30' } });
+    const t = document.querySelectorAll('input[type="time"]');
+    expect(t[0].value).toBe('14:00');
+    expect(t[1].value).toBe('14:30');
   });
 });

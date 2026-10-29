@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/useAuth.js';
 import { syncSubscription } from '../lib/push.js';
@@ -6,6 +6,7 @@ import ToastHost from './ToastHost.jsx';
 import { supabase } from '../lib/supabase.js';
 import { prefetchStudentPages } from '../pages/student/loaders.js';
 import { useCached } from '../lib/useCached.js';
+import { useTabSwipe } from '../lib/useTabSwipe.js';
 import { patch, invalidate } from '../lib/studentCache.js';
 import { KEYS, fetchInviteCount } from '../lib/studentResources.js';
 import logoSmall from '../logo/crest_red_small.png';
@@ -96,6 +97,15 @@ function isItemActive(item, pathname) {
   return Boolean(item.alsoActive?.includes(pathname));
 }
 
+// tab bar 指下滑动只在手机底栏形态（<600px）启用，桌面侧栏 / 平板图标轨行为不变
+function isBottomBar() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia('(max-width: 599px)').matches);
+  } catch {
+    return false;
+  }
+}
+
 // 往下滚超过这个距离后，tab bar 才开始收起（避免顶部回弹时抖动）
 const SHRINK_AFTER = 48;
 // 单次滚动位移小于该阈值不改变状态（过滤触摸板细微抖动）
@@ -157,6 +167,105 @@ export default function Layout() {
     [isTeacher]
   );
 
+  /* ---- 3a 手机底栏：按住横向滑动，高亮跟手，抬起切到手指下的 tab ---- */
+  const tabsRef = useRef(null);
+  const scrubRef = useRef(null);          // { pointerId, index, moved, x0, y0 }
+  const suppressClickRef = useRef(false); // 滑动结束后吞掉浏览器补发的 click
+  const [scrubIndex, setScrubIndex] = useState(-1);
+
+  function tabLinks() {
+    return tabsRef.current ? Array.from(tabsRef.current.querySelectorAll('.yb-tab')) : [];
+  }
+
+  // 手指压在第几个 tab：真实浏览器按坐标算（触摸有隐式指针捕获，事件目标停在起点）；
+  // jsdom 等没有布局的环境再退回事件目标
+  function tabIndexAt(e) {
+    const links = tabLinks();
+    const x = e.clientX;
+    let measured = false;
+    let nearest = -1;
+    let best = Infinity;
+    if (Number.isFinite(x)) {
+      links.forEach((a, i) => {
+        const rect = a.getBoundingClientRect();
+        if (!rect.width) return;
+        measured = true;
+        const dist = Math.abs(x - (rect.left + rect.width / 2));
+        if (dist < best) { best = dist; nearest = i; }
+      });
+    }
+    if (measured) return nearest;
+    const el = e.target && typeof e.target.closest === 'function' ? e.target.closest('.yb-tab') : null;
+    return el && links.includes(el) ? links.indexOf(el) : -1;
+  }
+
+  function clearScrub() {
+    window.removeEventListener('pointermove', onScrubMove);
+    window.removeEventListener('pointerup', onScrubEnd);
+    window.removeEventListener('pointercancel', onScrubCancel);
+  }
+
+  function onScrubMove(e) {
+    const s = scrubRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    if (!s.moved && Math.abs(e.clientX - s.x0) + Math.abs(e.clientY - s.y0) < 8) return;
+    s.moved = true;
+    const i = tabIndexAt(e);
+    if (i >= 0 && i !== s.index) {
+      s.index = i;
+      setScrubIndex(i);
+    }
+  }
+
+  function onScrubEnd(e) {
+    const s = scrubRef.current;
+    clearScrub();
+    scrubRef.current = null;
+    setScrubIndex(-1);
+    if (!s || e.pointerId !== s.pointerId) return;
+    if (!s.moved) return; // 纯点击：仍交给 <Link> 自己的 click，行为与现在一致
+    const i = tabIndexAt(e);
+    const item = finalNavItems[i >= 0 ? i : s.index];
+    if (!item) return;
+    // 拖动后浏览器可能补发一次 click（落在起点的链接上），吞掉避免二次跳转
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 0);
+    if (pathname !== item.to) nav(item.to);
+  }
+
+  function onScrubCancel() {
+    clearScrub();
+    scrubRef.current = null;
+    setScrubIndex(-1);
+  }
+
+  function onTabsPointerDown(e) {
+    if (e.pointerType === 'mouse' || !isBottomBar()) return;
+    const i = tabIndexAt(e);
+    if (i < 0) return;
+    scrubRef.current = { pointerId: e.pointerId, index: i, moved: false, x0: e.clientX, y0: e.clientY };
+    setScrubIndex(i);
+    window.addEventListener('pointermove', onScrubMove, { passive: true });
+    window.addEventListener('pointerup', onScrubEnd);
+    window.addEventListener('pointercancel', onScrubCancel);
+  }
+
+  // 吞掉滑动结束时补发的 click（只影响 tab 上的那次点击）
+  useEffect(() => {
+    function onClickCapture(e) {
+      if (!suppressClickRef.current) return;
+      const t = e.target;
+      if (t && typeof t.closest === 'function' && t.closest('.yb-tab')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      suppressClickRef.current = false;
+    }
+    document.addEventListener('click', onClickCapture, true);
+    return () => document.removeEventListener('click', onClickCapture, true);
+  }, []);
+
+
   /* ---- 向下滚动收起 tab bar、向上滚动展开（仅手机底栏样式下有视觉效果） ---- */
   useEffect(() => {
     let lastY = window.scrollY;
@@ -200,6 +309,14 @@ export default function Layout() {
       nav('/records?log=1');
     }
   }, [pathname, nav]);
+
+  // 3b：手机上左右滑页面切 tab（仅粗指针；排除项见 shouldSwipe）。首尾不循环。
+  const swipeTabs = useCallback((dir) => {
+    const index = NAV_ITEMS.findIndex((item) => isItemActive(item, pathname));
+    const next = index >= 0 ? NAV_ITEMS[index + dir] : null;
+    if (next) nav(next.to);
+  }, [pathname, nav]);
+  useTabSwipe({ enabled: !onMentorSurface, onSwipe: swipeTabs });
 
   // 桌面快捷键：N 记一笔 · 1–4 切页 · Esc 关闭面板。输入框内、带修饰键、已有弹层时不响应
   useEffect(() => {
@@ -260,7 +377,7 @@ export default function Layout() {
 
       {/* 同一份 DOM，三种形态（见 index.css）：
           ≥920px 浮动侧栏 · 600–919px 图标轨 · <600px 底部玻璃 tab bar */}
-      <nav className={'yb-nav' + (shrunk ? ' is-shrunk' : '')} aria-label="主导航">
+      <nav className={'yb-nav' + (shrunk ? ' is-shrunk' : '')} aria-label="主导航" data-no-swipe>
         <div className="yb-brand">
           <img src={logoInline} alt="" />
           <b>一表人才</b>
@@ -272,8 +389,12 @@ export default function Layout() {
           <kbd className="yb-kbd" aria-hidden="true">N</kbd>
         </button>
 
-        <div className="yb-tabs">
-          {finalNavItems.map((item) => {
+        <div
+          ref={tabsRef}
+          className={'yb-tabs' + (scrubIndex >= 0 ? ' is-scrubbing' : '')}
+          onPointerDown={onTabsPointerDown}
+        >
+          {finalNavItems.map((item, index) => {
             const { to, label, Icon } = item;
             const active = isItemActive(item, pathname);
             const count = item.badge ? notificationCount : 0;
@@ -281,7 +402,7 @@ export default function Layout() {
               <Link
                 key={to}
                 to={to}
-                className={'yb-tab' + (active ? ' on' : '')}
+                className={'yb-tab' + (active ? ' on' : '') + (scrubIndex === index ? ' is-scrub' : '')}
                 aria-current={active ? 'page' : undefined}
                 aria-label={count > 0 ? `${label}，${count} 条待处理邀请` : undefined}
               >

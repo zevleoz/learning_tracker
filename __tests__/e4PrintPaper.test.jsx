@@ -41,13 +41,35 @@ describe('E4 报告打印纸型（A4 / US Letter，Safari 与 Chrome）', () => 
     expect(12 + 6.2).toBeLessThan(23);
   });
 
-  test('分页预算与版心一致：270 − 23 − 19 = 228mm', () => {
-    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = 228;/);
+  test('分页预算与版心一致：Chrome 等 270 − 23 − 19 = 228mm，Safari 250 − 21 − 16 = 213mm', () => {
+    expect(autoPages).toMatch(/const INNER_HEIGHT_MM = IS_SAFARI \? 213 : 228;/);
+    expect(css).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ min-height: 250mm; padding-top: 21mm; padding-bottom: 16mm; \}/);
   });
 
-  test('不再按浏览器区分版式（Safari 实测与 Chrome 同样不加页边距）', () => {
-    expect(css).not.toMatch(/e4-safari/);
-    expect(autoPages).not.toMatch(/IS_SAFARI/);
+  test('Safari：250mm 页面无论 Safari 是否在纸顶多出约 21.2mm，按纸宽放大后都放得进 Letter（270mm 会把页脚挤到下一张纸）', () => {
+    expect(e4PrintBlock()).toMatch(/html\.e4-safari \.e4-print-page\.e4-page-shell \{ height: 250mm !important; \}/);
+    const scale = 215.9 / 210;
+    expect(21.2 + 250 * scale).toBeLessThanOrEqual(279.4);
+    expect(21.2 + 270 * scale).toBeGreaterThan(279.4);
+  });
+});
+
+describe('Safari 识别（只认 Safari，不把 Chrome / Edge 当成 Safari）', () => {
+  const load = (ua) => {
+    let mod;
+    Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+    document.documentElement.classList.remove('e4-safari');
+    jest.isolateModules(() => { mod = require('../src/lib/e4Browser.js'); });
+    return mod.IS_SAFARI;
+  };
+
+  test.each([
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15', true],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', false],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0', false],
+  ])('%s → %s', (ua, expected) => {
+    expect(load(ua)).toBe(expected);
+    expect(document.documentElement.classList.contains('e4-safari')).toBe(expected);
   });
 });
 

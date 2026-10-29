@@ -1244,7 +1244,8 @@ body:has(.yb-student) {
     box-shadow: inset 0 1px 0 var(--yb-glass-hi), inset 0 -1px 1px var(--yb-glass-shade), 0 4px 14px var(--yb-glass-shade);
   }
 
-  .yb-shell .main { padding: 8px 16px calc(112px + env(safe-area-inset-bottom, 0px)); }
+  /* 3b：页面横向滑动切换 tab；只放开纵向滚动，横向手势不再被浏览器接管（纵向照常滚） */
+  .yb-shell .main { padding: 8px 16px calc(112px + env(safe-area-inset-bottom, 0px)); touch-action: pan-y; }
 
   .yb-nav {
     left: 50%;

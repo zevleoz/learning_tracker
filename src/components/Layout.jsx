@@ -6,6 +6,7 @@ import ToastHost from './ToastHost.jsx';
 import { supabase } from '../lib/supabase.js';
 import { prefetchStudentPages } from '../pages/student/loaders.js';
 import { useCached } from '../lib/useCached.js';
+import { useTabSwipe } from '../lib/useTabSwipe.js';
 import { patch, invalidate } from '../lib/studentCache.js';
 import { KEYS, fetchInviteCount } from '../lib/studentResources.js';
 import logoSmall from '../logo/crest_red_small.png';
@@ -309,6 +310,14 @@ export default function Layout() {
     }
   }, [pathname, nav]);
 
+  // 3b：手机上左右滑页面切 tab（仅粗指针；排除项见 shouldSwipe）。首尾不循环。
+  const swipeTabs = useCallback((dir) => {
+    const index = NAV_ITEMS.findIndex((item) => isItemActive(item, pathname));
+    const next = index >= 0 ? NAV_ITEMS[index + dir] : null;
+    if (next) nav(next.to);
+  }, [pathname, nav]);
+  useTabSwipe({ enabled: !onMentorSurface, onSwipe: swipeTabs });
+
   // 桌面快捷键：N 记一笔 · 1–4 切页 · Esc 关闭面板。输入框内、带修饰键、已有弹层时不响应
   useEffect(() => {
     function onKeyDown(e) {
@@ -368,7 +377,7 @@ export default function Layout() {
 
       {/* 同一份 DOM，三种形态（见 index.css）：
           ≥920px 浮动侧栏 · 600–919px 图标轨 · <600px 底部玻璃 tab bar */}
-      <nav className={'yb-nav' + (shrunk ? ' is-shrunk' : '')} aria-label="主导航">
+      <nav className={'yb-nav' + (shrunk ? ' is-shrunk' : '')} aria-label="主导航" data-no-swipe>
         <div className="yb-brand">
           <img src={logoInline} alt="" />
           <b>一表人才</b>

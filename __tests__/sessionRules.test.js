@@ -3,7 +3,7 @@ import {
   computeDuration, shiftTime, validateSession, gradeLabelFor, evalTypeFor,
   buildSessionPayload, evalStateFromRow, shouldWarnClearGrade, CLEAR_GRADE_WARNING,
   isPendingObjective, applyPendingFilter, pendingGradePayload,
-  orderCoursesByRecent, defaultChapterUnit, recentCombos,
+  orderCoursesByRecent, defaultChapterUnit, recentCombos, durationAnchor, endFromStart,
 } from '../src/lib/sessionRules.js';
 import { SUBJECTIVE_STEPS } from '../src/lib/rating.js';
 
@@ -324,5 +324,27 @@ describe('findOverlap · 跨午夜时段重叠', () => {
 
   test('缺时间的旧行跳过', () => {
     expect(findOverlap([row('a', '2026-10-25', null, null)], mine)).toBeNull();
+  });
+});
+
+describe('选时长时的基准（durationAnchor / endFromStart）', () => {
+  test('没亲手填过时间：以结束（=现在）为准', () => {
+    expect(durationAnchor([])).toBe('end');
+    expect(durationAnchor(undefined)).toBe('end');
+  });
+  test('最近亲手填的那个时间保持不动', () => {
+    expect(durationAnchor(['start'])).toBe('start');
+    expect(durationAnchor(['end', 'start'])).toBe('end');
+    expect(durationAnchor(['start', 'end'])).toBe('start');
+  });
+  test('开始往后推；跨午夜按 24 小时取模', () => {
+    expect(endFromStart('14:00', 45)).toBe('14:45');
+    expect(endFromStart('23:30', 60)).toBe('00:30');
+  });
+  test('非法时长 / 时间返回 null', () => {
+    expect(endFromStart('14:00', 0)).toBeNull();
+    expect(endFromStart('14:00', 1441)).toBeNull();
+    expect(endFromStart('14:00', 'abc')).toBeNull();
+    expect(endFromStart('', 30)).toBeNull();
   });
 });

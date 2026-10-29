@@ -1,0 +1,97 @@
+/* 旧版记录界面（ClassicLogForm）：改版前「记录」页内嵌表单的版式，颜色改走 --yb-* token。
+   全部样式限定在 .ybc 下，不影响 2.0 的记一下 sheet。 */
+
+.ybc { background: var(--yb-surface, #fff); border-radius: var(--yb-radius-card, 18px); padding: 18px; display: flex; flex-direction: column; gap: 18px; outline: none; }
+.ybc.is-editing { box-shadow: inset 0 0 0 2px var(--yb-crest, #A3202A); }
+.ybc-editing { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--yb-crest-soft, #F6E5E6); color: var(--yb-crest-text, #A3202A); font-size: 13px; font-weight: 700; }
+.ybc-editing button { border: 0; background: none; color: inherit; font: inherit; font-weight: 600; cursor: pointer; padding: 2px 4px; }
+.ybc-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ybc-label { font-size: 13px; font-weight: 700; color: var(--yb-ink-2, #434852); }
+.ybc-label small { font-size: 11px; font-weight: 400; color: var(--yb-ink-3, #5F6570); margin-left: 4px; }
+.ybc-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ybc-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.ybc-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--yb-ink-3, #5F6570); }
+.ybc-field small { font-size: 11px; opacity: .8; }
+.ybc .ybc-input { width: 100%; box-sizing: border-box; height: 44px; border-radius: 12px; border: 1px solid var(--yb-line, #DADDE3); background: var(--yb-surface, #fff); color: var(--yb-ink, #14161B); padding: 0 12px; font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; outline: none; }
+.ybc select.ybc-input { -webkit-appearance: none; appearance: none; padding-right: 30px; background-image: linear-gradient(45deg, transparent 50%, var(--yb-ink-3, #5F6570) 50%), linear-gradient(135deg, var(--yb-ink-3, #5F6570) 50%, transparent 50%); background-position: calc(100% - 17px) 19px, calc(100% - 12px) 19px; background-size: 5px 5px; background-repeat: no-repeat; text-overflow: ellipsis; }
+.ybc .ybc-input:focus { border-color: var(--yb-ink, #14161B); box-shadow: 0 0 0 3px var(--yb-sunken, #E8EAEE); }
+.ybc .ybc-input.err { border-color: var(--yb-crest, #A3202A); }
+.ybc .ybc-input:disabled { opacity: .6; }
+.ybc textarea.ybc-notes { height: auto; min-height: 88px; padding: 10px 12px; line-height: 1.5; resize: vertical; font-size: 14px; }
+.ybc-err { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--yb-crest-text, #A3202A); }
+.ybc-hint { margin: 0; font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.ybc-hint b { color: var(--yb-ink, #14161B); }
+.ybc-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--yb-sunken, #E8EAEE); font-size: 12.5px; color: var(--yb-ink-2, #434852); }
+.ybc-note.warn { background: transparent; padding: 0; color: var(--yb-warn, #8A4F05); }
+.ybc-empty { padding: 24px 8px; text-align: center; font-size: 13.5px; color: var(--yb-ink-3, #5F6570); }
+.ybc-empty b { display: block; color: var(--yb-ink, #14161B); font-size: 15px; margin-bottom: 4px; }
+.ybc-empty .yb-btn { margin-top: 12px; text-decoration: none; }
+
+/* 快速设置时长 */
+.ybc-shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--yb-ink-3, #5F6570); }
+.ybc-shortcuts button { border: 0; border-radius: 999px; padding: 6px 12px; min-height: 32px; background: var(--yb-sunken, #E8EAEE); color: var(--yb-ink, #14161B); font: inherit; font-size: 12.5px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.ybc-shortcuts button[aria-pressed="true"] { background: var(--yb-ink, #14161B); color: var(--yb-surface, #fff); }
+.ybc-shortcuts button:disabled { opacity: .5; cursor: default; }
+
+/* 类别按钮 / 客观评价方式 */
+.ybc-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ybc-cats button { height: 44px; border-radius: 12px; border: 1px solid var(--yb-line, #DADDE3); background: var(--yb-surface, #fff); color: var(--yb-ink, #14161B); font: inherit; font-size: 14px; cursor: pointer; }
+.ybc-cats button[aria-checked="true"] { background: var(--yb-crest-soft, #F6E5E6); border-color: var(--yb-crest, #A3202A); color: var(--yb-crest-text, #A3202A); font-weight: 700; }
+.ybc-mode { display: inline-flex; align-self: flex-start; background: var(--yb-sunken, #E8EAEE); border-radius: 10px; padding: 2px; }
+.ybc-mode button { border: 0; background: none; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--yb-ink-3, #5F6570); cursor: pointer; white-space: nowrap; }
+.ybc-mode button[aria-checked="true"] { background: var(--yb-surface, #fff); color: var(--yb-ink, #14161B); box-shadow: 0 1px 2px rgba(15, 23, 42, .08); }
+.ybc-custom { display: flex; gap: 6px; align-items: center; }
+.ybc-custom .ybc-input { flex: 1; min-width: 0; }
+
+/* 可拖动滑轨 */
+.ybc-rail { display: flex; flex-direction: column; gap: 6px; user-select: none; -webkit-user-select: none; }
+.ybc-rail-track { position: relative; height: 44px; border-radius: 999px; touch-action: none; cursor: pointer;
+  background: linear-gradient(90deg, #F2A1A1 0%, #F5C98A 40%, #E8DE8A 60%, #9FDCAA 100%); }
+.ybc-rail.obj .ybc-rail-track { background: linear-gradient(90deg, #F2A1A1 0%, #F5C98A 35%, #E8DE8A 55%, #9FDCAA 80%, #7FD3B1 100%); }
+.ybc-rail.off .ybc-rail-track { opacity: .45; cursor: default; }
+.ybc-rail-dots { position: absolute; inset: 0 20px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.ybc-rail-dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .9); }
+.ybc-rail-track input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
+.ybc-rail-thumb { position: absolute; top: 8px; width: 28px; height: 28px; margin-left: -14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(20, 22, 27, .28); pointer-events: none; transition: left .12s ease; }
+.ybc-rail-track:has(input:focus-visible) .ybc-rail-thumb { box-shadow: 0 0 0 3px var(--yb-ink, #14161B); }
+.ybc-rail-cur { text-align: center; font-size: 13px; font-weight: 700; color: var(--yb-ink, #14161B); }
+.ybc-rail-ticks { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--yb-ink-3, #5F6570); }
+.ybc-rail-ticks span { flex: 1; text-align: center; }
+.ybc-rail-ticks span:first-child { text-align: left; }
+.ybc-rail-ticks span:last-child { text-align: right; }
+.ybc-rail-ticks span.on { color: var(--yb-crest-text, #A3202A); font-weight: 700; }
+
+/* 等第对照表 */
+.ybc-legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 10px; padding: 10px 12px; border-radius: 12px; background: var(--yb-sunken, #E8EAEE); font-size: 12px; color: var(--yb-ink-2, #434852); transition: opacity .16s; }
+.ybc-legend.off { opacity: .45; }
+.ybc-legend .cap { grid-column: 1 / -1; font-size: 11px; color: var(--yb-ink-3, #5F6570); }
+.ybc-legend > div:not(.cap) { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 4px; border-radius: 6px; }
+.ybc-legend > div.on { background: var(--yb-surface, #fff); }
+.ybc-legend > div.on b { color: var(--yb-crest-text, #A3202A); }
+.ybc-legend span { font-size: 11px; color: var(--yb-ink-3, #5F6570); }
+
+.ybc-actions { display: flex; gap: 8px; }
+.ybc-submit { flex: 1; }
+
+/* 页面：旧版时「记录」视图在宽屏上表单与列表并排 */
+.yb-lg-page.is-classic { max-width: 1180px; }
+.ybc-cols { display: flex; flex-direction: column; gap: 14px; }
+.ybc-cols > .ybc-list { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (min-width: 1200px) {
+  .ybc-cols { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+}
+
+/* 手机：三列 / 两列改为上下排，不再溢出屏幕（改版前的问题） */
+@media (max-width: 640px) {
+  .ybc { padding: 14px; gap: 16px; }
+  .ybc-three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ybc-three > .ybc-field:first-child { grid-column: 1 / -1; }
+  .ybc-two { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ybc-rail-thumb, .ybc-legend { transition: none; }
+}
+
+/* 新版界面时外层容器不参与布局 */
+.yb-contents { display: contents; }

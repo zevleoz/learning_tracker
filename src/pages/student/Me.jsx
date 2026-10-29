@@ -9,6 +9,7 @@ import {
   DEFAULT_PREFS, normalizePrefs, loadPrefs, savePrefs, isDailyForced, forcedDailyUntil, fmtMonthDay,
 } from '../../lib/notifyPrefs.js';
 import { useAuth } from '../../lib/useAuth.js';
+import { useRecordUi, setRecordUi } from '../../lib/recordUiPref.js';
 import { toast } from '../../lib/toast.js';
 import { logger } from '../../lib/logger.js';
 import {
@@ -52,6 +53,7 @@ const EMPTY_ME = { id: null, name: '', school: '', email: '', courseCount: null,
 export default function Me() {
   const nav = useNavigate();
   const { user, signOut } = useAuth();
+  const recordUi = useRecordUi();
   const userId = user?.id;
   const meRes = useCached(userId, KEYS.me, () => fetchMe(user));
   const me = meRes.data || EMPTY_ME;
@@ -118,6 +120,20 @@ export default function Me() {
               <span className="mep-li-r">{pushState === 'granted' ? '已开启' : '未开启'}</span>
               <ChevronRight size={16} aria-hidden="true" className="mep-chev" />
             </Link>
+          </li>
+          <li className="mep-li static">
+            <span className="mep-li-t">
+              <b id="mep-classic-ui">使用旧版记录界面</b>
+              <span>在「记录」页直接填写，和更新前一样。只对这台设备生效</span>
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={recordUi === 'classic'}
+              aria-labelledby="mep-classic-ui"
+              className={'mep-switch' + (recordUi === 'classic' ? ' on' : '')}
+              onClick={() => setRecordUi(recordUi === 'classic' ? 'new' : 'classic')}
+            />
           </li>
         </ul>
       </section>

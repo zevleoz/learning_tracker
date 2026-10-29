@@ -10,7 +10,9 @@ import { setAppBadge } from '../lib/push.js';
 import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
 import LogSheet, { Sheet } from '../components/student/LogSheet.jsx';
+import LogForm from '../components/student/LogForm.jsx';
 import ClassicLogForm from '../components/student/ClassicLogForm.jsx';
+import { useMediaQuery } from '../lib/useMediaQuery.js';
 import { useRecordUi } from '../lib/recordUiPref.js';
 import GradeChips from '../components/student/GradeChips.jsx';
 import {
@@ -221,10 +223,27 @@ export default function LearningPage() {
   const customForms = formsRes.data ?? NONE; // string[]
 
   /* --- 记一笔 sheet --- */
-  const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null });
+  // forceDialog：从别的页面（?log=1）打开时，即使宽屏也用居中对话框，不占用记录列表旁的内嵌位
+  const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null, forceDialog: false });
   // 旧版记录界面（我的 › 使用旧版记录界面）：表单内嵌在「记录」视图，sheet 状态照用，只是不弹出
   const classic = useRecordUi() === 'classic';
   const classicRef = useRef(null);
+
+  /* --- 宽屏：记录页内嵌表单 / 居中对话框 / 手机底部弹层 --- */
+  const isWide = useMediaQuery('(min-width: 1180px)');   // ≥1180：记录页内嵌表单
+  const isDialogWidth = useMediaQuery('(min-width: 900px)'); // 900–1179：居中对话框
+  const asyncRef = useRef(null); // 内嵌表单（切换 tab 也不卸载，草稿留在组件 state 里）
+  const inlineMode = !classic && isWide;
+  const inlineModeRef = useRef(inlineMode);
+  inlineModeRef.current = inlineMode;
+  const inlineActive = inlineMode && !sheet.forceDialog;
+  const modalOpen = sheet.open && !classic && !inlineActive;
+
+  function revealInline() {
+    if (!inlineModeRef.current) return;
+    setView('record');
+    setTimeout(() => asyncRef.current?.focus?.(), 0);
+  }
   function revealClassic() {
     if (!classic) return;
     setView('record');
@@ -428,10 +447,12 @@ export default function LearningPage() {
   }
 
   /* ========== 打开记一笔：＋ 按钮事件 / ?log=1 / 再记一次 ========== */
-  function openNew(detail) {
+  // forceDialog 用于「从别的页面点 ＋」的入口（?log=1）：宽屏也保留居中对话框的形态。
+  function openNew(detail, opts) {
     const d = detail && typeof detail === 'object' ? detail : {};
+    const forceDialog = !!opts?.dialog;
     setSheet({
-      open: true, mode: 'new', editRow: null,
+      open: true, mode: 'new', editRow: null, forceDialog,
       preset: {
         courseId: d.courseId || '',
         chapterId: d.chapterId || '',
@@ -441,10 +462,12 @@ export default function LearningPage() {
         durationMinutes: Number(d.durationMinutes) || 0,
       },
     });
+    if (!forceDialog) revealInline();
     revealClassic();
   }
   function closeSheet() {
-    setSheet(s => ({ ...s, open: false }));
+    // 关闭时一并退出编辑；内嵌表单按 editRow / preset 的变化回到新建状态
+    setSheet(s => ({ ...s, open: false, mode: 'new', editRow: null, forceDialog: false }));
   }
 
   useEffect(() => {
@@ -463,7 +486,7 @@ export default function LearningPage() {
       category: [1, 2, 3].includes(category) ? category : undefined,
       form: searchParams.get('form') || '',
       durationMinutes: Number(searchParams.get('minutes')) || 0,
-    });
+    }, { dialog: true });
     const next = new URLSearchParams(searchParams);
     ['log', 'course', 'category', 'form', 'minutes'].forEach((k) => next.delete(k));
     setSearchParams(next, { replace: true });
@@ -590,7 +613,8 @@ export default function LearningPage() {
 
   /* ========== 编辑现有记录 ========== */
   function onStartEdit(r) {
-    setSheet({ open: true, mode: 'edit', editRow: r, preset: null });
+    setSheet({ open: true, mode: 'edit', editRow: r, preset: null, forceDialog: false });
+    revealInline();
     revealClassic();
   }
 
@@ -730,7 +754,7 @@ export default function LearningPage() {
 
   /* ========== JSX ========== */
   return (
-    <div className={`yb-lg yb-lg-page animate-fade-in${classic ? ' is-classic' : ''}`}>
+    <div className={`yb-lg yb-lg-page animate-fade-in${classic ? ' is-classic' : ''}${inlineMode ? ' is-wide' : ''}`}>
       <div className="yb-lg-head">
         <div>
           <h1>记录</h1>
@@ -778,7 +802,33 @@ export default function LearningPage() {
         </div>
       )}
 
-      <div role="tabpanel" id={`yb-panel-${view}`} aria-labelledby={`yb-tab-${view}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 宽屏记录页：左内嵌表单、右记录列表；切到别的 tab 时表单隐藏但保持挂载（草稿不丢） */}
+      <div className={`yb-cols-new${inlineMode && view === 'record' ? ' is-split' : ''}`}>
+      {inlineMode && (
+        <aside
+          className={`yb-inline${view !== 'record' || (sheet.forceDialog && sheet.open) ? ' is-hidden' : ''}`}
+          aria-hidden={view !== 'record' || (sheet.forceDialog && sheet.open) || undefined}
+        >
+          <LogForm
+            ref={asyncRef}
+            layout="two-col"
+            open={sheet.open}
+            mode={sheet.mode}
+            editRow={sheet.editRow}
+            preset={sheet.preset}
+            courses={courses}
+            loadingCourses={loadingCourses}
+            recent={recent}
+            customForms={customForms}
+            onAddCustomForm={onAddCustomForm}
+            onSave={sheet.mode === 'edit' ? onSaveEdit : onSubmit}
+            onClose={closeSheet}
+            onCancelEdit={closeSheet}
+            busy={busy}
+          />
+        </aside>
+      )}
+      <div role="tabpanel" id={`yb-panel-${view}`} aria-labelledby={`yb-tab-${view}`} style={{ display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0 }}>
       {view === 'scores' ? (
         /* ====== 成绩视图 ====== */
         loadingScores ? (
@@ -962,7 +1012,11 @@ export default function LearningPage() {
               </div>
               <div className="yb-day__list">
                 {day.rows.map(r => (
-                  <article key={r.id} className={`yb-rec ${sheet.open && sheet.mode === 'edit' && sheet.editRow?.id === r.id ? 'yb-rec--editing' : ''}`}>
+                  <article
+                    key={r.id}
+                    className={`yb-rec ${sheet.open && sheet.mode === 'edit' && sheet.editRow?.id === r.id ? 'yb-rec--editing' : ''}`}
+                    aria-current={sheet.open && sheet.mode === 'edit' && sheet.editRow?.id === r.id ? 'true' : undefined}
+                  >
                     <time className="yb-rec__tm" dateTime={hhmm(r.start_time)}>{hhmm(r.start_time)}</time>
                     <div className="yb-rec__md">
                       <div className="yb-rec__course">
@@ -1019,10 +1073,12 @@ export default function LearningPage() {
         </div>
       )}
       </div>
+      </div>
 
       {/* ====== 记一笔 / 编辑记录 ====== */}
       <LogSheet
-        open={sheet.open && !classic}
+        open={modalOpen}
+        variant={isDialogWidth ? 'dialog' : 'sheet'}
         onClose={closeSheet}
         mode={sheet.mode}
         editRow={sheet.editRow}

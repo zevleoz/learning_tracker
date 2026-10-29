@@ -83,6 +83,28 @@ export function computeDuration(startStr, endStr) {
   return mins;
 }
 
+/**
+ * 桌面端快捷输入：1430 → 14:30、14:30 → 14:30、2:30 → 02:30、930 → 09:30。
+ * 三 / 四位纯数字按 HHMM / HMM 解析；冒号写法分钟必须两位。非法一律 null。
+ */
+export function parseTimeShorthand(str) {
+  const s = String(str == null ? '' : str).trim();
+  const colon = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (colon) {
+    const h = Number(colon[1]);
+    const m = Number(colon[2]);
+    return h <= 23 && m <= 59 ? `${pad(h)}:${pad(m)}` : null;
+  }
+  const digits = s.match(/^(\d{3,4})$/);
+  if (digits) {
+    const raw = digits[1];
+    const h = Number(raw.slice(0, raw.length - 2));
+    const m = Number(raw.slice(-2));
+    return h <= 23 && m <= 59 ? `${pad(h)}:${pad(m)}` : null;
+  }
+  return null;
+}
+
 /** HH:MM 加减分钟（按 24 小时取模）。 */
 export function shiftTime(timeStr, deltaMinutes) {
   const [h, m] = String(timeStr).split(':').map(Number);

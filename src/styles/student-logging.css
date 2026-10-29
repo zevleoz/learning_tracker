@@ -222,6 +222,52 @@
 .yb-scale button.on { color: var(--lg-crest-text); font-weight: 700; }
 .yb-scale button:disabled { cursor: default; opacity: .6; }
 
+/* ---------- 宽屏：记录页内嵌表单（≥1180px） ---------- */
+.yb-lg-page.is-wide { max-width: 1180px; }
+.yb-cols-new { display: flex; flex-direction: column; gap: 14px; }
+.yb-inline { min-width: 0; }
+.yb-inline.is-hidden { display: none; }
+@media (min-width: 1180px) {
+  .yb-cols-new.is-split { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+}
+
+/* ---------- 记一笔表单（LogForm） ---------- */
+.yb-form { display: flex; flex-direction: column; gap: 16px; outline: none; }
+.yb-form--two-col { background: var(--lg-surface); border-radius: var(--lg-radius); padding: 18px; }
+.yb-form--two-col.is-editing { box-shadow: inset 0 0 0 2px var(--lg-crest); }
+.yb-form__cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 22px; align-items: start; }
+.yb-form__col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.yb-form__h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.yb-form__h h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.yb-form__cancel { border: 0; background: none; padding: 2px 4px; color: var(--lg-crest-text); font-size: 13px; font-weight: 600; cursor: pointer; }
+.yb-form__save { display: flex; gap: 8px; }
+.yb-form__save .yb-btn { width: 100%; }
+
+/* 弹层 / 对话框里的保存条常驻底部，内容再长也看得见（手机 sheet 与内嵌二列一致） */
+.yb-sheet__b .yb-form__save { position: sticky; bottom: -14px; z-index: 2; margin: 0 -16px -14px; padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--lg-glass); border-top: 1px solid var(--lg-line); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .yb-sheet__b .yb-form__save { background: var(--lg-surface); }
+}
+.yb-dialog .yb-form--two-col { background: transparent; padding: 0; box-shadow: none; }
+.yb-dialog .yb-form__h { display: none; }
+.yb-dialog .yb-form--two-col .yb-form__save { position: sticky; bottom: -14px; z-index: 2; margin: 0 -20px -14px; padding: 10px 20px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--lg-surface); border-top: 1px solid var(--lg-line); }
+
+/* 编辑中的记录行：crest 描边 */
+.yb-rec--editing { box-shadow: inset 0 0 0 2px var(--lg-crest); }
+
+/* ---------- 居中对话框（900px 以上，记一下 / 编辑记录） ---------- */
+.yb-dialog-wrap { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.yb-dialog-wrap .yb-sheet-scrim { z-index: 0; }
+.yb-dialog-wrap .yb-sheet.yb-dialog {
+  position: relative; left: auto; top: auto; right: auto; bottom: auto;
+  z-index: 1; width: 100%; max-width: 880px; max-height: calc(100dvh - 48px);
+  border-radius: 26px; box-shadow: 0 24px 60px rgba(14, 15, 18, .18);
+  background: var(--lg-surface);
+}
+.yb-dialog .yb-sheet__grab { display: none; }
+.yb-dialog .yb-sheet__h { padding: 16px 16px 8px 20px; }
+.yb-dialog .yb-sheet__b { padding: 4px 20px 14px; }
+
 @media (prefers-reduced-motion: reduce) {
   .yb-lg *, .yb-sheet, .yb-sheet * { transition: none !important; }
 }

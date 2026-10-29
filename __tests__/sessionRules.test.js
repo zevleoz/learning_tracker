@@ -4,6 +4,7 @@ import {
   buildSessionPayload, evalStateFromRow, shouldWarnClearGrade, CLEAR_GRADE_WARNING,
   isPendingObjective, applyPendingFilter, pendingGradePayload,
   orderCoursesByRecent, defaultChapterUnit, recentCombos, durationAnchor, endFromStart,
+  parseTimeShorthand,
 } from '../src/lib/sessionRules.js';
 import { SUBJECTIVE_STEPS } from '../src/lib/rating.js';
 
@@ -414,6 +415,33 @@ describe('resolveTimes · 开始 / 时长 / 结束 的推演', () => {
       expect(bad.end).toBe('10:00');
       expect(bad.minutes).toBe(60);
     }
+  });
+});
+
+describe('parseTimeShorthand · 桌面快捷输入', () => {
+  test('四位纯数字 → HH:MM；三位按 HMM 补零', () => {
+    expect(parseTimeShorthand('1430')).toBe('14:30');
+    expect(parseTimeShorthand('930')).toBe('09:30');
+    expect(parseTimeShorthand('0015')).toBe('00:15');
+  });
+  test('冒号写法：一位小时补零，分钟必须两位', () => {
+    expect(parseTimeShorthand('14:30')).toBe('14:30');
+    expect(parseTimeShorthand('2:30')).toBe('02:30');
+    expect(parseTimeShorthand('0:05')).toBe('00:05');
+    expect(parseTimeShorthand('2:3')).toBeNull();
+  });
+  test('非法 / 越界返回 null', () => {
+    expect(parseTimeShorthand('2400')).toBeNull();
+    expect(parseTimeShorthand('1460')).toBeNull();
+    expect(parseTimeShorthand('24:00')).toBeNull();
+    expect(parseTimeShorthand('1')).toBeNull();
+    expect(parseTimeShorthand('12345')).toBeNull();
+    expect(parseTimeShorthand('')).toBeNull();
+    expect(parseTimeShorthand('abc')).toBeNull();
+    expect(parseTimeShorthand(null)).toBeNull();
+  });
+  test('首尾空白忽略', () => {
+    expect(parseTimeShorthand(' 1430 ')).toBe('14:30');
   });
 });
 

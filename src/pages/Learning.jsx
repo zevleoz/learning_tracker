@@ -12,6 +12,7 @@ import DatePicker from '../components/ui/date-picker.jsx';
 import LogSheet, { Sheet } from '../components/student/LogSheet.jsx';
 import ClassicLogForm from '../components/student/ClassicLogForm.jsx';
 import { useRecordUi } from '../lib/recordUiPref.js';
+import { useSegDrag } from '../lib/segDrag.js';
 import GradeChips from '../components/student/GradeChips.jsx';
 import {
   CATEGORY_OPTS, ALL_FORM_PRESET, GRADE_RANGES,
@@ -248,6 +249,8 @@ export default function LearningPage() {
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
   const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
   const tabRefs = useRef([]);
+  // 手机上按住顶部 tab 横滑，选手指下那一类（点按行为不变）
+  const tabDrag = useSegDrag({ onPick: (i) => { if (TABS[i]) setView(TABS[i].key); } });
 
   /* --- 待补填客观评价列表 --- */
   const pendingRes = useCached(userId, KEYS.pending, () => fetchPending(userId));
@@ -742,7 +745,14 @@ export default function LearningPage() {
       </div>
 
       {/* ====== 顶部 Tab: 记录 / 待补填 / 成绩 ====== */}
-      <div className="yb-seg" role="tablist" aria-label="记录分类">
+      <div
+        className="yb-seg"
+        role="tablist"
+        aria-label="记录分类"
+        data-no-swipe
+        ref={tabDrag.ref}
+        onPointerDown={tabDrag.onPointerDown}
+      >
         {TABS.map((t, i) => {
           const count = t.key === 'pending' ? pending.length : t.key === 'scores' ? examScores.length : 0;
           return (
@@ -755,7 +765,7 @@ export default function LearningPage() {
               aria-selected={view === t.key}
               aria-controls={`yb-panel-${t.key}`}
               tabIndex={view === t.key ? 0 : -1}
-              onClick={() => setView(t.key)}
+              onClick={() => { if (!tabDrag.shouldSkipClick()) setView(t.key); }}
               onKeyDown={(e) => onTabKeyDown(e, i)}
             >
               {t.label}

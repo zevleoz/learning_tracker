@@ -10,6 +10,8 @@ import { setAppBadge } from '../lib/push.js';
 import { loadOutbox, enqueueOutbox, removeFromOutbox } from '../lib/outbox.js';
 import DatePicker from '../components/ui/date-picker.jsx';
 import LogSheet, { Sheet } from '../components/student/LogSheet.jsx';
+import ClassicLogForm from '../components/student/ClassicLogForm.jsx';
+import { useRecordUi } from '../lib/recordUiPref.js';
 import GradeChips from '../components/student/GradeChips.jsx';
 import {
   CATEGORY_OPTS, ALL_FORM_PRESET, GRADE_RANGES,
@@ -220,6 +222,17 @@ export default function LearningPage() {
 
   /* --- 记一笔 sheet --- */
   const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null });
+  // 旧版记录界面（我的 › 使用旧版记录界面）：表单内嵌在「记录」视图，sheet 状态照用，只是不弹出
+  const classic = useRecordUi() === 'classic';
+  const classicRef = useRef(null);
+  function revealClassic() {
+    if (!classic) return;
+    setView('record');
+    setTimeout(() => {
+      classicRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      classicRef.current?.focus?.({ preventScroll: true });
+    }, 0);
+  }
 
   /* --- 提交状态 / 最近记录 --- */
   const [busy, setBusy] = useState(false);
@@ -428,6 +441,7 @@ export default function LearningPage() {
         durationMinutes: Number(d.durationMinutes) || 0,
       },
     });
+    revealClassic();
   }
   function closeSheet() {
     setSheet(s => ({ ...s, open: false }));
@@ -581,6 +595,7 @@ export default function LearningPage() {
   /* ========== 编辑现有记录 ========== */
   function onStartEdit(r) {
     setSheet({ open: true, mode: 'edit', editRow: r, preset: null });
+    revealClassic();
   }
 
   async function onSaveEdit(values) {
@@ -719,7 +734,7 @@ export default function LearningPage() {
 
   /* ========== JSX ========== */
   return (
-    <div className="yb-lg yb-lg-page animate-fade-in">
+    <div className={`yb-lg yb-lg-page animate-fade-in${classic ? ' is-classic' : ''}`}>
       <div className="yb-lg-head">
         <div>
           <h1>记录</h1>
@@ -883,8 +898,26 @@ export default function LearningPage() {
           </>
         )
       ) : (
-        /* ====== 记录视图：再记一次 + 按天分组的最近记录 ====== */
-        <>
+        /* ====== 记录视图：再记一次 + 按天分组的最近记录（旧版界面时左侧为内嵌表单） ====== */
+        <div className={classic ? 'ybc-cols' : 'yb-contents'}>
+          {classic && (courses.length > 0 || loadingCourses) && (
+            <ClassicLogForm
+              ref={classicRef}
+              open={sheet.open}
+              mode={sheet.mode}
+              editRow={sheet.editRow}
+              preset={sheet.preset}
+              onCancelEdit={closeSheet}
+              courses={courses}
+              loadingCourses={loadingCourses}
+              recent={recent}
+              customForms={customForms}
+              onAddCustomForm={onAddCustomForm}
+              onSave={sheet.open && sheet.mode === 'edit' ? onSaveEdit : onSubmit}
+              busy={busy}
+            />
+          )}
+        <div className={classic ? 'ybc-list' : 'yb-contents'}>
           {!loadingCourses && courses.length === 0 && (
             <div className="yb-empty">
               <b>还没有课程</b>
@@ -986,13 +1019,14 @@ export default function LearningPage() {
               </div>
             </section>
           ))}
-        </>
+        </div>
+        </div>
       )}
       </div>
 
       {/* ====== 记一笔 / 编辑记录 ====== */}
       <LogSheet
-        open={sheet.open}
+        open={sheet.open && !classic}
         onClose={closeSheet}
         mode={sheet.mode}
         editRow={sheet.editRow}

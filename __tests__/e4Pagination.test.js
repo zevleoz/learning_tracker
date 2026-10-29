@@ -84,6 +84,52 @@ describe('paginateUnits', () => {
     expect(pages).toEqual([[{ id: 'a', kind: 'block' }], [{ id: 'b', kind: 'block' }]]);
   });
 
+  it('表格后的说明不独占一页：表格最后一行随说明换页（会前准备「排序说明」）', () => {
+    // 表格整表 100 + 3×250 = 850 放满第一页，说明 200 放不下 → 原先第二页只有说明
+    const units = [table('t', 100, [250, 250, 250]), block('note', 200)];
+    expect(paginateUnits(units, 1000)).toEqual([
+      [{ id: 't', kind: 'table', start: 0, end: 2 }],
+      [{ id: 't', kind: 'table', start: 2, end: 3 }, { id: 'note', kind: 'block' }],
+    ]);
+  });
+
+  it('末页只剩一个小块时，上一页最后一个块也带过去（首次报告「阅读原则」）', () => {
+    const units = [block('a', 300), block('b', 300), block('c', 300), block('tip', 150)];
+    expect(paginateUnits(units, 1000)).toEqual([
+      [{ id: 'a', kind: 'block' }, { id: 'b', kind: 'block' }],
+      [{ id: 'c', kind: 'block' }, { id: 'tip', kind: 'block' }],
+    ]);
+  });
+
+  it('拆表后末页只剩一行时，再带一行过去（会前准备 Engagement 表）', () => {
+    const units = [table('t', 100, [200, 200, 200, 200, 200])];
+    expect(paginateUnits(units, 1000)).toEqual([
+      [{ id: 't', kind: 'table', start: 0, end: 3 }],
+      [{ id: 't', kind: 'table', start: 3, end: 5 }],
+    ]);
+  });
+
+  it('末页内容够多时不搬', () => {
+    const units = [block('a', 500), block('b', 400), block('c', 400)];
+    expect(paginateUnits(units, 1000)).toEqual([
+      [{ id: 'a', kind: 'block' }, { id: 'b', kind: 'block' }],
+      [{ id: 'c', kind: 'block' }],
+    ]);
+  });
+
+  it('表格只剩一行、或带过去放不下时不搬', () => {
+    const one = [block('a', 700), table('t', 100, [150]), block('note', 200)];
+    expect(paginateUnits(one, 1000)).toEqual([
+      [{ id: 'a', kind: 'block' }, { id: 't', kind: 'table', start: 0, end: 1 }],
+      [{ id: 'note', kind: 'block' }],
+    ]);
+    const tooBig = [table('t', 100, [400, 400]), block('note', 600)];
+    expect(paginateUnits(tooBig, 1000)).toEqual([
+      [{ id: 't', kind: 'table', start: 0, end: 2 }],
+      [{ id: 'note', kind: 'block' }],
+    ]);
+  });
+
   it('安全余量同样作用于表格拆行预算', () => {
     // 可用 500 - 50 = 450：表头 100 + 1 行 300 = 400，第二行 300 放不下
     const units = [table('t', 100, [300, 300])];

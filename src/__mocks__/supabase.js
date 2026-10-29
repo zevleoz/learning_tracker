@@ -56,6 +56,11 @@ function createMockQueryBuilder(tableName) {
       return this;
     },
 
+    neq(field, value) {
+      this.filters.push({ type: 'neq', field, value });
+      return this;
+    },
+
     lt(field, value) {
       this.filters.push({ type: 'lt', field, value });
       return this;
@@ -211,7 +216,10 @@ function createMockQueryBuilder(tableName) {
         },
 
         select() {
-          return Promise.resolve(builder.__run());
+          // 与 supabase-js 一样：update().select() 之后还能接 .single() / .maybeSingle()
+          const run = () => Promise.resolve(builder.__run());
+          const one = () => run().then(r => ({ data: (r.data || [])[0] || null, error: r.error }));
+          return { then: (res, rej) => run().then(res, rej), single: one, maybeSingle: one };
         },
 
         then(resolve) {
@@ -276,6 +284,7 @@ function createMockQueryBuilder(tableName) {
       for (const filter of this.filters) {
         results = results.filter(row => {
           if (filter.type === 'eq') return row[filter.field] === filter.value;
+          if (filter.type === 'neq') return row[filter.field] !== filter.value;
           if (filter.type === 'lt') return row[filter.field] < filter.value;
           if (filter.type === 'gt') return row[filter.field] > filter.value;
           if (filter.type === 'in') return filter.values.includes(row[filter.field]);

@@ -367,6 +367,15 @@ export default function LogSheet({
     if (isDirty() && !window.confirm('放弃这条记录？')) return;
     onClose();
   }
+  // 焦点在弹层外时，桌面 Esc 由 Layout 广播 'yb:close-log'；统一走 requestClose，别绕过确认
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    const onCloseLog = () => requestCloseRef.current();
+    window.addEventListener('yb:close-log', onCloseLog);
+    return () => window.removeEventListener('yb:close-log', onCloseLog);
+  }, [open]);
 
   // 打开时按 新建 / 编辑 / 预填 重置表单；同时留一份快照给「关前确认」
   useEffect(() => {
@@ -396,8 +405,9 @@ export default function LogSheet({
         subjIdx: ev.subjIdx, objIdx: ev.objIdx, objDeferred: ev.objDeferred,
         isObjNA: ev.isObjNA, editHadGrade: ev.editHadGrade,
         notes: r.notes || '',
-        // 编辑时两个时间都当作亲手填过：不会因为点时长把已有时间改掉
-        typed: ['start', 'end'],
+        // 编辑时两个时间都当作亲手填过：不会因为点时长把已有时间改掉；
+        // 最近填的是开始（'end','start' 由早到晚），点时长保留开始、改结束
+        typed: ['end', 'start'],
       };
     } else {
       const p = preset || {};

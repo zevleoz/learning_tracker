@@ -449,13 +449,9 @@ export default function LearningPage() {
 
   useEffect(() => {
     const onOpen = (e) => openNew(e.detail);
-    const onClose = () => closeSheet();
+    // yb:close-log（桌面 Esc）由 LogSheet 自己处理，走 requestClose 才好做未保存确认
     window.addEventListener('yb:open-log', onOpen);
-    window.addEventListener('yb:close-log', onClose);
-    return () => {
-      window.removeEventListener('yb:open-log', onOpen);
-      window.removeEventListener('yb:close-log', onClose);
-    };
+    return () => window.removeEventListener('yb:open-log', onOpen);
   }, []);
 
   useEffect(() => {

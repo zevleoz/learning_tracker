@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Learning from '../src/pages/Learning';
+import Layout from '../src/components/Layout.jsx';
 import { supabase } from '../src/__mocks__/supabase';
 import { setAuthUser, setAuthProfile } from '../src/__mocks__/useAuth';
 import { clearAllCaches } from '../src/lib/studentCache.js';
@@ -41,6 +42,19 @@ function renderLearning(path = '/learning') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Learning />
+    </MemoryRouter>,
+  );
+}
+
+// 带 Layout 的渲染：桌面 Esc 的全局快捷键在 Layout 里广播 'yb:close-log'
+function renderLearningWithLayout() {
+  return render(
+    <MemoryRouter initialEntries={['/records']}>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/records" element={<Learning />} />
+        </Route>
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -659,5 +673,41 @@ describe('记一下 · 关前确认', () => {
     } finally {
       window.confirm = orig;
     }
+  });
+});
+
+describe('记一下 · 桌面 Esc 也走未保存确认', () => {
+  test('焦点在弹层外按 Esc：有改动时 confirm，取消则保留', async () => {
+    seed();
+    renderLearningWithLayout();
+    // Layout 和页面各有一个「记一下」，点 Layout 的那个（快捷键入口）
+    fireEvent.click(screen.getAllByRole('button', { name: '记一下' })[0]);
+    await screen.findByRole('dialog', { name: '记一下' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    const t = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(t[0], { target: { value: '08:00' } });
+
+    const orig = window.confirm;
+    window.confirm = jest.fn(() => false);
+    try {
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(window.confirm).toHaveBeenCalledWith('放弃这条记录？');
+      expect(screen.getByRole('dialog', { name: '记一下' })).toBeInTheDocument();
+    } finally {
+      window.confirm = orig;
+    }
+  });
+});
+
+describe('记一下 · 编辑时点时长保留开始', () => {
+  test('编辑 14:00–15:00 的记录，时长改成 30：开始 14:00、结束 14:30', async () => {
+    seed([session({ id: 's-edit', category: 1, form: '自主预习', grade_label: null, start_time: '14:00:00', end_time: '15:00:00', duration_minutes: 60 })]);
+    renderLearning();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑这条记录' }));
+    await screen.findByRole('dialog', { name: '编辑记录' });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '时长（分钟）' }), { target: { value: '30' } });
+    const t = document.querySelectorAll('input[type="time"]');
+    expect(t[0].value).toBe('14:00');
+    expect(t[1].value).toBe('14:30');
   });
 });

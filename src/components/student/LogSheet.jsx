@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion, useDragControls } from 'framer-motion';
 import { X } from 'lucide-react';
 import DatePicker from '../ui/date-picker.jsx';
 import GradeChips from './GradeChips.jsx';
@@ -11,6 +11,7 @@ import {
   computeDuration, startFromEnd, deriveFromEnd, evalStateFromRow, shouldWarnClearGrade,
   orderCoursesByRecent, defaultChapterUnit, resolveTimes,
 } from '../../lib/sessionRules.js';
+import { shouldCloseSheet } from '../../lib/sheetDrag.js';
 import '../../styles/student-logging.css';
 
 const DURATION_CHIPS = [25, 45, 60, 90, 120];
@@ -38,7 +39,19 @@ export function Sheet({ open, onClose, onRequestClose = onClose, title, children
   const reduce = useReducedMotion();
   const titleId = useId();
   const panelRef = useRef(null);
+  const bodyRef = useRef(null);
   const returnFocus = useRef(null);
+  const dragControls = useDragControls();
+
+  // 手机：按住把手 / 标题下拉关闭（走调用方的关闭确认，取消则弹回）。
+  // 表单内容没滚到顶时不拖面板，先让内容自己滚动。
+  function startDrag(e) {
+    if (desktop || e.button > 0) return;
+    if (e.target.closest?.('button, a, input, select, textarea')) return;
+    const b = bodyRef.current;
+    if (b && b.scrollTop > 0) return;
+    dragControls.start(e);
+  }
 
   useEffect(() => {
     if (!open) return undefined;
@@ -102,16 +115,26 @@ export function Sheet({ open, onClose, onRequestClose = onClose, title, children
             onKeyDown={onKeyDown}
             initial={offscreen} animate={onscreen} exit={offscreen}
             transition={transition}
+            drag={desktop ? false : 'y'}
+            dragListener={false}
+            dragControls={dragControls}
+            dragConstraints={{ top: 0 }}
+            dragElastic={0.2}
+            dragMomentum={false}
+            dragSnapToOrigin
+            onDragEnd={(_, info) => {
+              if (shouldCloseSheet({ offsetY: info.offset.y, velocityY: info.velocity.y })) onRequestClose();
+            }}
           >
-            <div className="yb-sheet__grab" aria-hidden="true" />
-            <div className="yb-sheet__h">
+            <div className="yb-sheet__grab" aria-hidden="true" onPointerDown={startDrag} />
+            <div className="yb-sheet__h" onPointerDown={startDrag}>
               <h2 id={titleId}>{title}</h2>
               {headerExtra}
               <button type="button" className="yb-sheet__close" onClick={onRequestClose} aria-label="关闭">
                 <X size={18} strokeWidth={2} aria-hidden="true" />
               </button>
             </div>
-            <div className="yb-sheet__b">{children}</div>
+            <div className="yb-sheet__b" ref={bodyRef}>{children}</div>
             {footer && <div className="yb-sheet__f">{footer}</div>}
           </motion.div>
         </div>

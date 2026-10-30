@@ -7,12 +7,10 @@ import { useMediaQuery } from '../../lib/useMediaQuery.js';
 import { shouldCloseSheet } from '../../lib/sheetDrag.js';
 import '../../styles/student-logging.css';
 
-/* ============ Sheet：手机底部弹层 / 桌面右侧面板 / 居中对话框 ============ */
+/* ============ Sheet：手机底部弹层 / 桌面右侧面板 ============ */
 export function Sheet({
   open, onClose, onRequestClose = onClose, title, children, footer, headerExtra,
-  variant = 'sheet',
 }) {
-  const dialog = variant === 'dialog';
   const desktop = useMediaQuery('(min-width: 900px)');
   const reduce = useReducedMotion();
   const titleId = useId();
@@ -35,7 +33,7 @@ export function Sheet({
     if (!open) return undefined;
     returnFocus.current = document.activeElement;
     const prevOverflow = document.body.style.overflow;
-    if (dialog || !desktop) document.body.style.overflow = 'hidden';
+    if (!desktop) document.body.style.overflow = 'hidden';
     const t = setTimeout(() => panelRef.current?.focus(), 0);
     return () => {
       clearTimeout(t);
@@ -43,7 +41,7 @@ export function Sheet({
       const el = returnFocus.current;
       if (el && typeof el.focus === 'function' && document.contains(el)) el.focus();
     };
-  }, [open, desktop, dialog]);
+  }, [open, desktop]);
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
@@ -67,19 +65,15 @@ export function Sheet({
     }
   }
 
-  const offscreen = dialog
-    ? { opacity: 0, y: 10, scale: 0.985 }
-    : desktop ? { x: 'calc(100% + 24px)' } : { y: '100%' };
-  const onscreen = dialog ? { opacity: 1, y: 0, scale: 1 } : desktop ? { x: 0 } : { y: 0 };
-  const transition = reduce
-    ? { duration: 0 }
-    : dialog ? { duration: 0.18 } : { type: 'tween', ease: [0.32, 0.72, 0, 1], duration: 0.38 };
+  const offscreen = desktop ? { x: 'calc(100% + 24px)' } : { y: '100%' };
+  const onscreen = desktop ? { x: 0 } : { y: 0 };
+  const transition = reduce ? { duration: 0 } : { type: 'tween', ease: [0.32, 0.72, 0, 1], duration: 0.38 };
   const target = (typeof document !== 'undefined' && document.querySelector('.yb-student')) || document.body;
 
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className={dialog ? 'yb-lg yb-dialog-wrap' : 'yb-lg'} key="yb-sheet">
+        <div className="yb-lg" key="yb-sheet">
           <motion.div
             className="yb-sheet-scrim"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -89,7 +83,7 @@ export function Sheet({
           />
           <motion.div
             ref={panelRef}
-            className={`yb-sheet${dialog ? ' yb-dialog' : ''}`}
+            className="yb-sheet"
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
@@ -126,10 +120,10 @@ export function Sheet({
   );
 }
 
-/* ============ 记一笔：Sheet / Dialog + 表单 ============ */
+/* ============ 记一笔：Sheet + 表单 ============ */
 // 表单本身在 LogForm；这里只负责弹层与关闭确认的桥接。
 export default function LogSheet({
-  open, onClose, mode = 'new', editRow = null, preset = null, variant = 'sheet',
+  open, onClose, mode = 'new', editRow = null, preset = null,
   courses = [], loadingCourses = false, recent = [], customForms = [],
   onAddCustomForm, onSave, busy = false,
 }) {
@@ -142,12 +136,11 @@ export default function LogSheet({
       onClose={onClose}
       onRequestClose={() => formRef.current?.requestClose()}
       title={editing ? '编辑记录' : '记一下'}
-      variant={variant}
     >
       <LogForm
         ref={formRef}
         open={open}
-        layout={variant === 'dialog' ? 'two-col' : 'sheet'}
+        layout="sheet"
         mode={mode}
         editRow={editRow}
         preset={preset}

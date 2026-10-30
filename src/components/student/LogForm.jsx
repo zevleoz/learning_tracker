@@ -138,6 +138,8 @@ function SubjectiveScale({ idx, onChange, disabled, labelId }) {
             aria-label={s.label}
             tabIndex={i === idx ? 0 : -1}
             className={i === idx ? 'on' : undefined}
+            // 标签对准滑轨上的停点：两端贴边，中间居中，不换行
+            style={i === 0 ? { left: 0 } : i === SUBJ_N - 1 ? { right: 0 } : { left: pos(i), transform: 'translateX(-50%)' }}
             disabled={disabled}
             onClick={() => onChange(i)}
           >
@@ -243,7 +245,7 @@ function TimeTextInput({ value, onCommit, disabled, className, label }) {
 
 /* ============ 记一笔表单 ============ */
 // 只负责录入状态与界面；校验、冲突检查和写库由调用方的 onSave 完成（规则见 sessionRules.js）。
-// layout='sheet' 为手机底部弹层（单列），layout='two-col' 为桌面内嵌 / 居中对话框（两列）。
+// layout='sheet' 为手机底部弹层（单列），layout='two-col' 为桌面记录页内嵌表单（按行对齐）。
 const LogForm = forwardRef(function LogForm({
   layout = 'sheet', open = true, mode = 'new', editRow = null, preset = null,
   courses = [], loadingCourses = false, recent = [], customForms = [],
@@ -259,7 +261,6 @@ const LogForm = forwardRef(function LogForm({
   const [courseId, setCourseId] = useState('');
   const [chapterId, setChapterId] = useState('');
   const [unitId, setUnitId] = useState('');
-  const [showAllCourses, setShowAllCourses] = useState(false);
   const [dateStr, setDateStr] = useState(toDateStr(new Date()));
   const [startStr, setStartStr] = useState('');
   const [endStr, setEndStr] = useState('');
@@ -383,7 +384,6 @@ const LogForm = forwardRef(function LogForm({
     setErrors({});
     setAddingCustom(false);
     setCustomInput('');
-    setShowAllCourses(false);
     let next;
     if (editing) {
       const r = editRow;
@@ -533,10 +533,8 @@ const LogForm = forwardRef(function LogForm({
     if (m === 'na') { setObjDeferred(false); setIsObjNA(true); }
   }
 
-  const visibleCourses = showAllCourses ? orderedCourses : orderedCourses.slice(0, COURSE_CHIP_LIMIT);
-  if (!showAllCourses && activeCourse && !visibleCourses.includes(activeCourse)) {
-    visibleCourses.push(activeCourse);
-  }
+  // 课程不多时用按钮，一点即选；超过 COURSE_CHIP_LIMIT 门改用下拉（最近用过的排前），免得按钮挤成好几行
+  const courseAsSelect = orderedCourses.length > COURSE_CHIP_LIMIT;
 
   function onFormKeyDown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -569,31 +567,47 @@ const LogForm = forwardRef(function LogForm({
   };
 
   /* --- 字段 --- */
-  const courseField = (
+  const chapterUnit = (
+    <ChapterUnitSelects
+      course={activeCourse}
+      chapterId={chapterId}
+      unitId={unitId}
+      disabled={busy}
+      onChange={(c, u) => { setChapterId(c); setUnitId(u); }}
+    />
+  );
+  const courseField = courseAsSelect ? (
+    <div className="yb-field">
+      <div className="yb-course-row">
+        <label className="yb-cu__f">
+          <span>课程</span>
+          <select
+            className={`yb-input${errors.course ? ' err' : ''}`}
+            value={courseId}
+            disabled={busy}
+            onChange={(e) => pickCourse(e.target.value)}
+          >
+            {!courseId && <option value="">选择课程</option>}
+            {orderedCourses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        {chapterUnit}
+      </div>
+      {errors.course && <span className="yb-err">{errors.course}</span>}
+    </div>
+  ) : (
     <div className="yb-field">
       <div className="yb-label" id={`${subjLabelId}-course`}>课程</div>
       <div className="yb-chips" role="group" aria-labelledby={`${subjLabelId}-course`}>
-        {visibleCourses.map(c => (
+        {orderedCourses.map(c => (
           <button key={c.id} type="button" className="yb-chip" aria-pressed={c.id === courseId}
             onClick={() => pickCourse(c.id)} disabled={busy}>
             {c.name}
           </button>
         ))}
-        {orderedCourses.length > COURSE_CHIP_LIMIT && (
-          <button type="button" className="yb-chip ghost" aria-expanded={showAllCourses}
-            onClick={() => setShowAllCourses(s => !s)}>
-            {showAllCourses ? '收起' : '更多'}
-          </button>
-        )}
       </div>
       {errors.course && <span className="yb-err">{errors.course}</span>}
-      <ChapterUnitSelects
-        course={activeCourse}
-        chapterId={chapterId}
-        unitId={unitId}
-        disabled={busy}
-        onChange={(c, u) => { setChapterId(c); setUnitId(u); }}
-      />
+      {chapterUnit}
     </div>
   );
 
@@ -782,18 +796,17 @@ const LogForm = forwardRef(function LogForm({
       <div><a href="/syllabus" className="yb-btn sm">去创建课程</a></div>
     </div>
   ) : layout === 'two-col' ? (
-    <div className="yb-form__cols">
-      <div className="yb-form__col">
-        {courseField}
-        {timeField}
+    // 桌面：一行一组、左右对齐（课程 → 时间 → 类别·形式 | 主观评价 → 客观评价 → 备注）
+    <>
+      {courseField}
+      {timeField}
+      <div className="yb-form__pair">
         {categoryField}
-      </div>
-      <div className="yb-form__col">
         {subjectiveField}
-        {objectiveField}
-        {notesField}
       </div>
-    </div>
+      {objectiveField}
+      {notesField}
+    </>
   ) : (
     <>
       {courseField}

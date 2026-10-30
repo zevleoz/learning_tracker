@@ -206,15 +206,14 @@ describe('≥1180px：记录页内嵌二列表单', () => {
   });
 });
 
-describe('900–1179px：＋ 记一下用居中对话框', () => {
-  test('打开后是 role="dialog"（非底部 sheet），保存仍走同一个表单', async () => {
+describe('桌面不再弹对话框：＋ 记一下只跳到记录页并聚焦内嵌表单', () => {
+  test('900–1179px：表单内嵌在列表上方，点 ＋ 不弹对话框，保存走同一个表单', async () => {
     setViewport(1000);
     seed();
     renderLearning();
-    expect(screen.queryByRole('region', { name: '记一下表单' })).toBeNull();
-    fireEvent.click(await screen.findByRole('button', { name: '记一下' }));
-    const dialog = await screen.findByRole('dialog', { name: '记一下' });
-    expect(dialog.className).toContain('yb-dialog');
+    expect(await screen.findByRole('region', { name: '记一下表单' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '记一下' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
     const [start, end] = document.querySelectorAll('input[type="time"]');
     fireEvent.change(start, { target: { value: '09:00' } });
@@ -225,15 +224,57 @@ describe('900–1179px：＋ 记一下用居中对话框', () => {
     expect(lastCall('insert').args).toMatchObject({ start_time: '09:00:00', end_time: '09:45:00', duration_minutes: 45 });
   });
 
-  test('?log=1（从别的页面点 ＋）在宽屏也用对话框', async () => {
+  test('?log=1（从别的页面点 ＋）：不弹对话框，内嵌表单可见', async () => {
     setViewport(1280);
     seed();
     renderLearning('/records?log=1');
-    const dialog = await screen.findByRole('dialog', { name: '记一下' });
-    expect(dialog.className).toContain('yb-dialog');
-    // 宽屏的内嵌表单仍挂载（保留草稿），但此时隐藏且不可聚焦
-    expect(document.querySelector('.yb-inline')).toHaveClass('is-hidden');
-    expect(document.querySelector('.yb-inline')).toHaveAttribute('aria-hidden', 'true');
+    expect(await screen.findByRole('region', { name: '记一下表单' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.querySelector('.yb-inline')).not.toHaveClass('is-hidden');
+  });
+
+  test('填了一半再点 ＋：只聚焦，不清掉草稿', async () => {
+    setViewport(1280);
+    seed();
+    renderLearning();
+    await waitFor(() => expect(screen.getByRole('button', { name: '数学', pressed: true })).toBeInTheDocument());
+    const [start] = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(start, { target: { value: '08:10' } });
+    fireEvent.click(screen.getByRole('button', { name: '记一下' }));
+    expect(document.querySelectorAll('input[type="time"]')[0]).toHaveValue('08:10');
+  });
+});
+
+describe('课程多于 4 门时用下拉', () => {
+  test('5 门课：课程改为下拉，选课后章节跟着换，保存写入所选课程', async () => {
+    setViewport(1280);
+    const extra = [2, 3, 4, 5].map(n => ({
+      ...COURSE_ROW, id: `course-${n}`, name: `课程${n}`,
+      chapters: [{ id: `ch-${n}`, name: `第${n}章`, deleted_at: null, units: [] }],
+    }));
+    supabase.__setTableData('courses', [COURSE_ROW, ...extra]);
+    supabase.__setTableData('learning_sessions', []);
+    supabase.__setTableData('user_learning_forms', []);
+    renderLearning();
+    const select = await screen.findByRole('combobox', { name: '课程' });
+    expect(screen.queryByRole('button', { name: '数学' })).toBeNull();
+    fireEvent.change(select, { target: { value: 'course-3' } });
+    expect(screen.getByRole('combobox', { name: '章节' })).toHaveValue('ch-3');
+    const [start, end] = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(start, { target: { value: '10:00' } });
+    fireEvent.change(end, { target: { value: '10:30' } });
+    fireEvent.click(screen.getByRole('button', { name: '自主预习' }));
+    fireEvent.click(screen.getByRole('button', SAVE));
+    await waitFor(() => expect(lastCall('insert')).toBeDefined());
+    expect(lastCall('insert').args).toMatchObject({ course_id: 'course-3', chapter_id: 'ch-3' });
+  });
+
+  test('4 门以内仍是按钮', async () => {
+    setViewport(1280);
+    seed();
+    renderLearning();
+    expect(await screen.findByRole('button', { name: '数学', pressed: true })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '课程' })).toBeNull();
   });
 });
 
@@ -242,8 +283,7 @@ describe('桌面时间快捷输入（(pointer: fine)）', () => {
     setViewport(1280, true);
     seed();
     renderLearning();
-    await screen.findByRole('region', { name: '记一下表单' });
-    const start = screen.getByLabelText('开始');
+    const start = await screen.findByLabelText('开始');
     const end = screen.getByLabelText('结束');
     expect(start.tagName).toBe('INPUT');
     expect(start.type).toBe('text');

@@ -221,56 +221,58 @@
 .yb-subj__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--lg-crest); opacity: .16; }
 .yb-subj__thumb { position: absolute; top: 50%; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--lg-crest); transform: translateY(-50%); box-shadow: 0 1px 3px rgba(20,22,27,.25); }
 .yb-subj.off { opacity: .55; }
-.yb-scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.yb-scale button { border: 0; background: none; padding: 0 0 2px; font-size: 11.5px; line-height: 1.35; color: var(--lg-ink-3); cursor: pointer; text-align: center; }
+/* 标签按停点绝对定位（见 SubjectiveScale），一行排开、不换行 */
+.yb-scale { position: relative; height: 22px; }
+.yb-scale button { position: absolute; top: 0; border: 0; background: none; padding: 2px 0; font-size: 11.5px; line-height: 18px; white-space: nowrap; color: var(--lg-ink-3); cursor: pointer; }
 .yb-scale button.on { color: var(--lg-crest-text); font-weight: 700; }
 .yb-scale button:disabled { cursor: default; opacity: .6; }
 
-/* ---------- 宽屏：记录页内嵌表单（≥1180px） ---------- */
+/* ---------- 桌面：记录页内嵌表单（≥900px；≥1180px 与列表并排） ---------- */
 .yb-lg-page.is-wide { max-width: 1180px; }
 .yb-cols-new { display: flex; flex-direction: column; gap: 14px; }
 .yb-inline { min-width: 0; }
 .yb-inline.is-hidden { display: none; }
 @media (min-width: 1180px) {
-  .yb-cols-new.is-split { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .yb-cols-new.is-split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 }
 
 /* ---------- 记一笔表单（LogForm） ---------- */
 .yb-form { display: flex; flex-direction: column; gap: 16px; outline: none; }
 .yb-form--two-col { background: var(--lg-surface); border-radius: var(--lg-radius); padding: 18px; }
 .yb-form--two-col.is-editing { box-shadow: inset 0 0 0 2px var(--lg-crest); }
-.yb-form__cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 22px; align-items: start; }
-.yb-form__col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.yb-form--two-col { gap: 18px; padding: 20px 22px; }
+.yb-form__pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 24px; align-items: start; }
+.yb-form__pair > * { min-width: 0; }
+/* 练习表单比一屏高时，保存按钮贴在屏幕底部，不用滚到最下面 */
+.yb-form--two-col .yb-form__save { position: sticky; bottom: 14px; z-index: 2; }
+.yb-form--two-col .yb-form__save .yb-btn { box-shadow: 0 6px 18px rgba(20, 22, 27, .14); }
+
+/* 课程用下拉时：课程 · 章节 · 单元 同一行；手机上课程独占一行 */
+.yb-course-row { display: flex; flex-direction: column; gap: 8px; }
+.yb-lg .yb-course-row select.yb-input { height: 38px; font-size: 13.5px; padding: 0 24px 0 8px; text-overflow: ellipsis; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235F6570' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 12px; }
+
+/* 桌面表单：小节标题统一深色，各行左右对齐 */
+.yb-form--two-col .yb-label { font-size: 13px; font-weight: 600; color: var(--lg-ink-2); }
+.yb-form--two-col .yb-label > span + span { font-size: 12px; font-weight: 400; color: var(--lg-ink-3); }
+.yb-form--two-col .yb-cu { gap: 8px; }
+.yb-form--two-col .yb-course-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; align-items: end; }
+.yb-form--two-col .yb-times { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 2.5fr); gap: 8px; align-items: end; }
+.yb-form--two-col .yb-timerow { grid-template-columns: minmax(0, 1fr) 80px minmax(0, 1fr); gap: 8px; }
+.yb-form--two-col .yb-times__date, .yb-form--two-col .yb-cu__f { line-height: 17px; }
 .yb-form__h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .yb-form__h h2 { margin: 0; font-size: 19px; font-weight: 700; }
 .yb-form__cancel { border: 0; background: none; padding: 2px 4px; color: var(--lg-crest-text); font-size: 13px; font-weight: 600; cursor: pointer; }
 .yb-form__save { display: flex; gap: 8px; }
 .yb-form__save .yb-btn { width: 100%; }
 
-/* 弹层 / 对话框里的保存条常驻底部，内容再长也看得见（手机 sheet 与内嵌二列一致） */
+/* 弹层里的保存条常驻底部，内容再长也看得见 */
 .yb-sheet__b .yb-form__save { position: sticky; bottom: -14px; z-index: 2; margin: 0 -16px -14px; padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--lg-glass); border-top: 1px solid var(--lg-line); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .yb-sheet__b .yb-form__save { background: var(--lg-surface); }
 }
-.yb-dialog .yb-form--two-col { background: transparent; padding: 0; box-shadow: none; }
-.yb-dialog .yb-form__h { display: none; }
-.yb-dialog .yb-form--two-col .yb-form__save { position: sticky; bottom: -14px; z-index: 2; margin: 0 -20px -14px; padding: 10px 20px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--lg-surface); border-top: 1px solid var(--lg-line); }
 
 /* 编辑中的记录行：crest 描边 */
 .yb-rec--editing { box-shadow: inset 0 0 0 2px var(--lg-crest); }
-
-/* ---------- 居中对话框（900px 以上，记一下 / 编辑记录） ---------- */
-.yb-dialog-wrap { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.yb-dialog-wrap .yb-sheet-scrim { z-index: 0; }
-.yb-dialog-wrap .yb-sheet.yb-dialog {
-  position: relative; left: auto; top: auto; right: auto; bottom: auto;
-  z-index: 1; width: 100%; max-width: 880px; max-height: calc(100dvh - 48px);
-  border-radius: 26px; box-shadow: 0 24px 60px rgba(14, 15, 18, .18);
-  background: var(--lg-surface);
-}
-.yb-dialog .yb-sheet__grab { display: none; }
-.yb-dialog .yb-sheet__h { padding: 16px 16px 8px 20px; }
-.yb-dialog .yb-sheet__b { padding: 4px 20px 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   .yb-lg *, .yb-sheet, .yb-sheet * { transition: none !important; }

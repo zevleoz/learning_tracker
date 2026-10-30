@@ -224,21 +224,20 @@ export default function LearningPage() {
   const customForms = formsRes.data ?? NONE; // string[]
 
   /* --- 记一笔 sheet --- */
-  // forceDialog：从别的页面（?log=1）打开时，即使宽屏也用居中对话框，不占用记录列表旁的内嵌位
-  const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null, forceDialog: false });
+  const [sheet, setSheet] = useState({ open: false, mode: 'new', preset: null, editRow: null });
+  const sheetRef = useRef(sheet);
+  sheetRef.current = sheet;
   // 旧版记录界面（我的 › 使用旧版记录界面）：表单内嵌在「记录」视图，sheet 状态照用，只是不弹出
   const classic = useRecordUi() === 'classic';
   const classicRef = useRef(null);
 
-  /* --- 宽屏：记录页内嵌表单 / 居中对话框 / 手机底部弹层 --- */
-  const isWide = useMediaQuery('(min-width: 1180px)');   // ≥1180：记录页内嵌表单
-  const isDialogWidth = useMediaQuery('(min-width: 900px)'); // 900–1179：居中对话框
+  /* --- 桌面（≥900）：表单内嵌在记录页（≥1180 与列表并排，以下在列表上方）；手机：底部弹层 --- */
+  const isDesktop = useMediaQuery('(min-width: 900px)');
   const asyncRef = useRef(null); // 内嵌表单（切换 tab 也不卸载，草稿留在组件 state 里）
-  const inlineMode = !classic && isWide;
+  const inlineMode = !classic && isDesktop;
   const inlineModeRef = useRef(inlineMode);
   inlineModeRef.current = inlineMode;
-  const inlineActive = inlineMode && !sheet.forceDialog;
-  const modalOpen = sheet.open && !classic && !inlineActive;
+  const modalOpen = sheet.open && !classic && !inlineMode;
 
   function revealInline() {
     if (!inlineModeRef.current) return;
@@ -450,12 +449,16 @@ export default function LearningPage() {
   }
 
   /* ========== 打开记一笔：＋ 按钮事件 / ?log=1 / 再记一次 ========== */
-  // forceDialog 用于「从别的页面点 ＋」的入口（?log=1）：宽屏也保留居中对话框的形态。
-  function openNew(detail, opts) {
+  // 桌面上从别的页面点 ＋ 只跳到记录页并聚焦内嵌表单，不再弹对话框。
+  function openNew(detail) {
     const d = detail && typeof detail === 'object' ? detail : {};
-    const forceDialog = !!opts?.dialog;
+    // 桌面内嵌表单在新建状态下点 ＋（无预填）：只聚焦，别清掉学生已经填了一半的草稿
+    if (inlineModeRef.current && !Object.values(d).some(Boolean) && !(sheetRef.current.open && sheetRef.current.mode === 'edit')) {
+      revealInline();
+      return;
+    }
     setSheet({
-      open: true, mode: 'new', editRow: null, forceDialog,
+      open: true, mode: 'new', editRow: null,
       preset: {
         courseId: d.courseId || '',
         chapterId: d.chapterId || '',
@@ -465,12 +468,12 @@ export default function LearningPage() {
         durationMinutes: Number(d.durationMinutes) || 0,
       },
     });
-    if (!forceDialog) revealInline();
+    revealInline();
     revealClassic();
   }
   function closeSheet() {
     // 关闭时一并退出编辑；内嵌表单按 editRow / preset 的变化回到新建状态
-    setSheet(s => ({ ...s, open: false, mode: 'new', editRow: null, forceDialog: false }));
+    setSheet(s => ({ ...s, open: false, mode: 'new', editRow: null }));
   }
 
   useEffect(() => {
@@ -489,7 +492,7 @@ export default function LearningPage() {
       category: [1, 2, 3].includes(category) ? category : undefined,
       form: searchParams.get('form') || '',
       durationMinutes: Number(searchParams.get('minutes')) || 0,
-    }, { dialog: true });
+    });
     const next = new URLSearchParams(searchParams);
     ['log', 'course', 'category', 'form', 'minutes'].forEach((k) => next.delete(k));
     setSearchParams(next, { replace: true });
@@ -616,7 +619,7 @@ export default function LearningPage() {
 
   /* ========== 编辑现有记录 ========== */
   function onStartEdit(r) {
-    setSheet({ open: true, mode: 'edit', editRow: r, preset: null, forceDialog: false });
+    setSheet({ open: true, mode: 'edit', editRow: r, preset: null });
     revealInline();
     revealClassic();
   }
@@ -816,8 +819,8 @@ export default function LearningPage() {
       <div className={`yb-cols-new${inlineMode && view === 'record' ? ' is-split' : ''}`}>
       {inlineMode && (
         <aside
-          className={`yb-inline${view !== 'record' || (sheet.forceDialog && sheet.open) ? ' is-hidden' : ''}`}
-          aria-hidden={view !== 'record' || (sheet.forceDialog && sheet.open) || undefined}
+          className={`yb-inline${view !== 'record' ? ' is-hidden' : ''}`}
+          aria-hidden={view !== 'record' || undefined}
         >
           <LogForm
             ref={asyncRef}
@@ -1088,7 +1091,6 @@ export default function LearningPage() {
       {/* ====== 记一笔 / 编辑记录 ====== */}
       <LogSheet
         open={modalOpen}
-        variant={isDialogWidth ? 'dialog' : 'sheet'}
         onClose={closeSheet}
         mode={sheet.mode}
         editRow={sheet.editRow}

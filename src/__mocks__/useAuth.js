@@ -16,6 +16,7 @@ function useAuth() {
     user: mockUser,
     profile: mockProfile,
     loading: mockUser === null,
+    profileError: false,
     login: async (email, password) => {
       const result = await supabase.auth.signInWithPassword({ email, password });
       if (result.data?.user) {
@@ -32,3 +33,5 @@ function useAuth() {
 }
 
 export { useAuth, setAuthUser, setAuthProfile };
+export const readRoleHint = () => null;
+export const retryProfile = () => {};

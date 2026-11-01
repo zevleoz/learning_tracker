@@ -181,27 +181,12 @@ export default function Login() {
     }
     setBusy(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pw });
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pw });
       if (error) throw error;
 
-      // 从 profiles 表读取权威 role（signUp 时不再把 role 写入 user_metadata，
-      // 因此不能用 user_metadata.role 决定跳转，否则导师会被错误跳到 /syllabus）
-      let role = 1;
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', data.user.id)
-          .maybeSingle();
-        if (profile?.role != null) role = Number(profile.role);
-      } catch (profileErr) {
-        // profile 读取失败时降级为默认学生角色，避免阻塞登录
-        logger.warn('Login profile load failed, fallback to role=1:', profileErr);
-      }
-
       toast('登录成功', { kind: 'success' });
-      // 导师/管理员落到根路由，由 default_workspace 偏好决定进入 E4（默认）或一表人才
-      nav(role >= 2 ? '/' : '/today', { replace: true });
+      // 角色由 RootRedirect 统一判定（这里不再自己查 profiles，避免读失败就把导师当学生送去 /today）
+      nav('/', { replace: true });
     } catch (err) {
       // 统一错误消息，避免账户枚举（不区分"用户不存在"和"密码错误"）
       const msg = err?.message || '登录失败，请检查邮箱和密码';

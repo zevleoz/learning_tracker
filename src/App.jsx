@@ -8,6 +8,7 @@ import Signup from './pages/Signup.jsx';
 import { renderStudentRoutes } from './pages/student/routes.jsx';
 import { renderMentorRoutes, renderE4Routes } from './pages/lazyRoutes.jsx';
 import RouteFallback from './components/RouteFallback.jsx';
+import RoleLoadError from './components/RoleLoadError.jsx';
 import { useAuth, readRoleHint } from './lib/useAuth.js';
 import { lazyWithRetry } from './lib/lazyWithRetry.js';
 import { SurfaceTracker } from './lib/useAppUpdate.js';
@@ -30,14 +31,16 @@ const E4PrintPreview = import.meta.env.DEV
 //   学生一律落到「今天」
 function RootRedirect() {
   const { user, profile, loading } = useAuth();
-  // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /syllabus。
+  const hint = user ? readRoleHint(user.id) : null;
+  // profile 未加载完成前不要分流，否则导师会被误判为学生落到 /today。
   // 例外：上次确认过这个账号是学生（本机提示，不参与权限判断），直接进「今天」，不等 profile 往返。
-  if (loading) {
-    if (user && readRoleHint(user.id) === 1) return <Navigate to="/today" replace />;
-    return null;
+  if (loading && !profile) {
+    return hint === 1 ? <Navigate to="/today" replace /> : <RouteFallback />;
   }
-  const role = Number(profile?.role) || 1;
-  if (role >= 2) {
+  if (!profile) {
+    return hint === 1 ? <Navigate to="/today" replace /> : <RoleLoadError />;
+  }
+  if (Number(profile.role) >= 2) {
     // 只落两个平台之一。先看这个标签页最后一次在哪边操作，避免缓存的 default_workspace 把人送去另一边
     return <Navigate to={WORKSPACES[rootWorkspace(profile)]} replace />;
   }
@@ -59,11 +62,9 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/" element={<RootRedirect />} />
-            {/* 学生端路由见 src/pages/student/routes.jsx */}
-            {renderStudentRoutes()}
-            {import.meta.env.DEV && DebugTools && (
+          <Route path="/" element={<RootRedirect />} />
+          {import.meta.env.DEV && DebugTools && (
+            <Route element={<Layout />}>
               <Route
                 path="/debug-tools"
                 element={
@@ -72,7 +73,13 @@ export default function App() {
                   </Suspense>
                 }
               />
-            )}
+            </Route>
+          )}
+        </Route>
+        {/* 学生端路由见 src/pages/student/routes.jsx；导师/管理员不进学生外壳 */}
+        <Route element={<ProtectedRoute studentOnly />}>
+          <Route element={<Layout />}>
+            {renderStudentRoutes()}
           </Route>
         </Route>
         {/* 导师专属路由与 E4 工作区：懒加载，学生端不下载（见 pages/lazyRoutes.jsx） */}

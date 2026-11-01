@@ -1,6 +1,6 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { supabase } from '../src/__mocks__/supabase';
-import { useAuth, readRoleHint } from '../src/lib/useAuth.js';
+import { useAuth, readRoleHint, retryProfile } from '../src/lib/useAuth.js';
 import { put, peek } from '../src/lib/studentCache.js';
 
 // 真实的 useAuth（不是 __mocks__ 版本）：登录态是整个应用共用的一份——
@@ -85,4 +85,122 @@ test('主动 signOut()：不等认证事件，立刻清掉这个人的缓存', a
   put('u1', 'student', { sessions: [{ id: 'mine' }] });
   await act(async () => { await h.result.current.signOut(); });
   expect(peek('u1', 'student')).toBeUndefined();
+});
+
+describe('角色未知 ≠ 学生：读不到 role 时绝不降级', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  const M1 = { id: 'm1', email: 'm1@x.com', user_metadata: { role: 1 } };
+  const M3 = { id: 'm3', email: 'm3@x.com', user_metadata: {} };
+  const M4 = { id: 'm4', email: 'm4@x.com', user_metadata: { role: 1 } };
+  const M5 = { id: 'm5', email: 'm5@x.com', user_metadata: {} };
+  const N1 = { id: 'n1', email: 'n1@x.com', user_metadata: { role: 1 } };
+  const mentorRow = (id, name) => ({ id, role: 2, full_name: name, default_workspace: 'e4', created_at: '2026-09-01' });
+
+  const errorQuery = () => ({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'timeout' } }) }) }),
+  });
+  const emptyQuery = () => ({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+  });
+
+  test('后台刷新失败：已确认的导师角色保持不变，loading 不会再回到 true', async () => {
+    supabase.__setTableData('profiles', [mentorRow('m1', '导师一')]);
+    supabase.__setAuthState({ user: M1, session: { user: M1 } });
+    const seen = [];
+    const h = renderHook(() => { const a = useAuth(); seen.push(a.loading); return a; });
+    await act(async () => { authCb('SIGNED_IN', { user: M1 }); });
+    await waitFor(() => expect(h.result.current.profile?.role).toBe(2));
+    seen.length = 0;   // 只看「已确认角色之后」的渲染
+
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 120000);
+    const fromSpy = jest.spyOn(supabase, 'from').mockImplementation(errorQuery);
+    await act(async () => { authCb('TOKEN_REFRESHED', { user: M1 }); });
+    nowSpy.mockRestore();
+    fromSpy.mockRestore();
+
+    expect(h.result.current.profile.role).toBe(2);
+    expect(h.result.current.loading).toBe(false);
+    expect(seen.every((loading) => loading === false)).toBe(true);
+  });
+
+  test('后台刷新查不到行：已确认角色同样保持不变', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 300000);
+    const fromSpy = jest.spyOn(supabase, 'from').mockImplementation(emptyQuery);
+    await act(async () => { authCb('SIGNED_IN', { user: M1 }); });
+    nowSpy.mockRestore();
+    fromSpy.mockRestore();
+
+    const h = renderHook(() => useAuth());
+    expect(h.result.current.profile.role).toBe(2);
+    expect(h.result.current.profileError).toBe(false);
+  });
+
+  test('退出后重新登录：立即进入 loading（profile 为空），随后拿到权威角色', async () => {
+    await act(async () => { authCb('SIGNED_OUT', null); });
+    supabase.__setTableData('profiles', [mentorRow('m3', '导师三')]);
+    supabase.__setAuthState({ user: M3, session: { user: M3 } });
+    const h = renderHook(() => useAuth());
+
+    let resolveProfile;
+    const fromSpy = jest.spyOn(supabase, 'from').mockImplementationOnce(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => new Promise((res) => { resolveProfile = res; }) }) }),
+    }));
+    act(() => { authCb('SIGNED_IN', { user: M3 }); });
+    expect(h.result.current.loading).toBe(true);
+    expect(h.result.current.profile).toBeNull();
+
+    await act(async () => { resolveProfile({ data: mentorRow('m3', '导师三'), error: null }); });
+    fromSpy.mockRestore();
+    expect(h.result.current.profile.role).toBe(2);
+    expect(h.result.current.loading).toBe(false);
+  });
+
+  test('user_metadata 写着 1、数据库是 2：任何时刻都不会出现学生角色', async () => {
+    await act(async () => { authCb('SIGNED_OUT', null); });
+    supabase.__setTableData('profiles', [mentorRow('m4', '导师四')]);
+    supabase.__setAuthState({ user: M4, session: { user: M4 } });
+    const seen = [];
+    const h = renderHook(() => { const a = useAuth(); seen.push(a.profile ? a.profile.role : null); return a; });
+    await act(async () => { authCb('SIGNED_IN', { user: M4 }); });
+    await waitFor(() => expect(h.result.current.profile?.role).toBe(2));
+    expect(seen).not.toContain(1);
+  });
+
+  test('新登录的每一次尝试都失败：profile 为空、profileError 为真，重试后恢复', async () => {
+    await act(async () => { authCb('SIGNED_OUT', null); });
+    supabase.__setTableData('profiles', [mentorRow('m5', '导师五')]);
+    supabase.__setAuthState({ user: M5, session: { user: M5 } });
+    jest.useFakeTimers();
+    const fromSpy = jest.spyOn(supabase, 'from').mockImplementation(errorQuery);
+    const h = renderHook(() => useAuth());
+
+    await act(async () => {
+      authCb('SIGNED_IN', { user: M5 });
+      await jest.advanceTimersByTimeAsync(4200);
+    });
+    expect(h.result.current.profile).toBeNull();
+    expect(h.result.current.profileError).toBe(true);
+    expect(h.result.current.loading).toBe(false);
+
+    fromSpy.mockRestore();
+    await act(async () => {
+      retryProfile();
+      await jest.advanceTimersByTimeAsync(4200);
+    });
+    expect(h.result.current.profile.role).toBe(2);
+    expect(h.result.current.profileError).toBe(false);
+    expect(h.result.current.loading).toBe(false);
+  });
+
+  test('库里还没有这一行、本机也没有提示：仍按学生处理（新注册照常可用）', async () => {
+    await act(async () => { authCb('SIGNED_OUT', null); });
+    supabase.__setTableData('profiles', []);
+    supabase.__setAuthState({ user: N1, session: { user: N1 } });
+    const h = renderHook(() => useAuth());
+    await act(async () => { authCb('SIGNED_IN', { user: N1 }); });
+    await waitFor(() => expect(h.result.current.profile?.role).toBe(1), { timeout: 8000 });
+    expect(h.result.current.profileError).toBe(false);
+    expect(h.result.current.loading).toBe(false);
+  });
 });

@@ -8,6 +8,73 @@ import '../styles/student-auth.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// ── 重置密码链接 ─────────────────────────────────────────────
+// 邮件里的链接回到 /login#access_token=…&type=recovery（或失效时 #error=…&error_code=otp_expired）。
+// Supabase 在网络校验后会清掉 hash，并用 setTimeout 派发 PASSWORD_RECOVERY，
+// 所以在模块加载时就把 URL 参数和事件记下来，不依赖 Login 挂载的时机。
+function readAuthUrlParams() {
+  if (typeof window === 'undefined') return new URLSearchParams();
+  const merged = new URLSearchParams(window.location.search);
+  new URLSearchParams(window.location.hash.slice(1)).forEach((v, k) => merged.set(k, v));
+  return merged;
+}
+const INITIAL_AUTH_PARAMS = readAuthUrlParams();
+
+// 本标签页正处于“设置新密码”流程（刷新页面后仍显示设置新密码表单，1 小时内有效）
+const RECOVERY_FLAG = 'ybrc-recovery-pending';
+const RECOVERY_TTL_MS = 60 * 60 * 1000;
+function markRecoveryPending() {
+  try { sessionStorage.setItem(RECOVERY_FLAG, String(Date.now())); } catch { /* 忽略 */ }
+}
+function clearRecoveryPending() {
+  try { sessionStorage.removeItem(RECOVERY_FLAG); } catch { /* 忽略 */ }
+}
+function isRecoveryPending() {
+  try {
+    const t = Number(sessionStorage.getItem(RECOVERY_FLAG));
+    return Boolean(t) && Date.now() - t < RECOVERY_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+if (INITIAL_AUTH_PARAMS.get('type') === 'recovery' && INITIAL_AUTH_PARAMS.get('access_token')) {
+  markRecoveryPending();
+}
+supabase.auth.onAuthStateChange?.((event) => {
+  if (event === 'PASSWORD_RECOVERY') markRecoveryPending();
+});
+
+function clearAuthUrl() {
+  try {
+    window.history.replaceState(window.history.state, '', window.location.pathname);
+  } catch { /* 忽略 */ }
+}
+
+// 链接失效时 Supabase 给的错误 → 用户能看懂的话
+function recoveryLinkErrorMessage(params) {
+  const code = params.get('error_code') || params.get('error') || '';
+  if (/otp_expired|expired|access_denied/i.test(code)) {
+    return '这个重置链接已失效（链接只能用一次，并且会过期；如果发过多封邮件，只有最新一封有效）。请重新发送重置邮件，并点击最新邮件里的链接。';
+  }
+  return '重置链接无法使用，请重新发送重置邮件。';
+}
+
+// updateUser 失败 → 中文提示
+function updatePasswordErrorMessage(error) {
+  const code = error?.code || '';
+  const msg = error?.message || '';
+  if (code === 'same_password' || /different from the old password/i.test(msg)) {
+    return '新密码不能和旧密码相同，请换一个';
+  }
+  if (code === 'weak_password' || /weak|at least/i.test(msg)) {
+    return '新密码太简单，请换一个更复杂的密码';
+  }
+  if (error?.status === 401 || error?.status === 403 || /session|jwt|expired/i.test(code + msg)) {
+    return '重置链接已过期，请返回登录页重新发送重置邮件';
+  }
+  return msg || '密码修改失败，请检查网络连接';
+}
+
 export function AuthBrand() {
   return (
     <div className="ya-brand">
@@ -71,37 +138,58 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [updateBusy, setUpdateBusy] = useState(false);
   const [errors, setErrors] = useState({});
+  // 重置链接失效时显示在登录表单上方，避免用户以为在“设置新密码”页而把新密码填进登录框
+  const [linkError, setLinkError] = useState('');
 
   useEffect(() => {
-    const hashParams = new URLSearchParams(window.location.hash.slice(1));
-    const type = hashParams.get('type');
-    const accessToken = hashParams.get('access_token');
-    const code = hashParams.get('code');
-    
-    if (type === 'recovery' && (accessToken || code)) {
-      const checkSession = () => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session) {
-            setRecoveryMode(true);
-          } else {
-            toast('链接已过期或无效，请重新请求密码重置', { kind: 'error' });
-            window.location.hash = '';
-          }
-        });
-      };
+    let alive = true;
+    const params = readAuthUrlParams();
+    const initial = INITIAL_AUTH_PARAMS;
 
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session) {
-          setRecoveryMode(true);
-        }
-      });
-
-      checkSession();
-
-      return () => {
-        authListener?.subscription?.unsubscribe();
-      };
+    // 1) 链接失效 / 已被使用：明确告诉用户，并直接打开“重置密码”弹窗
+    if (params.get('error') || params.get('error_code') || initial.get('error') || initial.get('error_code')) {
+      const msg = recoveryLinkErrorMessage(params.get('error') || params.get('error_code') ? params : initial);
+      clearRecoveryPending();
+      setLinkError(msg);
+      setShowReset(true);
+      toast('重置链接已失效，请重新发送', { kind: 'error' });
+      clearAuthUrl();
+      return undefined;
     }
+
+    // 2) 正在走重置流程：URL 带 type=recovery，或收到 PASSWORD_RECOVERY，或本标签页刚进入过重置流程
+    const fromUrl = (params.get('type') || initial.get('type')) === 'recovery';
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' && session && alive) {
+        markRecoveryPending();
+        setRecoveryMode(true);
+      }
+    });
+
+    if (fromUrl || isRecoveryPending()) {
+      // getSession 会等 Supabase 处理完 URL 里的 token 再返回
+      supabase.auth.getSession().then(({ data }) => {
+        if (!alive) return;
+        if (data?.session && (fromUrl || isRecoveryPending())) {
+          markRecoveryPending();
+          setRecoveryMode(true);
+          setEmail(data.session.user?.email || '');
+        } else if (fromUrl) {
+          clearRecoveryPending();
+          setLinkError(recoveryLinkErrorMessage(new URLSearchParams('error_code=otp_expired')));
+          setShowReset(true);
+          toast('重置链接已失效，请重新发送', { kind: 'error' });
+        } else {
+          clearRecoveryPending();
+        }
+        if (fromUrl) clearAuthUrl();
+      });
+    }
+
+    return () => {
+      alive = false;
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
 
   async function handleReset(e) {
@@ -125,9 +213,10 @@ export default function Login() {
         }
         throw error;
       }
-      toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件）', { kind: 'success' });
+      toast('密码重置邮件已发送！请检查邮箱（包括垃圾邮件），点击最新一封邮件里的链接', { kind: 'success' });
       setShowReset(false);
       setResetEmail('');
+      setLinkError('');
     } catch (err) {
       logger.error('Reset password catch error:', err);
       toast(err.message || '发送失败，请检查网络连接', { kind: 'error' });
@@ -144,23 +233,27 @@ export default function Login() {
     if (newPassword.length > 128) return toast('密码不能超过 128 位', { kind: 'error' });
     setUpdateBusy(true);
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess?.session) {
+        throw new Error('重置链接已过期，请返回登录页重新发送重置邮件');
+      }
+      const accountEmail = sess.session.user?.email || '';
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
         logger.error('Update password error:', error);
-        if (error.status === 400) {
-          throw new Error('无效的密码重置链接，请重新请求');
-        }
-        if (error.status === 401) {
-          throw new Error('登录状态已过期，请重新请求密码重置');
-        }
-        throw error;
+        throw new Error(updatePasswordErrorMessage(error));
       }
-      toast('密码修改成功！请重新登录', { kind: 'success' });
+      clearRecoveryPending();
+      toast('密码修改成功！请用新密码登录', { kind: 'success' });
       await supabase.auth.signOut();
       setRecoveryMode(false);
       setNewPassword('');
       setConfirmPassword('');
-      window.location.hash = '';
+      // 回到登录表单时预填邮箱，只需输入刚设置的新密码
+      if (accountEmail) setEmail(accountEmail);
+      setPw('');
+      setErrors({});
+      clearAuthUrl();
     } catch (err) {
       logger.error('Update password catch error:', err);
       toast(err.message || '密码修改失败，请检查网络连接', { kind: 'error' });
@@ -233,11 +326,14 @@ export default function Login() {
             <button
               type="button"
               className="ya-btn secondary"
-              onClick={() => {
+              onClick={async () => {
+                clearRecoveryPending();
                 setRecoveryMode(false);
                 setNewPassword('');
                 setConfirmPassword('');
-                window.location.hash = '';
+                clearAuthUrl();
+                // 放弃重置：退出这次重置链接带来的临时登录，避免下次打开直接进入账号
+                try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* 忽略 */ }
               }}
             >
               返回登录
@@ -245,6 +341,14 @@ export default function Login() {
           </form>
         ) : (
           <form className="ya-form" onSubmit={onSubmit} noValidate>
+            {linkError && (
+              <div className="ya-field" role="alert">
+                <p className="ya-error">{linkError}</p>
+                <button type="button" className="ya-link" style={{ fontSize: 12.5, alignSelf: 'flex-start' }} onClick={() => setShowReset(true)}>
+                  重新发送重置邮件
+                </button>
+              </div>
+            )}
             <div className="ya-field">
               <label className="ya-label" htmlFor="login-email">邮箱</label>
               <input
@@ -290,7 +394,8 @@ export default function Login() {
               onClick={(e) => e.stopPropagation()}
             >
               <h3>重置密码</h3>
-              <p className="ya-note">输入注册邮箱，我们会发送重置链接</p>
+              {linkError && <p className="ya-error">{linkError}</p>}
+              <p className="ya-note">输入注册邮箱，我们会发送重置链接。收到邮件后点击链接，在打开的“设置新密码”页面里设置新密码。</p>
               <form className="ya-form" onSubmit={handleReset} noValidate>
                 <div className="ya-field">
                   <label className="ya-label" htmlFor="reset-email">邮箱</label>

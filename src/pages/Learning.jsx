@@ -265,7 +265,12 @@ export default function LearningPage() {
   const [deletingId, setDeletingId] = useState(null);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
-  const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
+  // ?tab=pending|scores（今天 / 洞察的「待补填」入口）直接打开对应 tab
+  const tabParam = searchParams.get('tab');
+  const [view, setView] = useState(() => (TABS.some(t => t.key === tabParam) ? tabParam : 'record')); // 'record' | 'pending' | 'scores'
+  useEffect(() => {
+    if (TABS.some(t => t.key === tabParam)) setView(tabParam);
+  }, [tabParam]);
   const tabRefs = useRef([]);
   // 手机上按住顶部 tab 横滑，选手指下那一类（点按行为不变）
   const tabDrag = useSegDrag({ onPick: (i) => { if (TABS[i]) setView(TABS[i].key); } });

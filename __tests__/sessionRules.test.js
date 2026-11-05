@@ -223,6 +223,12 @@ describe('sessionRules · 其他', () => {
     });
     expect(validateSession({ courseId: 'c', startStr: '09:00', endStr: '10:00', formValue: 'x' })).toEqual({});
   });
+  test('validateSession：日期被清空时报错', () => {
+    const ok = { courseId: 'c', startStr: '09:00', endStr: '10:00', formValue: 'x' };
+    expect(validateSession({ ...ok, dateStr: '2026-11-05' })).toEqual({});
+    expect(validateSession({ ...ok, dateStr: '' })).toEqual({ time: '请选择日期' });
+    expect(validateSession({ ...ok, dateStr: null })).toEqual({ time: '请选择日期' });
+  });
   test('shiftTime 跨午夜', () => {
     expect(shiftTime('23:30', 45)).toBe('00:15');
     expect(shiftTime('00:10', -25)).toBe('23:45');

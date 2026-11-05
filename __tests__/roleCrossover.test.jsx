@@ -137,3 +137,16 @@ test('角色读不到（没有本机提示）：显示中性提示页，不显�
   expect(screen.queryByText('首页')).toBeNull();
   fromSpy.mockRestore();
 });
+
+test('没有本机提示、profile 还在加载：学生路由只显示加载态，不先渲染学生外壳', async () => {
+  const fresh = { id: 'n1', email: 'n1@x.com', user_metadata: {} };
+  await signOut();
+  const fromSpy = jest.spyOn(supabase, 'from').mockImplementationOnce(hangingQuery);
+  supabase.__setAuthState({ user: fresh, session: { user: fresh } });
+  await act(async () => { authCb('SIGNED_IN', { user: fresh }); });
+
+  renderGuard({ studentOnly: true, path: '/records' });
+  expect(screen.getByText('加载中…')).toBeInTheDocument();
+  expect(screen.queryByText('受保护内容')).toBeNull();
+  fromSpy.mockRestore();
+});

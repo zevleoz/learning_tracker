@@ -34,4 +34,4 @@ function useAuth() {
 
 export { useAuth, setAuthUser, setAuthProfile };
 export const readRoleHint = () => null;
-export const retryProfile = () => {};
+export const retryProfile = () => {};export const patchProfile = () => {};

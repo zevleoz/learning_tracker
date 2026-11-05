@@ -281,7 +281,7 @@ const ClassicLogForm = forwardRef(function ClassicLogForm({
             <div className="ybc-three">
               <label className="ybc-field">
                 <span>日期</span>
-                <DatePicker value={dateStr} onChange={setDateStr} disabled={busy}
+                <DatePicker value={dateStr} onChange={setDateStr} disabled={busy} allowClear={false}
                   className="h-11 rounded-xl text-sm font-normal" placeholder="选择日期" />
               </label>
               <label className="ybc-field">

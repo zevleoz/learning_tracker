@@ -100,6 +100,14 @@ function insertRecent(list, row) {
   return [...rest.slice(0, i), row, ...rest.slice(i)].slice(0, RECENT_LIMIT);
 }
 
+// 编辑后的行放回「最近记录」：日期没变就原地替换；日期改了要挪到新日期的位置，
+// 否则列表不再按日期有序，按天分组会出现两个同一天的分组（同一个 key），刷新后还会残留一条重复的旧行
+export function replaceRecent(list, row) {
+  const old = list.find(x => x.id === row.id);
+  if (old && old.session_date === row.session_date) return list.map(x => (x.id === row.id ? row : x));
+  return insertRecent(list, row);
+}
+
 async function fetchRecent(userId) {
   const { data, error } = await supabase
     .from('learning_sessions')
@@ -130,15 +138,16 @@ async function fetchCourseTree(userId) {
   // 课程可见性完全由 RLS（courses_select）决定，前端不再做无效的学校过滤（STU-1）
   const { data, error } = await supabase
     .from('courses')
-    .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
+    .select('id, name, subject, course_type, created_by, chapters(id, name, order_idx, deleted_at, units(id, name, order_idx, deleted_at))')
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
   return (data || []).map(c => ({
     ...c,
     chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
-      .sort((a,b)=>a.order_idx-b.order_idx)
-      .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
+      // 与「我的课程」同一顺序（order_idx）；之前没取 order_idx，排序无效，改名后章节会跳到别处
+      .sort((a,b)=>(a.order_idx || 0)-(b.order_idx || 0))
+      .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>(x.order_idx || 0)-(y.order_idx || 0)) })),
   }));
 }
 
@@ -265,7 +274,12 @@ export default function LearningPage() {
   const [deletingId, setDeletingId] = useState(null);
 
   /* --- 顶部 tab：记录 / 待补填 / 成绩 --- */
-  const [view, setView] = useState('record'); // 'record' | 'pending' | 'scores'
+  // ?tab=pending|scores（今天 / 洞察的「待补填」入口）直接打开对应 tab
+  const tabParam = searchParams.get('tab');
+  const [view, setView] = useState(() => (TABS.some(t => t.key === tabParam) ? tabParam : 'record')); // 'record' | 'pending' | 'scores'
+  useEffect(() => {
+    if (TABS.some(t => t.key === tabParam)) setView(tabParam);
+  }, [tabParam]);
   const tabRefs = useRef([]);
   // 手机上按住顶部 tab 横滑，选手指下那一类（点按行为不变）
   const tabDrag = useSegDrag({ onPick: (i) => { if (TABS[i]) setView(TABS[i].key); } });
@@ -651,7 +665,7 @@ export default function LearningPage() {
       closeSheet();
       // 马上用返回的行替换列表里的旧行；再在后台并行与数据库对一次
       if (updated) {
-        patch(user.id, KEYS.recent, (list) => (list || []).map(x => (x.id === updated.id ? updated : x)));
+        patch(user.id, KEYS.recent, (list) => replaceRecent(list || [], updated));
         patch(user.id, KEYS.pending, (list) => {
           const rest = (list || []).filter(x => x.id !== updated.id);
           return isPendingObjective(updated) ? [updated, ...rest].slice(0, PENDING_LIMIT) : rest;

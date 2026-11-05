@@ -130,15 +130,16 @@ async function fetchCourseTree(userId) {
   // 课程可见性完全由 RLS（courses_select）决定，前端不再做无效的学校过滤（STU-1）
   const { data, error } = await supabase
     .from('courses')
-    .select('id, name, subject, course_type, created_by, chapters(id, name, deleted_at, units(id, name, deleted_at))')
+    .select('id, name, subject, course_type, created_by, chapters(id, name, order_idx, deleted_at, units(id, name, order_idx, deleted_at))')
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (error) { logger.error('加载课程失败:', error); toast('课程加载失败，请刷新重试', { kind: 'error' }); }
   return (data || []).map(c => ({
     ...c,
     chapters: (c.chapters || []).filter(ch => !ch.deleted_at)
-      .sort((a,b)=>a.order_idx-b.order_idx)
-      .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>x.order_idx-y.order_idx) })),
+      // 与「我的课程」同一顺序（order_idx）；之前没取 order_idx，排序无效，改名后章节会跳到别处
+      .sort((a,b)=>(a.order_idx || 0)-(b.order_idx || 0))
+      .map(ch => ({ ...ch, units: (ch.units || []).filter(u => !u.deleted_at).sort((x,y)=>(x.order_idx || 0)-(y.order_idx || 0)) })),
   }));
 }
 

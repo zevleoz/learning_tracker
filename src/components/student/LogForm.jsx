@@ -624,6 +624,7 @@ const LogForm = forwardRef(function LogForm({
             value={dateStr}
             onChange={pickDate}
             disabled={busy}
+            allowClear={false}
             className="h-[38px] rounded-xl text-sm font-normal"
             placeholder="选择日期"
           />

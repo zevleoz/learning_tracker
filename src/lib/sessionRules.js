@@ -243,9 +243,11 @@ export function findOverlap(rows, target, excludeId = null) {
 }
 
 /** 表单校验，返回 { course?, time?, form? }（空对象 = 通过）。文案与改版前一致。 */
-export function validateSession({ courseId, startStr, endStr, formValue }) {
+export function validateSession({ courseId, dateStr, startStr, endStr, formValue }) {
   const errors = {};
   if (!courseId) errors.course = '请选择课程';
+  // 日期被清空时不能放行：空日期写库必然失败，还会被当成网络问题塞进暂存队列反复重试
+  if (dateStr !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))) errors.time = '请选择日期';
   if (!startStr || !endStr) errors.time = '请填写开始和结束时间';
   if (!formValue) errors.form = '请选择学习行为形式';
   const duration = computeDuration(startStr, endStr);

@@ -51,8 +51,9 @@ export default function ProtectedRoute({ minRole = 0, studentOnly = false }) {
       // 学生冷启动不等 profile（本机记录是学生就放行）；其余情况不显示学生外壳
       const hint = readRoleHint(user.id);
       if (hint !== 1) {
-        if (!loading) return <RoleLoadError />;
-        if (hint >= 2) return <Spinner />;
+        // 角色未知（新设备 / 清过本机数据，没有提示）时也只等，不先渲染学生外壳：
+        // 否则导师直接打开 /today 会先看到学生界面，还会跑学生端的推送同步、预取
+        return loading ? <Spinner /> : <RoleLoadError />;
       }
     }
   }

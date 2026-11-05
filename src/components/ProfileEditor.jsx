@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase.js';
 import { toast } from '../lib/toast.js';
 import { logger } from '../lib/logger.js';
-import { useAuth } from '../lib/useAuth.js';
+import { useAuth, patchProfile } from '../lib/useAuth.js';
 import { Sheet } from './student/LogSheet.jsx';
 
 /**
@@ -129,6 +129,7 @@ export default function ProfileEditor({
         })
         .eq('id', uid);
       if (profileErr) throw profileErr;
+      patchProfile(uid, { full_name: trimmedName });
 
       toast('资料已更新', { kind: 'success' });
       onSaved?.({ id: uid, full_name: trimmedName, school_name: trimmedSchool });

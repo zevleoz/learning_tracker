@@ -1,6 +1,6 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { supabase } from '../src/__mocks__/supabase';
-import { useAuth, readRoleHint, retryProfile } from '../src/lib/useAuth.js';
+import { useAuth, readRoleHint, retryProfile, patchProfile } from '../src/lib/useAuth.js';
 import { put, peek } from '../src/lib/studentCache.js';
 
 // 真实的 useAuth（不是 __mocks__ 版本）：登录态是整个应用共用的一份——
@@ -46,6 +46,16 @@ test('刚取过 profile 又收到同一用户的认证事件（切回前台 / �
   await act(async () => { authCb('TOKEN_REFRESHED', { user: U1 }); });
   await act(async () => { authCb('SIGNED_IN', { user: U1 }); });
   expect(calls('select', 'profiles')).toHaveLength(before);
+});
+
+test('自己改名后 patchProfile：所有组件立即拿到新名字；角色不受影响，别人的 uid 不生效', async () => {
+  const h = renderHook(() => useAuth());
+  await waitFor(() => expect(h.result.current.profile?.id).toBe('u1'));
+  act(() => { patchProfile('u2', { full_name: '别人' }); });
+  expect(h.result.current.profile.full_name).toBe('一号(库)');
+  act(() => { patchProfile('u1', { full_name: '新名字', role: 3 }); });
+  expect(h.result.current.profile.full_name).toBe('新名字');
+  expect(h.result.current.profile.role).toBe(1);
 });
 
 test('确认过的角色记在本机（只用于冷启动先去哪个页面，不参与权限）', () => {

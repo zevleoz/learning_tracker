@@ -157,6 +157,16 @@ const signOut = async () => {
   }
 };
 
+/**
+ * 自己改完资料后把新值写进共享的 profile（今天的问候语、顶栏名字都读它）。
+ * 改名触发的 USER_UPDATED 事件在 profile 刚取过（60 秒内）时会被跳过，不补这一步名字就停在旧值。
+ * 只接受显示用字段，角色等权限字段一律以数据库为准。
+ */
+export function patchProfile(uid, { full_name: fullName } = {}) {
+  if (!state.profile || state.profile.id !== uid || typeof fullName !== 'string') return;
+  setState({ profile: { ...state.profile, full_name: fullName } });
+}
+
 // 角色读取失败后的手动重试（RoleLoadError 用）
 export function retryProfile() {
   const u = state.user;

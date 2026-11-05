@@ -100,6 +100,14 @@ function insertRecent(list, row) {
   return [...rest.slice(0, i), row, ...rest.slice(i)].slice(0, RECENT_LIMIT);
 }
 
+// 编辑后的行放回「最近记录」：日期没变就原地替换；日期改了要挪到新日期的位置，
+// 否则列表不再按日期有序，按天分组会出现两个同一天的分组（同一个 key），刷新后还会残留一条重复的旧行
+export function replaceRecent(list, row) {
+  const old = list.find(x => x.id === row.id);
+  if (old && old.session_date === row.session_date) return list.map(x => (x.id === row.id ? row : x));
+  return insertRecent(list, row);
+}
+
 async function fetchRecent(userId) {
   const { data, error } = await supabase
     .from('learning_sessions')
@@ -657,7 +665,7 @@ export default function LearningPage() {
       closeSheet();
       // 马上用返回的行替换列表里的旧行；再在后台并行与数据库对一次
       if (updated) {
-        patch(user.id, KEYS.recent, (list) => (list || []).map(x => (x.id === updated.id ? updated : x)));
+        patch(user.id, KEYS.recent, (list) => replaceRecent(list || [], updated));
         patch(user.id, KEYS.pending, (list) => {
           const rest = (list || []).filter(x => x.id !== updated.id);
           return isPendingObjective(updated) ? [updated, ...rest].slice(0, PENDING_LIMIT) : rest;

@@ -79,7 +79,13 @@ describe('学生端路由', () => {
     expect(await screen.findByRole('heading', { name: '我的课程' })).toBeInTheDocument();
     expect(await screen.findByText('数学')).toBeInTheDocument();
     expect(screen.queryByTitle('删除课程')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '添加 / 编辑' })).toBeInTheDocument();
+  });
+
+  it('/me/courses?edit=1 直接进入编辑态（记录表单里的「添加课程 / 章节 / 单元」）', async () => {
+    renderApp('/me/courses?edit=1');
+    expect(await screen.findByRole('button', { name: '完成' })).toBeInTheDocument();
+    expect(screen.getAllByText(/添加新课程/).length).toBeGreaterThan(0);
   });
 
   it('/syllabus 重定向到 /me/courses', async () => {

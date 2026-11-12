@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DatePicker from '../ui/date-picker.jsx';
 import GradeChips from './GradeChips.jsx';
 import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
@@ -156,7 +157,11 @@ function ChapterUnitSelects({ course, chapterId, unitId, onChange, disabled }) {
   if (!course) return null;
   const chapters = course.chapters || [];
   if (!chapters.length) {
-    return <p className="yb-note">这门课还没有章节，可在「课程」里补充大纲（章节可不选）。</p>;
+    return (
+      <p className="yb-note">
+        这门课还没有章节（章节可不选）。<Link to="/me/courses?edit=1" className="yb-manage">添加章节</Link>
+      </p>
+    );
   }
   const ch = chapters.find(c => c.id === chapterId);
   const units = ch?.units || [];
@@ -594,10 +599,14 @@ const LogForm = forwardRef(function LogForm({
         {chapterUnit}
       </div>
       {errors.course && <span className="yb-err">{errors.course}</span>}
+      <Link to="/me/courses?edit=1" className="yb-manage yb-manage--end">添加课程 / 章节 / 单元</Link>
     </div>
   ) : (
     <div className="yb-field">
-      <div className="yb-label" id={`${subjLabelId}-course`}>课程</div>
+      <div className="yb-label">
+        <span id={`${subjLabelId}-course`}>课程</span>
+        <Link to="/me/courses?edit=1" className="yb-manage">添加课程 / 章节 / 单元</Link>
+      </div>
       <div className="yb-chips" role="group" aria-labelledby={`${subjLabelId}-course`}>
         {orderedCourses.map(c => (
           <button key={c.id} type="button" className="yb-chip" aria-pressed={c.id === courseId}
@@ -794,7 +803,7 @@ const LogForm = forwardRef(function LogForm({
     <div className="yb-empty">
       <b>还没有课程</b>
       需要先创建课程大纲，才能记录学习行为。
-      <div><a href="/syllabus" className="yb-btn sm">去创建课程</a></div>
+      <div><Link to="/me/courses?edit=1" className="yb-btn sm">去创建课程</Link></div>
     </div>
   ) : layout === 'two-col' ? (
     // 桌面：一行一组、左右对齐（课程 → 时间 → 类别·形式 | 主观评价 → 客观评价 → 备注）

@@ -445,7 +445,7 @@ export default function Syllabus({ defaultEditing = true }) {
         className="mec-edit"
         aria-pressed={editing}
         onClick={() => setEditing((v) => !v)}
-      >{editing ? '完成' : '编辑'}</button>
+      >{editing ? '完成' : '添加 / 编辑'}</button>
     </header>
   );
 
@@ -624,7 +624,7 @@ function CoverageView({ courses, usage, onEdit }) {
                   </div>
                 </>
               )}
-              {chapters.length === 0 && <p className="mec-note">还没有章节。点右上角「编辑」添加。</p>}
+              {chapters.length === 0 && <p className="mec-note">还没有章节。点右上角「添加 / 编辑」添加。</p>}
               {chapters.map((ch) => {
                 const cu = ch.units || [];
                 const done = cu.filter((u) => usage.byUnit[u.id]).length;

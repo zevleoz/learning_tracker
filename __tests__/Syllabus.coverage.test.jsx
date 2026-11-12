@@ -94,7 +94,7 @@ describe('我的课程 · 覆盖度', () => {
   it('点「编辑」才出现增删改，点「完成」收起', async () => {
     renderReadOnly();
     await screen.findByText('AP 微积分 BC');
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加 / 编辑' }));
     expect(await screen.findByRole('button', { name: /添加新课程/ })).toBeInTheDocument();
     expect(screen.getByTitle('删除课程')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '完成' }));

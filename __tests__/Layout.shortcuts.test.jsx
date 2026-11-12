@@ -51,6 +51,38 @@ afterEach(() => {
 });
 
 describe('Layout · 导航', () => {
+  it('宽屏（侧栏 / 图标轨）不用打开开关也显示「课程」', () => {
+    const orig = window.matchMedia;
+    window.matchMedia = (query) => ({
+      matches: query === '(min-width: 600px)', media: query,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    });
+    try {
+      renderShell('/today');
+      const nav = screen.getByRole('navigation', { name: '主导航' });
+      const labels = Array.from(nav.querySelectorAll('a.yb-tab .yb-tab-label')).map((el) => el.textContent);
+      expect(labels).toEqual(['今天', '记录', '洞察', '课程', '我的']);
+    } finally {
+      window.matchMedia = orig;
+    }
+  });
+
+  it('「底栏显示课程」打开后：今天 · 记录 · 洞察 · 课程 · 我的，/me/courses 高亮课程', () => {
+    localStorage.setItem('yb.coursesTab', '1');
+    try {
+      renderShell('/me/courses');
+      const nav = screen.getByRole('navigation', { name: '主导航' });
+      const links = Array.from(nav.querySelectorAll('a.yb-tab'));
+      expect(links.map((a) => a.querySelector('.yb-tab-label').textContent)).toEqual(['今天', '记录', '洞察', '课程', '我的']);
+      expect(screen.getByRole('link', { name: /课程/ })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('link', { name: /我的/ })).not.toHaveAttribute('aria-current');
+      press('5');
+      expect(screen.getByTestId('where')).toHaveTextContent('/me');
+    } finally {
+      localStorage.removeItem('yb.coursesTab');
+    }
+  });
+
   it('学生端导航：今天 · 记录 · 洞察 · 我的，指向新路径', () => {
     renderShell('/today');
     const nav = screen.getByRole('navigation', { name: '主导航' });

@@ -9,6 +9,8 @@ import { useCached } from '../lib/useCached.js';
 import { useTabSwipe } from '../lib/useTabSwipe.js';
 import { patch, invalidate } from '../lib/studentCache.js';
 import { KEYS, fetchInviteCount } from '../lib/studentResources.js';
+import { useCoursesTab } from '../lib/coursesTabPref.js';
+import { useMediaQuery } from '../lib/useMediaQuery.js';
 import logoSmall from '../logo/crest_red_small.png';
 import logoInline from '../logo/crest_red_small.png';
 
@@ -57,6 +59,16 @@ function IconTeacher() {
     </svg>
   );
 }
+function IconBook() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19v14H5.5A1.5 1.5 0 0 0 4 19.5z" />
+      <path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H19v-3" />
+      <path d="M8 8h7" />
+    </svg>
+  );
+}
 function IconPlus() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -73,6 +85,15 @@ export const NAV_ITEMS = [
   { to: '/records',  label: '记录', Icon: IconPencil, key: '2', alsoActive: ['/learning'] },
   { to: '/insights', label: '洞察', Icon: IconChart,  key: '3' },
   { to: '/me',       label: '我的', Icon: IconUser,   key: '4', badge: true, prefix: true },
+];
+
+// 带「课程」的导航：今天 · 记录 · 洞察 · 课程 · 我的（快捷键 1–5）。
+// 桌面侧栏 / 平板图标轨（≥600px）始终显示；手机底栏要在「我的 › 底栏显示课程」里打开。
+// 「课程」就是 /me/courses；此时「我的」不再因为在 /me/courses 而高亮。
+export const NAV_ITEMS_WITH_COURSES = [
+  ...NAV_ITEMS.slice(0, 3),
+  { to: '/me/courses', label: '课程', Icon: IconBook, key: '4' },
+  { ...NAV_ITEMS[3], key: '5', except: ['/me/courses'] },
 ];
 
 // 键盘在输入控件里时，快捷键一律让位
@@ -93,6 +114,7 @@ function isOnRecords(pathname) {
 
 function isItemActive(item, pathname) {
   if (pathname === item.to) return true;
+  if (item.except?.includes(pathname)) return false;
   if (item.prefix && pathname.startsWith(item.to + '/')) return true;
   return Boolean(item.alsoActive?.includes(pathname));
 }
@@ -121,6 +143,10 @@ export default function Layout() {
   const notificationCount = useCached(userId, KEYS.invites, () => fetchInviteCount(userId)).data ?? 0;
 
   const isTeacher = Number(profile?.role) >= 2;
+  const coursesTabPref = useCoursesTab();
+  const wideNav = useMediaQuery('(min-width: 600px)');   // 侧栏 / 图标轨：空间够，「课程」始终显示
+  const showCoursesTab = wideNav || coursesTabPref;
+  const studentNavItems = showCoursesTab ? NAV_ITEMS_WITH_COURSES : NAV_ITEMS;
 
   // 打开应用时，把这台设备已授权的推送订阅重新写到服务器（幂等）。
   // 修复「浏览器里有订阅、服务器却没记录」：之前保存失败，或同一台设备换了账号登录。
@@ -163,8 +189,8 @@ export default function Layout() {
 
   // 实际导航项：学生 今天 · 记录 · 洞察 · 我的；老师端在最前多一个「导师」
   const finalNavItems = useMemo(
-    () => (isTeacher ? [{ to: '/mentor', label: '导师', Icon: IconTeacher }, ...NAV_ITEMS] : NAV_ITEMS),
-    [isTeacher]
+    () => (isTeacher ? [{ to: '/mentor', label: '导师', Icon: IconTeacher }, ...studentNavItems] : studentNavItems),
+    [isTeacher, studentNavItems]
   );
 
   /* ---- 3a 手机底栏：按住横向滑动，高亮跟手，抬起切到手指下的 tab ---- */
@@ -312,10 +338,10 @@ export default function Layout() {
 
   // 3b：手机上左右滑页面切 tab（仅粗指针；排除项见 shouldSwipe）。首尾不循环。
   const swipeTabs = useCallback((dir) => {
-    const index = NAV_ITEMS.findIndex((item) => isItemActive(item, pathname));
-    const next = index >= 0 ? NAV_ITEMS[index + dir] : null;
+    const index = studentNavItems.findIndex((item) => isItemActive(item, pathname));
+    const next = index >= 0 ? studentNavItems[index + dir] : null;
     if (next) nav(next.to);
-  }, [pathname, nav]);
+  }, [pathname, nav, studentNavItems]);
   useTabSwipe({ enabled: !onMentorSurface, onSwipe: swipeTabs });
 
   // 桌面快捷键：N 记一笔 · 1–4 切页 · Esc 关闭面板。输入框内、带修饰键、已有弹层时不响应
@@ -334,7 +360,7 @@ export default function Layout() {
         openLog();
         return;
       }
-      const item = NAV_ITEMS.find((it) => it.key === e.key);
+      const item = studentNavItems.find((it) => it.key === e.key);
       if (item) {
         e.preventDefault();
         nav(item.to);
@@ -342,7 +368,7 @@ export default function Layout() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [openLog, nav, onMentorSurface]);
+  }, [openLog, nav, onMentorSurface, studentNavItems]);
 
   // 导师台 (/mentor) 自带整页布局，不套学生外壳。
   if (onMentorSurface) {

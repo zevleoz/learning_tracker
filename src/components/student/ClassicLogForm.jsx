@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DatePicker from '../ui/date-picker.jsx';
 import { SUBJECTIVE_STEPS } from '../../lib/rating.js';
 import {
@@ -241,12 +242,15 @@ const ClassicLogForm = forwardRef(function ClassicLogForm({
         <div className="ybc-empty">
           <b>还没有课程</b>
           需要先创建课程大纲，才能记录学习行为。
-          <div><a href="/me/courses" className="yb-btn sm">去创建课程</a></div>
+          <div><a href="/me/courses?edit=1" className="yb-btn sm">去创建课程</a></div>
         </div>
       ) : (
         <>
           <div className="ybc-block">
-            <div className="ybc-label">课程 / 章节 / 单元</div>
+            <div className="ybc-label ybc-label--row">
+              <span>课程 / 章节 / 单元</span>
+              <Link to="/me/courses?edit=1" className="ybc-manage">添加课程 / 章节 / 单元</Link>
+            </div>
             <div className="ybc-three">
               <label className="ybc-field">
                 <span>课程</span>

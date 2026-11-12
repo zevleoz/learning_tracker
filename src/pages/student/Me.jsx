@@ -10,6 +10,8 @@ import {
 } from '../../lib/notifyPrefs.js';
 import { useAuth } from '../../lib/useAuth.js';
 import { useRecordUi, setRecordUi } from '../../lib/recordUiPref.js';
+import { useCoursesTab, setCoursesTab } from '../../lib/coursesTabPref.js';
+import { useMediaQuery } from '../../lib/useMediaQuery.js';
 import { toast } from '../../lib/toast.js';
 import { logger } from '../../lib/logger.js';
 import {
@@ -54,6 +56,8 @@ export default function Me() {
   const nav = useNavigate();
   const { user, signOut } = useAuth();
   const recordUi = useRecordUi();
+  const coursesTab = useCoursesTab();
+  const wideNav = useMediaQuery('(min-width: 600px)');   // 宽屏导航里「课程」始终显示，不需要这个开关
   const userId = user?.id;
   const meRes = useCached(userId, KEYS.me, () => fetchMe(user));
   const me = meRes.data || EMPTY_ME;
@@ -114,6 +118,22 @@ export default function Me() {
               <ChevronRight size={16} aria-hidden="true" className="mep-chev" />
             </Link>
           </li>
+          {!wideNav && (
+            <li className="mep-li static">
+              <span className="mep-li-t">
+                <b id="mep-courses-tab">底栏显示「课程」</b>
+                <span>一键进入课程，添加课程、章节和单元。只对这台设备生效</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={coursesTab}
+                aria-labelledby="mep-courses-tab"
+                className={'mep-switch' + (coursesTab ? ' on' : '')}
+                onClick={() => setCoursesTab(!coursesTab)}
+              />
+            </li>
+          )}
           <li>
             <Link to="/me/reminders" className="mep-li">
               <span className="mep-li-t"><b>提醒</b></span>

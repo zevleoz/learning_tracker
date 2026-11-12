@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { Route, Navigate } from 'react-router-dom';
+import { Route, Navigate, useSearchParams } from 'react-router-dom';
 // 懒加载的页面各自 import 的样式也在这里提前引入，保持与拆包前完全一致的 CSS 顺序
 // （同一份全局样式表，不会因为页面代码晚到而出现样式层叠顺序变化或首次切页闪样式）。
 import '../../styles/student-me.css';
@@ -27,6 +27,13 @@ function PageSkeleton() {
     </div>
   );
 }
+// /me/courses?edit=1（记录表单里的「添加章节 / 单元」）直接进入编辑态，省掉再点一次「编辑」
+function CoursesPage() {
+  const [params] = useSearchParams();
+  const edit = params.get('edit') === '1';
+  return <Syllabus key={edit ? 'edit' : 'view'} defaultEditing={edit} />;
+}
+
 const page = (node) => <Suspense fallback={<PageSkeleton />}>{node}</Suspense>;
 
 export function renderStudentRoutes() {
@@ -37,7 +44,7 @@ export function renderStudentRoutes() {
       <Route path="/insights" element={page(<Insights />)} />
       <Route path="/learning" element={page(<Learning />)} />
       <Route path="/me" element={page(<Me />)} />
-      <Route path="/me/courses" element={page(<Syllabus defaultEditing={false} />)} />
+      <Route path="/me/courses" element={page(<CoursesPage />)} />
       <Route path="/me/reminders" element={page(<Reminders />)} />
       {/* 旧路径 */}
       <Route path="/syllabus" element={<Navigate to="/me/courses" replace />} />

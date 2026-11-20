@@ -1438,14 +1438,14 @@ export default function Mentor() {
                       showMentor={isAdmin}
                     />
                   </div>
+                  {sessionsTruncated && (
+                    <div style={{ fontSize: 12, color: '#b45309', marginBottom: 10 }}>
+                      该学生记录较多，这里只显示最近 2000 条，更早的记录未纳入统计。
+                    </div>
+                  )}
+                  <WeekReviewDashboard key={picked.id} sessions={sessions} student={picked} />
                   {sessions.length > 0 ? (
                     <>
-                    {sessionsTruncated && (
-                      <div style={{ fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-                        该学生记录较多，这里只显示最近 2000 条，更早的记录未纳入统计。
-                      </div>
-                    )}
-                    <WeekReviewDashboard sessions={sessions} student={picked} />
 
                       {/* ── 成绩概览：数据分析最底部 ── */}
                       <div style={{ marginTop: 24 }}>
@@ -2228,16 +2228,13 @@ export default function Mentor() {
                   showMentor={isAdmin}
                 />
               </div>
-              {sessions.length > 0 ? (
-                <>
-                  {sessionsTruncated && (
-                    <div className="m-empty-state__text" style={{ color: '#b45309', marginBottom: 8 }}>
-                      记录较多，只显示最近 2000 条。
-                    </div>
-                  )}
-                  <WeekReviewDashboard sessions={sessions} student={picked} />
-                </>
-              ) : (
+              {sessionsTruncated && (
+                <div className="m-empty-state__text" style={{ color: '#b45309', marginBottom: 8 }}>
+                  记录较多，只显示最近 2000 条。
+                </div>
+              )}
+              <WeekReviewDashboard key={picked.id} sessions={sessions} student={picked} />
+              {sessions.length === 0 && (
                 <div className="m-empty-state">
                   <div className="m-empty-state__text">{busy ? '加载中…' : '该学生暂无学习记录'}</div>
                 </div>

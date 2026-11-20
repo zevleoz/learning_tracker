@@ -8,6 +8,9 @@ import DateRangeCalendar from './DateRangeCalendar.jsx';
 import { toast } from '../lib/toast.js';
 import { toLocalDateStr } from '../lib/date.js';
 import { outsideRangeStats } from '../lib/periodOutside.js';
+import { supabase } from '../lib/supabase.js';
+import { Button } from './ui/button.jsx';
+import { fetchActivityRecords, downloadActivityRecords } from '../lib/activityExport.js';
 
 // ── 时段预设 ─────────────────────────────────────────
 const PRESETS = [
@@ -77,6 +80,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
   const [customEnd, setCustomEnd] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null); // 展开中的日期 "YYYY-MM-DD"
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     // 导师端周历：仅真实手机（触屏 + 无 hover + ≤480px）走移动版
@@ -211,23 +215,23 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
   const rangeLabel = `${fmtDateShort(range.start)} - ${fmtDateShort(range.end)}`;
   const studentName = student?.full_name || '学生';
 
-  // ── Empty state ──
-  if (!sessions || sessions.length === 0) {
-    return (
-      <div style={{
-        padding: 32, textAlign: 'center',
-        background: 'rgba(255,255,255,0.5)', borderRadius: 16,
-        border: '1px solid rgba(15,23,42,0.06)',
-      }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}></div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-          {studentName} 暂无学习记录
-        </div>
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>
-          当学生开始记录学习过程后，数据将在此展示
-        </div>
-      </div>
-    );
+  async function exportRecords() {
+    const start = toLocalDateStr(range.start);
+    const end = toLocalDateStr(range.end);
+    setExporting(true);
+    try {
+      const records = await fetchActivityRecords(supabase, student.id, start, end);
+      if (records.length === 0) {
+        toast('所选时段暂无学习记录');
+        return;
+      }
+      downloadActivityRecords(records, studentName, start, end);
+      toast(`已导出 ${records.length} 条学习记录`);
+    } catch {
+      toast('导出学习记录失败，请重试', { kind: 'error' });
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -294,6 +298,12 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
             {studentName}
           </div>
         )}
+        {student?.id && (
+          <Button type="button" size="sm" variant="outline"
+            disabled={exporting || showCustomPicker} onClick={exportRecords}>
+            {exporting ? '正在导出…' : '导出学习记录'}
+          </Button>
+        )}
       </div>
 
       {/* ── 自定义日期日历（拖拽选择区间） ── */}
@@ -319,6 +329,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
         </motion.div>
       )}
 
+      {sessions.length > 0 && <>
       {/* ── 新提交/补填提醒：近7天提交但不在当前时段的记录 ── */}
       {newOutsideRange.length > 0 && (
         <div style={{
@@ -436,6 +447,7 @@ export default function WeekReviewDashboard({ sessions = [], student }) {
         studentName={studentName}
         range={range}
       />
+      </>}
     </div>
   );
 }

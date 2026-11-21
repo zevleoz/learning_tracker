@@ -8,7 +8,7 @@ export async function fetchActivityRecords(client, studentId, start, end) {
     const { data, error } = await client
       .from('learning_sessions')
       .select(`
-        session_date, category, form, notes,
+        session_date, duration_minutes, category, form, notes,
         course:course_id(name, subject),
         chapter:chapter_id(name, deleted_at), unit:unit_id(name, deleted_at)
       `)
@@ -39,9 +39,14 @@ export function activityRecordsCsv(records) {
     const chapter = record.chapter?.deleted_at ? null : record.chapter?.name;
     const unit = record.unit?.deleted_at ? null : record.unit?.name;
     const description = [record.form, chapter, unit, record.notes].filter(Boolean).join(' · ');
-    return [record.session_date, project, description || CATEGORY_NAMES[record.category] || ''];
+    return [
+      record.session_date,
+      project,
+      description || CATEGORY_NAMES[record.category] || '',
+      record.duration_minutes,
+    ];
   });
-  return '\uFEFF' + [['日期', '项目', '具体事项'], ...rows]
+  return '\uFEFF' + [['日期', '项目', '具体事项', '时长（分钟）'], ...rows]
     .map(row => row.map(csvCell).join(','))
     .join('\r\n');
 }
